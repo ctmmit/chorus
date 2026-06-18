@@ -40,7 +40,8 @@ match); below-threshold episodes return explicit "nothing cleared the bar."
 **Exit criterion:** `scripts/path_test.sh --through goal3` green — the agent
 authors a script with a point of view (claims traceable to surfaced
 highlights); the audio job renders a downloadable file. Spine floor:
-single-voice opinionated monologue. (Audio engine per DESIGN_DOC Open Q1.)
+single-voice opinionated monologue. (Engine: podcast-creator + ElevenLabs
+via esperanto, per ENGINEERING_REVIEW Q1.)
 
 - [ ] 3.1 Script synthesis with point of view (traceable to highlights)
 - [ ] 3.2 Audio generation call + downloadable artifact
@@ -49,9 +50,9 @@ single-voice opinionated monologue. (Audio engine per DESIGN_DOC Open Q1.)
 ## Goal 4 — End-to-end + SKILL.md cold-agent success
 
 **Exit criterion:** `scripts/path_test.sh` fully green on all 5 fixture
-sets, end-to-end within the latency bounds [N]s / [M]min (set in eng
-review), AND a second fresh agent completes the golden path against the
-live endpoint using only SKILL.md, no human help.
+sets, end-to-end within the latency bounds (digest ≤ 90s, audio ≤ 5 min,
+per ENGINEERING_REVIEW Q3), AND a second fresh agent completes the golden
+path against the live endpoint using only SKILL.md, no human help.
 
 - [ ] 4.1 `{digest, script, audio_url}` response object + hosting (Railway/Render/Fly)
 - [ ] 4.2 SKILL.md — cold-agent contract (schema, auth, polling, errors)

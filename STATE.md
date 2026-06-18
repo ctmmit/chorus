@@ -21,8 +21,9 @@ Pre-BUILD. Goal 1 (Ingest) is next once eng review + fixtures land.
 
 ## Current task
 
-Resolve docs/DESIGN_DOC.md open questions via /plan-eng-review (audio engine
-first), then build the two-soul visibility fixture. Status: not-started.
+Eng review complete (docs/ENGINEERING_REVIEW.md). Next: assemble fixtures
+(3 clean, 1 malformed, 1 ungrounded; pre-transcribed) including the two-soul
+visibility pair, and provision secrets. Then PLAN→BUILD. Status: not-started.
 
 ## Health
 
@@ -37,9 +38,10 @@ first), then build the two-soul visibility fixture. Status: not-started.
 
 ## Pending Tier-A questions for human
 
-- Audio engine choice (NotebookLM vs ElevenLabs vs open-source) — eng review
-- Latency bounds [N]s / [M]min — set in eng review
-- Tech stack not yet locked — set in eng review
+- Confirm kill criterion: $150 spend / 40h compute (proposed in eng review)
+- Provision secrets in .env.local before BUILD: ANTHROPIC_API_KEY,
+  ELEVENLABS_API_KEY, TRANSCRIPT_API_KEY
+- (Resolved by eng review: audio engine, transcripts, latency, stack)
 
 ## Budget today
 
