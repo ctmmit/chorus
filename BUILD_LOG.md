@@ -162,3 +162,14 @@ REMAINING (ISS-001): ElevenLabs audio renderer is still a stub — real audio is
 the last unbuilt real-provider path.
 
 ---
+
+## 2026-06-19T02:55 [resolved] ISS-001 real ElevenLabs audio
+
+audio.py: ElevenLabsRenderer (direct ElevenLabs TTS via httpx; single-voice
+spine floor; voice/model configurable). get_audio_renderer() returns it when
+ELEVENLABS_API_KEY present, else MockAudioRenderer. 33 tests green (3 new:
+real renderer with mocked httpx + selection). Live smoke produced a real 2.2MB
+mp3 (ID3/MPEG layer III) from the Sonnet monologue. Full golden path now real
+end-to-end. podcast-creator/esperanto reserved for the two-host LAYER.
+
+---

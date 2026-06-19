@@ -29,15 +29,15 @@ target met. Status: done (awaiting human SHIP gate + real keys).
 
 ## Health
 
-- Passing tests: 30 (last iteration: 24)
+- Passing tests: 33 (last iteration: 30)
 - `path_test.ps1`/.sh: GREEN through Goal 6 (6 assertions incl. divergence + selection)
 - Last verified-green commit: goal 6 layer-2 (see git log)
 - Build/typecheck/lint: ruff + mypy + pytest green; path_test green
 
 ## Open issues (IDs reference BUILD_LOG entries)
 
-- ISS-001 — ElevenLabs audio renderer (PodcastCreatorRenderer) is a stub; real
-  audio not yet implemented. Real Haiku+Sonnet verified live. owner: builder
+- [none] ISS-001 RESOLVED: real ElevenLabs single-voice audio (httpx) — full
+  golden path verified live end-to-end (Haiku → Sonnet → 2.2MB mp3).
 
 ## Pending Tier-A questions for human
 

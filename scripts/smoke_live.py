@@ -22,6 +22,7 @@ from chorus.curation import build_digest, window_segments  # noqa: E402
 from chorus.ingest import ingest  # noqa: E402
 from chorus.llm import get_llm_client  # noqa: E402
 from chorus.models import EpisodeInput  # noqa: E402
+from chorus.audio import get_audio_renderer  # noqa: E402
 from chorus.script import get_script_composer  # noqa: E402
 from chorus.transcripts import FixtureTranscriptProvider  # noqa: E402
 
@@ -50,6 +51,11 @@ def main() -> None:
     print("\nSCRIPT (real Sonnet):")
     script = get_script_composer().write_script(digest, soul, context)
     print(script.monologue[:1200])
+
+    renderer = get_audio_renderer()
+    print(f"\nRendering audio via {type(renderer).__name__}...")
+    audio_path = renderer.render(script, soul)
+    print(f"AUDIO: {audio_path} ({audio_path.stat().st_size} bytes)")
     print("\nSMOKE OK")
 
 
