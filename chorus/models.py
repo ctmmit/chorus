@@ -97,3 +97,22 @@ class Digest(BaseModel):
     @property
     def highlights(self) -> list[Highlight]:
         return [h for ep in self.episodes for h in ep.highlights]
+
+
+# Take types from the reader-recap annotation taxonomy (ENGINEERING_REVIEW Q6).
+TAKE_TYPES = ("idea", "pushback", "connection", "question", "cross_reference")
+
+
+class Take(BaseModel):
+    """One opinionated beat in the script, traceable to a surfaced highlight."""
+
+    text: str
+    take_type: str
+    episode_id: str
+    segment_timestamp: float
+
+
+class Script(BaseModel):
+    soul_version: str
+    takes: list[Take]
+    monologue: str  # the spine-floor single-voice script text

@@ -60,3 +60,15 @@ result is now a regression: overlap <50%) and test_ungrounded_episode_refuses
 (eggs + investor => refusal). ruff + mypy clean. ROADMAP 2.1-2.3 done.
 
 ---
+
+## 2026-06-18T23:45 [build] ISS-000 Goal 3.1-3.2 script + audio
+
+script.py: ScriptComposer iface + MockScriptComposer (one take per highlight,
+take_type from the reader-recap taxonomy, traceable by construction) +
+AnthropicScriptComposer (Sonnet; drops takes not grounded in a highlight).
+audio.py: AudioRenderer iface + MockAudioRenderer (writes downloadable artifact;
+single-voice spine floor) + PodcastCreatorRenderer stub (ElevenLabs when key).
+Models: Take, Script, TAKE_TYPES. 15 tests green (traceability + refusal +
+artifact). ruff + mypy clean. 3.3 (jobs + async API) next.
+
+---
