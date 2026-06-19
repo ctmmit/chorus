@@ -1,44 +1,62 @@
 {
-  "_comment": "Golden-path episode pool. 5 shows, 6 episodes, chosen so the investor and pop-culture souls surface different highlights from the SAME inputs. URLs marked null still need the exact YouTube watch?v= id grabbed from the listed source (not fabricated). Transcripts are pre-fetched into fixtures/transcripts/ per ENGINEERING_REVIEW Q2.",
-  "episodes": [
+  "_comment": "Real episode pool sourced from Colin's Readwise Reader saves (YouTube videos, captions pulled locally via scripts/fetch_transcript.py with timestamps). Transcripts in fixtures/transcripts/<video_id>.json. The Goldman video has no captions on purpose-kept as the missing-transcript case. An off-topic 'ungrounded' episode still needs adding.",
+  "clean": [
     {
-      "show": "BG2 Pod",
-      "title": "AI Bubble, Stablecoin Boom, and Runnin' Down a Dream",
-      "url": "https://www.youtube.com/watch?v=KX6q6lvoYtM",
-      "why": "Markets/bubble/stablecoins — heavy investor-lens signal; the bubble framing maps straight onto context.md."
+      "show": "The Tim Ferriss Show",
+      "title": "Ed Thorp on How to Think for Yourself, Be Inner-Directed, and the Dangers of Investing Fads",
+      "author": "Tim Ferriss",
+      "url": "https://www.youtube.com/watch?v=gs39QFYIbBY",
+      "video_id": "gs39QFYIbBY",
+      "transcript": "fixtures/transcripts/gs39QFYIbBY.json",
+      "lens": "two-lens: investor (edge, fads, markets) + pop-culture (life wisdom, independent thinking)"
     },
     {
-      "show": "AI + a16z",
-      "title": "AI Agents, Enterprise Workflows, and The Future of SaaS (Aaron Levie)",
-      "url": "https://www.youtube.com/watch?v=dvVbA9OcBqs",
-      "why": "SaaS disruption + unit economics (investor) vs 'future of work' (culture) — good divergence."
+      "show": "20VC with Harry Stebbings",
+      "title": "Marc Andreessen on The Future of VC: Will a16z Go Public & Why Introspection is Dangerous?",
+      "author": "20VC",
+      "url": "https://www.youtube.com/watch?v=c4tvVKDhpiY",
+      "video_id": "c4tvVKDhpiY",
+      "transcript": "fixtures/transcripts/c4tvVKDhpiY.json",
+      "lens": "two-lens: investor (VC model, going public) + pop-culture (Andreessen persona, hot takes)"
     },
     {
-      "show": "AI + a16z",
-      "title": "Ben Horowitz on AI Anxiety, Big Tech Transitions & The Future of Startups",
-      "url": "https://www.youtube.com/watch?v=IZDJ3jcO5UY",
-      "why": "AI anxiety = human/cultural; big-tech transitions = capital allocation. Both lenses bite."
+      "show": "Huberman Lab",
+      "title": "The Art of Learning & Living Life | Josh Waitzkin",
+      "author": "Andrew Huberman",
+      "url": "https://www.youtube.com/watch?v=wAnDWfEIwoE",
+      "video_id": "wAnDWfEIwoE",
+      "transcript": "fixtures/transcripts/wAnDWfEIwoE.json",
+      "lens": "near one-sided pop-culture (learning, performance, life) - investor lens should find little"
     },
     {
-      "show": "All-In",
-      "title": "Latest (~mid-June 2026): Anthropic Fable backlash, AI regulatory capture, nationalizing AI, CPI/PPI",
-      "url": null,
-      "source": "https://www.youtube.com/channel/UCESLZhusAkFfsNsApnjF_Cg",
-      "why": "Banter + personality + the Anthropic controversy (pop-culture gold) sitting next to regulation + inflation (investor). The single best divergence test."
+      "show": "Jane Street",
+      "title": "Jane Street on GPUs, Trading, and Hiring: A Conversation with Dwarkesh",
+      "author": "Jane Street",
+      "url": "https://www.youtube.com/watch?v=xKZ_8ULR91Y",
+      "video_id": "xKZ_8ULR91Y",
+      "transcript": "fixtures/transcripts/xKZ_8ULR91Y.json",
+      "lens": "investor/technical: markets microstructure, compute, hiring"
     },
     {
-      "show": "Odd Lots",
-      "title": "Jeremy Grantham: How to Tell if a Bubble's About to Burst (18 Jun 2026)",
-      "url": null,
-      "source": "https://www.bloomberg.com/news/articles/2026-06-18/jeremy-grantham-on-odd-lots-and-how-to-tell-if-a-bubble-s-about-to-burst",
-      "why": "Permabear vs AI-bubble thesis — directly on context.md; almost pure investor signal (a useful near-one-sided case)."
-    },
-    {
-      "show": "Dwarkesh Podcast",
-      "title": "Latest (~4 Jun 2026), AI/science long-form",
-      "url": null,
-      "source": "https://www.youtube.com/c/DwarkeshPatel",
-      "why": "Deep AI/technical — investor lens finds the cost-curve/mechanism segments; culture lens finds little (another good near-one-sided case)."
+      "show": "Sohn Conference Foundation",
+      "title": "Inside the Mind of a Tech Investor with Gavin Baker",
+      "author": "Sohn Conference Foundation",
+      "url": "https://www.youtube.com/watch?v=2Ryr95iiYNk",
+      "video_id": "2Ryr95iiYNk",
+      "transcript": "fixtures/transcripts/2Ryr95iiYNk.json",
+      "lens": "near one-sided investor: positioning, AI winners, capital allocation"
     }
-  ]
+  ],
+  "missing_transcript": {
+    "show": "Goldman Sachs",
+    "title": "The New AI Trades",
+    "author": "Goldman Sachs",
+    "url": "https://www.youtube.com/watch?v=KhZfxZ-C-2g",
+    "video_id": "KhZfxZ-C-2g",
+    "transcript": null,
+    "note": "Real video with no available captions. Tests the IDEA_DOC sec6 failure case: skip + structured log, complete the digest on the rest."
+  },
+  "ungrounded": {
+    "note": "TODO: add one genuinely off-topic episode (no bearing on context.md's AI/finance focus, e.g. a cooking or sports episode) so the investor soul returns 'nothing cleared the relevance bar'. Pull its transcript with scripts/fetch_transcript.py."
+  }
 }
