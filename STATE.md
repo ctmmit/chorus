@@ -17,21 +17,21 @@ BUILD
 
 ## Current goal
 
-Goal 6 — Layer 2: episode/show pick-and-choose. Exit: a selection endpoint
-resolves a chosen show/episode set and runs the spine green.
+BUILD complete — ROADMAP Goals 1-6 done, path_test GREEN. Goal 7 (charts)
+deferred post-July-11. Remaining: human SHIP gate (3 manual walks + cold-agent
+dogfood + demo) and provisioning real API keys to swap mocks for live providers.
 
 ## Current task
 
-Goal 5 Layer 1 COMPLETE: soul bootstrap (bootstrap.py — Tier-1 corpus-derive +
-Tier-2 interview, source-agnostic, mock + Anthropic), soul_origin provenance on
-Digest; two-soul divergence now asserted in path_test (overlap <50%). 24 tests.
-Next: Goal 6 selection endpoint. Status: not-started.
+Goal 6 Layer 2 COMPLETE: catalog.py (fixture-backed) + GET /shows +
+POST /digest/select; 30 tests; path_test green through Goal 6. Autonomous build
+target met. Status: done (awaiting human SHIP gate + real keys).
 
 ## Health
 
-- Passing tests: 19 (last iteration: 19)
-- `path_test.ps1`/.sh: GREEN — golden_path.py drives the API end-to-end
-- Last verified-green commit: goal 4 e2e (see git log)
+- Passing tests: 30 (last iteration: 24)
+- `path_test.ps1`/.sh: GREEN through Goal 6 (6 assertions incl. divergence + selection)
+- Last verified-green commit: goal 6 layer-2 (see git log)
 - Build/typecheck/lint: ruff + mypy + pytest green; path_test green
 
 ## Open issues (IDs reference BUILD_LOG entries)

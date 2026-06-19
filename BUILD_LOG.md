@@ -111,3 +111,40 @@ drives divergence. Two-soul divergence promoted into golden_path/path_test.
 ruff+mypy clean; path_test GREEN. ROADMAP 5.1-5.2 done.
 
 ---
+
+## 2026-06-19T01:30 [build] ISS-000 Goal 6 Layer 2 selection
+
+catalog.py (fixture-backed v1; resolve() seam for a real source later) +
+GET /shows + POST /digest/select (resolve shows/video_ids -> DigestRequest ->
+job; empty selection -> 400). 30 tests green; path_test green incl. the Goal-6
+selection assertion. ROADMAP 6.1 done.
+
+## 2026-06-19T01:35 [review] ISS-000 BUILD complete (Goals 1-6) — path_test GREEN
+
+WHAT WAS BUILT: a thin agent-native FastAPI service (chorus/). ingest (graceful
+skip + all-fail guard) -> curation (soul-conditioned scoring, resolving
+citations, honest refusal, two-soul divergence) -> script (traceable opinionated
+takes) -> audio (single-voice artifact) behind an async SQLite job lifecycle
+(POST /digest -> poll). Layer 1: source-agnostic soul bootstrap + soul_origin
+provenance. Layer 2: /shows + /digest/select. SKILL.md cold-agent contract;
+Procfile + /artifacts static. LLM/TTS/transcripts are behind interfaces with
+deterministic mocks (offline) and real impls (Anthropic/ElevenLabs/managed API)
+that activate when keys are present.
+
+HOW TO RUN LOCALLY:
+  .venv/Scripts/python -m uvicorn chorus.app:app --reload   # serve
+  bash scripts/path_test.sh                                 # golden-path eval
+  .venv/Scripts/python -m pytest -q                         # 30 unit/integration
+
+PATH_TEST: GREEN. 6 assertions over fixtures — latency <=90s, citations resolve,
+missing-transcript skip (no leak), ungrounded refusal, two-soul divergence
+(<50% overlap), Layer-2 selection runs to done.
+
+WHAT REMAINS (human / out of autonomous scope):
+- Provision .env.local keys to swap mocks for live Anthropic/ElevenLabs/managed
+  transcript API; then verify the real audio + live-transcript paths.
+- SHIP gate: 3 manual golden-path walks + cold-agent SKILL.md dogfood + record
+  demo. Deploy (Railway) is a Tier-A human action.
+- Goal 7 (charts/presets) deferred post-July-11 per design.
+
+---

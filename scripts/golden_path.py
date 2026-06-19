@@ -123,6 +123,24 @@ def main() -> None:
         if overlap >= 0.5:
             fail(f"two-soul divergence too weak (overlap {overlap:.0%})")
 
+        # 6. Layer-2 selection: /shows lists shows; selecting one runs the spine green
+        shows = client.get("/shows").json()
+        if not shows:
+            fail("catalog /shows returned nothing")
+        pick = next(
+            (s["show"] for s in shows if any(e["video_id"] == "c4tvVKDhpiY" for e in s["episodes"])),
+            None,
+        )
+        if pick is None:
+            fail("no show in the catalog contains the Andreessen episode")
+        sel = client.post(
+            "/digest/select",
+            json={"soul": _soul("soul_investor.md"), "context": _context(), "shows": [pick]},
+        )
+        sel_job = Job.model_validate(client.get(f"/digest/{sel.json()['job_id']}").json())
+        if sel_job.status.value != "done" or not (sel_job.digest and sel_job.digest.highlights):
+            fail(f"selection run not green (status={sel_job.status.value})")
+
         client.close()
         store.close()  # release the SQLite handle so the temp dir can be removed
 

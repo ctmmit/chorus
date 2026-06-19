@@ -77,7 +77,7 @@ demonstrably different digests (asserted by a fixture comparison in
 **Exit criterion:** `scripts/path_test.sh --through goal6` green — caller
 selects specific shows/episodes; selection resolves and runs the spine.
 
-- [ ] 6.1 Selection endpoint + resolution to episode set
+- [x] 6.1 Selection endpoint + resolution to episode set
 
 ## Goal 7 — Layer 3 (post-July-11 stretch): taste presets + charts
 

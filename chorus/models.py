@@ -73,6 +73,17 @@ class DigestRequest(BaseModel):
     soul_origin: str = "supplied"  # supplied | derived:<adapter> | interview | seed
 
 
+class SelectionRequest(BaseModel):
+    """Layer-2 pick-and-choose: select by show name and/or explicit video ids."""
+
+    soul: str
+    context: str
+    shows: list[str] | None = None
+    video_ids: list[str] | None = None
+    highlight_count: int = 4
+    soul_origin: str = "supplied"
+
+
 class Highlight(BaseModel):
     """One surfaced segment. `segment_timestamp` + `quote` must resolve against
     the source transcript (citation discipline); never fabricated."""
