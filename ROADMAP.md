@@ -31,9 +31,9 @@ highlight `{episode, segment_timestamp, relevance_score, one_line_reason}`;
 every citation resolves (timestamp ± window contains the quoted span, fuzzy
 match); below-threshold episodes return explicit "nothing cleared the bar."
 
-- [ ] 2.1 Per-segment scoring `f(segment, soul, context) → score + reason + citation`
-- [ ] 2.2 Citation-resolution check + below-threshold refusal
-- [ ] 2.3 Digest assembly + curation tests
+- [x] 2.1 Per-segment scoring `f(segment, soul, context) → score + reason + citation`
+- [x] 2.2 Citation-resolution check + below-threshold refusal
+- [x] 2.3 Digest assembly + curation tests
 
 ## Goal 3 — Voice: agent-authored opinionated script → audio episode
 

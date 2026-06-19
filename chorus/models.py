@@ -68,3 +68,32 @@ class DigestRequest(BaseModel):
     context: str  # caller-assembled principal-context blob
     episodes: list[EpisodeInput]
     highlight_count: int = 4
+
+
+class Highlight(BaseModel):
+    """One surfaced segment. `segment_timestamp` + `quote` must resolve against
+    the source transcript (citation discipline); never fabricated."""
+
+    episode_id: str
+    episode_title: str | None
+    segment_timestamp: float
+    quote: str
+    relevance_score: float
+    why_surface: str
+
+
+class EpisodeDigest(BaseModel):
+    episode_id: str
+    episode_title: str | None
+    highlights: list[Highlight]
+    refused: bool = False
+    refusal_reason: str | None = None
+
+
+class Digest(BaseModel):
+    soul_version: str  # provenance: which lens produced this (content hash)
+    episodes: list[EpisodeDigest]
+
+    @property
+    def highlights(self) -> list[Highlight]:
+        return [h for ep in self.episodes for h in ep.highlights]

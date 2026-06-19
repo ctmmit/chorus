@@ -46,3 +46,17 @@ real keys in .env.local and the real provider is selected at runtime; no code
 change to callers. No real paid calls made.
 
 ---
+
+## 2026-06-18T23:30 [build] ISS-000 Goal 2 curation
+
+LLM-client interface (llm.py): MockLLMClient (deterministic keyword-overlap
+scorer driven by the soul's Attention Triggers / Curation Guidance vs Ignore)
++ AnthropicLLMClient (Haiku, activates when ANTHROPIC_API_KEY present) +
+get_llm_client() factory. curation.py: window->score->threshold->Highlight with
+resolving citations; below-threshold => refused ("nothing cleared the relevance
+bar"); soul_version provenance hash. Models: Highlight/EpisodeDigest/Digest.
+10 tests green incl. test_two_souls_diverge (the hand-validated visibility
+result is now a regression: overlap <50%) and test_ungrounded_episode_refuses
+(eggs + investor => refusal). ruff + mypy clean. ROADMAP 2.1-2.3 done.
+
+---

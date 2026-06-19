@@ -17,22 +17,23 @@ BUILD
 
 ## Current goal
 
-Goal 2 — Curation. Exit: soul-conditioned scoring → cited digest; citations
-resolve to timestamps; below-threshold episodes refuse.
+Goal 3 — Voice. Exit: agent-authored opinionated script (claims traceable to
+surfaced highlights); audio renders + downloadable. Spine floor: single-voice
+monologue.
 
 ## Current task
 
-Goal 1 ingest COMPLETE (6 tests green: clean resolve, missing-transcript skip,
-all-fail → AllEpisodesFailed, url parse). Next: 2.1 per-segment scoring
-f(segment, soul, context) behind an LLM-client interface (mock now; Anthropic
-when key present). Status: not-started.
+Goal 2 curation COMPLETE (10 tests green incl. two-soul divergence eval +
+ungrounded refusal; ruff + mypy clean). Next: 3.1 script synthesis (Sonnet,
+traceable claims) behind LLM iface (mock now); 3.2 audio via
+podcast-creator/ElevenLabs (mock); 3.3 async job + poll. Status: not-started.
 
 ## Health
 
-- Passing tests: 6 (last iteration: 0)
-- `path_test.ps1`: ingest logic green via pytest; full path_test wired in Goal 4
-- Last verified-green commit: ingest (see git log)
-- Build/typecheck/lint: pytest green
+- Passing tests: 10 (last iteration: 6)
+- `path_test.ps1`: ingest+curation logic green via pytest; full path_test wired Goal 4
+- Last verified-green commit: curation (see git log)
+- Build/typecheck/lint: ruff + mypy + pytest green
 
 ## Open issues (IDs reference BUILD_LOG entries)
 
