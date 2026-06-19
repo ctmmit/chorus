@@ -26,3 +26,23 @@ status, exact reason, proposed next action, tier. For [spend]: session
 start/end usage in dollars or tokens.
 
 ---
+
+## 2026-06-18T23:10 [build] ISS-000 Goal 1 ingest
+
+Scaffolded the Python service (pyproject, chorus/ package). Implemented the §6
+request schema (models.py: EpisodeInput, DigestRequest, Transcript), the
+TranscriptProvider interface + FixtureTranscriptProvider (reads pre-transcribed
+fixtures, ENGINEERING_REVIEW Q2), and ingest() with graceful skip + the
+AllEpisodesFailed guard (the flagged critical gap: never empty-done).
+Files: pyproject.toml, chorus/{__init__,models,transcripts,ingest}.py,
+tests/test_ingest.py. 6 tests green; ruff clean. ROADMAP 1.1-1.3 done.
+
+## 2026-06-18T23:11 [decision] ISS-000 LLM/TTS clients behind interfaces, mocked until keys
+
+Per user directive to build past the Tier-A key gate: curation/script/audio
+will call LLM/TTS through provider interfaces with deterministic mock impls,
+so the full pipeline + path_test are buildable without keys. Revert path: drop
+real keys in .env.local and the real provider is selected at runtime; no code
+change to callers. No real paid calls made.
+
+---

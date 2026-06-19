@@ -20,9 +20,9 @@ fixture sets load; episodes resolve to transcripts (from pre-transcribed
 fixtures, per DESIGN_DOC Open Q2); the malformed / missing-transcript
 fixture skips with a structured logged reason and does not crash.
 
-- [ ] 1.1 Define request schema `{soul, context, episodes[], highlight_count?}`
-- [ ] 1.2 Transcript + metadata resolution from fixtures; graceful skip path
-- [ ] 1.3 Ingest tests + malformed-fixture handling
+- [x] 1.1 Define request schema `{soul, context, episodes[], highlight_count?}`
+- [x] 1.2 Transcript + metadata resolution from fixtures; graceful skip path
+- [x] 1.3 Ingest tests + malformed-fixture handling
 
 ## Goal 2 — Curation: soul-conditioned digest with resolving citations
 

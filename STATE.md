@@ -5,7 +5,7 @@
 
 ## Phase (state-gated — transitions are conditions, never dates)
 
-PLAN
+BUILD
 
 - PLAN → BUILD when: ROADMAP exit criteria are all commands (done); the 5
   open questions in docs/DESIGN_DOC.md are resolved by /plan-eng-review;
@@ -17,22 +17,22 @@ PLAN
 
 ## Current goal
 
-Pre-BUILD. Goal 1 (Ingest) is next once eng review + fixtures land.
+Goal 2 — Curation. Exit: soul-conditioned scoring → cited digest; citations
+resolve to timestamps; below-threshold episodes refuse.
 
 ## Current task
 
-Fixtures complete (5 clean + 1 missing-transcript + 1 ungrounded, pre-
-transcribed; two souls w/ Curation Guidance; context). Visibility test passed.
-PowerShell runtime ready (scripts/*.ps1). Only PLAN→BUILD blocker left:
-provision secrets + confirm kill criterion (Pending Tier-A below). Status:
-ready for BUILD once Tier-A cleared.
+Goal 1 ingest COMPLETE (6 tests green: clean resolve, missing-transcript skip,
+all-fail → AllEpisodesFailed, url parse). Next: 2.1 per-segment scoring
+f(segment, soul, context) behind an LLM-client interface (mock now; Anthropic
+when key present). Status: not-started.
 
 ## Health
 
-- Passing tests: 0 (no code yet)
-- `path_test.sh`: not yet runnable (no fixtures / no implementation)
-- Last verified-green commit: none
-- Build/typecheck/lint: n/a
+- Passing tests: 6 (last iteration: 0)
+- `path_test.ps1`: ingest logic green via pytest; full path_test wired in Goal 4
+- Last verified-green commit: ingest (see git log)
+- Build/typecheck/lint: pytest green
 
 ## Open issues (IDs reference BUILD_LOG entries)
 
@@ -40,10 +40,9 @@ ready for BUILD once Tier-A cleared.
 
 ## Pending Tier-A questions for human
 
-- Confirm kill criterion: $150 spend / 40h compute (proposed in eng review)
-- Provision secrets in .env.local before BUILD: ANTHROPIC_API_KEY,
-  ELEVENLABS_API_KEY, TRANSCRIPT_API_KEY
-- (Resolved by eng review: audio engine, transcripts, latency, stack)
+- [none] Building autonomously per user directive (2026-06-18). Kill criterion
+  $150/40h accepted as default. Real paid-API calls (ANTHROPIC/ELEVENLABS/
+  TRANSCRIPT keys) deferred behind mock clients until .env.local is provided.
 
 ## Budget today
 
