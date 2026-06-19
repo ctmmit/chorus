@@ -23,9 +23,12 @@ dogfood + demo) and provisioning real API keys to swap mocks for live providers.
 
 ## Current task
 
-Goal 6 Layer 2 COMPLETE: catalog.py (fixture-backed) + GET /shows +
-POST /digest/select; 30 tests; path_test green through Goal 6. Autonomous build
-target met. Status: done (awaiting human SHIP gate + real keys).
+Goals 1-6 COMPLETE + real providers verified end-to-end. Full live digest over
+5 episodes (real Haiku/Sonnet/ElevenLabs) → 10 highlights + 3.8MB mp3; lens
+discriminates correctly (refuses life/learning eps, surfaces markets eps). Keys
+purged from history. Deploy config ready (DEPLOY.md). Status: done.
+Remaining (human/optional): `railway up`; managed transcript provider for live
+non-fixture episodes; curation taste-tuning (Ed Thorp refused — borderline).
 
 ## Health
 

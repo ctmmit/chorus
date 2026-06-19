@@ -183,3 +183,23 @@ scope note: v1 serves the fixture catalog; live-episode transcripts via managed
 API is the next integration). gates green.
 
 ---
+
+## 2026-06-19T03:45 [review] ISS-000 real end-to-end validated (all 3 follow-ups done)
+
+(1) ISS-001 real ElevenLabs audio shipped. (2) rotated keys purged from all
+history (git-filter-repo; 0 hits; backup bundle at ../audience-of-one-prescrub.bundle).
+(3) full live digest over 5 episodes via the API (real Haiku/Sonnet/ElevenLabs):
+status=done in 486s, 10 highlights, 3.8MB mp3. The investor lens discriminated
+correctly — REFUSED the Ed Thorp + Waitzkin life/learning episodes, surfaced
+Andreessen/Jane Street/Gavin Baker. Deploy config (Procfile, requirements.txt,
+.python-version, DEPLOY.md, app __main__) ready.
+
+REMAINING (human / optional):
+- railway up (needs Railway auth) + set env vars (rotated keys) in the platform.
+- managed transcript provider behind TranscriptProvider for arbitrary live
+  episodes (v1 deploy serves the fixture catalog).
+- curation taste-tuning: Ed Thorp refused is borderline-strict; tune threshold
+  or soul if desired. Taste is demoed, not unit-tested (per IDEA_DOC).
+- SHIP gate: 3 manual walks + cold-agent SKILL.md dogfood + record demo.
+
+---
