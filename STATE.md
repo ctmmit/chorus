@@ -21,9 +21,11 @@ Pre-BUILD. Goal 1 (Ingest) is next once eng review + fixtures land.
 
 ## Current task
 
-Eng review complete (docs/ENGINEERING_REVIEW.md). Next: assemble fixtures
-(3 clean, 1 malformed, 1 ungrounded; pre-transcribed) including the two-soul
-visibility pair, and provision secrets. Then PLAN→BUILD. Status: not-started.
+Fixtures complete (5 clean + 1 missing-transcript + 1 ungrounded, pre-
+transcribed; two souls w/ Curation Guidance; context). Visibility test passed.
+PowerShell runtime ready (scripts/*.ps1). Only PLAN→BUILD blocker left:
+provision secrets + confirm kill criterion (Pending Tier-A below). Status:
+ready for BUILD once Tier-A cleared.
 
 ## Health
 

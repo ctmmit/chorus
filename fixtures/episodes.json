@@ -57,6 +57,13 @@
     "note": "Real video with no available captions. Tests the IDEA_DOC sec6 failure case: skip + structured log, complete the digest on the rest."
   },
   "ungrounded": {
-    "note": "TODO: add one genuinely off-topic episode (no bearing on context.md's AI/finance focus, e.g. a cooking or sports episode) so the investor soul returns 'nothing cleared the relevance bar'. Pull its transcript with scripts/fetch_transcript.py."
+    "show": "Joshua Weissman",
+    "title": "How I make the perfect scrambled eggs",
+    "author": "Joshua Weissman",
+    "url": "https://www.youtube.com/watch?v=IAgmW_gTxls",
+    "video_id": "IAgmW_gTxls",
+    "transcript": "fixtures/transcripts/IAgmW_gTxls.json",
+    "pair_with": "soul_investor + context.md",
+    "note": "Off-topic by design (cooking). Against the investor soul + AI/finance context, nothing should clear the relevance bar -> the service must return the explicit 'nothing cleared the bar' refusal, never an invented reason."
   }
 }

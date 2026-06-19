@@ -1,39 +1,43 @@
 # Fixtures
 
-The golden-path inputs, checked in and real. `path_test.sh` runs against
-these every iteration. Per ENGINEERING_REVIEW Q2, transcripts are
-**pre-transcribed** here so tests never hit a live third party.
+The golden-path inputs, checked in and real. `path_test` runs against these
+every iteration. Per ENGINEERING_REVIEW Q2, transcripts are **pre-transcribed**
+here so tests never hit a live third party.
 
-## Taxonomy (5 sets across 3 categories)
+## Contents (complete)
 
 ```
 fixtures/
 ├── souls/
-│   ├── soul_investor.md      # lens A (drafted)
-│   └── soul_popculture.md    # lens B (drafted) — the visibility contrast
-├── context.md                # principal-context blob (drafted)
-├── episodes.json             # [TODO] 5-6 real episodes as YouTube URLs
-├── transcripts/              # [TODO] one pre-transcribed .json per episode
-│                             #        (segments with timestamps for citation)
-├── clean_1 .. clean_3        # [TODO] 3 clean sets {soul, context, episodes}
-├── malformed_input           # [TODO] a removed/private video → graceful skip
-└── ungrounded_query          # [TODO] an episode irrelevant to context →
-                              #        "nothing cleared the relevance bar"
+│   ├── soul_investor.md      # lens A — incl. Curation Guidance
+│   └── soul_popculture.md    # lens B — incl. Curation Guidance (visibility contrast)
+├── context.md                # principal-context blob (AI/finance focus)
+├── episodes.json             # the episode pool, sourced from Readwise saves
+└── transcripts/              # one pre-transcribed .json per episode
+    ├── gs39QFYIbBY.json       # CLEAN  Ed Thorp (Tim Ferriss)
+    ├── c4tvVKDhpiY.json       # CLEAN  Marc Andreessen (20VC)
+    ├── wAnDWfEIwoE.json       # CLEAN  Josh Waitzkin (Huberman)
+    ├── xKZ_8ULR91Y.json       # CLEAN  Jane Street (Dwarkesh)
+    ├── 2Ryr95iiYNk.json       # CLEAN  Gavin Baker (Sohn)
+    └── IAgmW_gTxls.json       # UNGROUNDED  scrambled eggs (off-topic)
+# MISSING-TRANSCRIPT case: Goldman "The New AI Trades" (KhZfxZ-C-2g) has no
+# captions on purpose — see episodes.json.missing_transcript.
 ```
 
-## What's still needed (your input)
+Categories present: **5 clean**, **1 missing-transcript** (graceful skip),
+**1 ungrounded** (honest refusal). Two souls give the visibility contrast.
 
-1. **episodes.json** — pick one real week of 5-6 shows you actually follow,
-   as YouTube URLs. This is the only input only you have.
-2. **transcripts/** — pre-transcribe each (the chosen managed API, or any
-   one-off method now, since these are checked in once).
-3. **malformed** — one removed/private video URL to prove graceful skip.
-4. **ungrounded** — one episode with no bearing on context.md to prove the
-   honest refusal.
+## Mapping to path_test
 
-## The assignment (do this before any code)
+`path_test` currently expects `clean_*` / `malformed_input` / `ungrounded_query`
+file names (template placeholders). When `Invoke-Path`/`run_path` is wired to the
+service in Goal 1-4, path_test is rewritten to consume this real fixture model
+({soul, context, episodes.json, transcripts/}) instead of the placeholder names.
 
-Run the curation prompt over the SAME episodes with `soul_investor.md` then
-`soul_popculture.md`. If the surfaced highlights are obviously different, the
-core thesis is real and this is your demo's best moment. If they're not, fix
-the curation before building the service around it.
+## The assignment — DONE (2026-06-18)
+
+Ran the curation pass over the Marc Andreessen episode with `soul_investor` then
+`soul_popculture`. Highlight sets had ~zero overlap; the same 58-61 min passage
+yielded opposite highlights (investor: Schumpeterian value-capture economics;
+pop-culture: "your girlfriend's a junior lawyer… you're gone"). Thesis validated.
+Re-run on a real Readwise-derived soul once that bootstrap lands (Goal 5).
