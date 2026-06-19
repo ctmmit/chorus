@@ -39,3 +39,6 @@ class JobStore:
             (job.job_id, job.status.value, job.model_dump_json()),
         )
         self._conn.commit()
+
+    def close(self) -> None:
+        self._conn.close()

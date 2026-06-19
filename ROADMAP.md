@@ -54,9 +54,9 @@ sets, end-to-end within the latency bounds (digest ≤ 90s, audio ≤ 5 min,
 per ENGINEERING_REVIEW Q3), AND a second fresh agent completes the golden
 path against the live endpoint using only SKILL.md, no human help.
 
-- [ ] 4.1 `{digest, script, audio_url}` response object + hosting (Railway/Render/Fly)
-- [ ] 4.2 SKILL.md — cold-agent contract (schema, auth, polling, errors)
-- [ ] 4.3 Cold-agent dogfood pass + latency assertion
+- [x] 4.1 `{digest, script, audio_url}` response object + hosting (Railway/Render/Fly)
+- [x] 4.2 SKILL.md — cold-agent contract (schema, auth, polling, errors)
+- [x] 4.3 Cold-agent dogfood pass + latency assertion
 
 ---
 > SPINE COMPLETE at Goal 4 green. Layers begin only here.

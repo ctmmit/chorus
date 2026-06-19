@@ -17,23 +17,24 @@ BUILD
 
 ## Current goal
 
-Goal 4 — End-to-end + SKILL.md. Exit: golden path green via path_test
-(digest ≤90s, citations resolve, missing skips, ungrounded refuses); SKILL.md
-cold-agent contract; hosting config.
+Goal 5 — Layer 1: soul bootstrap + agent-as-curator. Exit: two distinct souls
+over the same episode set produce demonstrably different digests (asserted in
+path_test), and soul bootstrap recipes documented (source-agnostic ladder).
 
 ## Current task
 
-Goal 3 voice COMPLETE (19 tests: script traceability, audio artifact, full
-async lifecycle POST→poll→done, all-fail→failed, 404; ruff+mypy clean). Next:
-4.1 hosting + response object; 4.2 SKILL.md; 4.3 wire path_test to the API via
-scripts/golden_path.py + latency assertion. Status: not-started.
+Goal 4 COMPLETE: path_test GREEN — golden_path.py drives the real API
+(latency ≤90s, citations resolve, missing skip, ungrounded refuse,
+all-fail→failed). SKILL.md cold-agent contract written; Procfile + /artifacts
+static serving. SPINE (Goals 1-4) done. Next: Goal 5 (Layer 1). Status:
+not-started.
 
 ## Health
 
-- Passing tests: 19 (last iteration: 10)
-- `path_test.ps1`: assertions covered by pytest; wired to the API in Goal 4
-- Last verified-green commit: goal 3 voice (see git log)
-- Build/typecheck/lint: ruff + mypy + pytest green
+- Passing tests: 19 (last iteration: 19)
+- `path_test.ps1`/.sh: GREEN — golden_path.py drives the API end-to-end
+- Last verified-green commit: goal 4 e2e (see git log)
+- Build/typecheck/lint: ruff + mypy + pytest green; path_test green
 
 ## Open issues (IDs reference BUILD_LOG entries)
 

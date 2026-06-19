@@ -9,7 +9,9 @@ injectable store + deps so tests run fully offline against fixtures + mocks.
 from __future__ import annotations
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
 
+from chorus.audio import ARTIFACT_DIR
 from chorus.jobs import JobStore
 from chorus.models import DigestRequest, Job
 from chorus.pipeline import Deps, default_deps, run_job
@@ -33,6 +35,8 @@ def create_app(store: JobStore | None = None, deps: Deps | None = None) -> FastA
             raise HTTPException(status_code=404, detail="unknown job_id")
         return job
 
+    # Serve rendered episodes so audio_url ("/artifacts/<name>") is downloadable.
+    app.mount("/artifacts", StaticFiles(directory=str(ARTIFACT_DIR), check_dir=False), name="artifacts")
     return app
 
 

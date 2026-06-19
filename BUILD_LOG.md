@@ -84,3 +84,16 @@ job_id, full lifecycle→done, all-fail→failed, 404). ruff+mypy clean.
 ROADMAP 3.1-3.3 done. Next: Goal 4 (wire path_test to API + SKILL.md + hosting).
 
 ---
+
+## 2026-06-19T00:30 [build] ISS-000 Goal 4 end-to-end + SKILL.md (SPINE complete)
+
+scripts/golden_path.py: executable eval driving the real API over the fixture
+model (POST /digest -> poll); asserts latency <=90s, citation resolution,
+missing-transcript skip (no leak), ungrounded refusal, all-fail->failed.
+path_test.ps1 + path_test.sh now delegate to it -> PATH_TEST GREEN. SKILL.md:
+cold-agent contract (schema, async poll, errors, source-agnostic soul recipes).
+app.py: /artifacts static mount (downloadable audio). Procfile for hosting.
+JobStore.close() (Windows temp cleanup). ruff+mypy+19 pytest green; path_test
+green. ROADMAP 4.1-4.3 done. SPINE (Goals 1-4) COMPLETE.
+
+---
