@@ -148,3 +148,17 @@ WHAT REMAINS (human / out of autonomous scope):
 - Goal 7 (charts/presets) deferred post-July-11 per design.
 
 ---
+
+## 2026-06-19T02:30 [build] ISS-001 live env loader + real-LLM smoke verified
+
+chorus/config.py: load_env() for LIVE runs (NOT imported on the package path, so
+tests/path_test stay hermetic — confirmed: 30 tests still mock-green with real
+keys present in .env.local). scripts/smoke_live.py: real Haiku curation + real
+Sonnet script on one short episode (Gavin Baker). Result: high-quality, lens-
+conditioned output (Haiku rewards falsifiable mechanisms, penalizes jargon per
+Curation Guidance; Sonnet writes an opinionated investor-voiced script). The
+thesis holds with real models, not just mocks. anthropic + python-dotenv added.
+REMAINING (ISS-001): ElevenLabs audio renderer is still a stub — real audio is
+the last unbuilt real-provider path.
+
+---

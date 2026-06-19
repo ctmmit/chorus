@@ -36,7 +36,8 @@ target met. Status: done (awaiting human SHIP gate + real keys).
 
 ## Open issues (IDs reference BUILD_LOG entries)
 
-- [none yet]
+- ISS-001 — ElevenLabs audio renderer (PodcastCreatorRenderer) is a stub; real
+  audio not yet implemented. Real Haiku+Sonnet verified live. owner: builder
 
 ## Pending Tier-A questions for human
 
