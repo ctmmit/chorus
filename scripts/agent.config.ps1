@@ -10,7 +10,7 @@
 #   - invokable non-interactively with a prompt
 #   - exits when the iteration is done
 
-$IterationPrompt = 'Read STATE.md, ROADMAP.md, AUTOPILOT.md and the last 3 BUILD_LOG.md entries. Execute ONE iteration of the AUTOPILOT iteration procedure, then exit.'
+$IterationPrompt = 'You are the Chorus autonomous builder. Read docs/AUTONOMOUS_BUILD.md (the mission brief), then STATE.md, ROADMAP.md (current goal), AUTOPILOT.md, and the last 3 BUILD_LOG.md entries. Execute ONE iteration per that brief and the AUTOPILOT procedure, then exit.'
 
 # Builder/Reviewer are scriptblocks so the harness call lives in exactly one place.
 # --- Default: Claude Code builds, Codex reviews ---
