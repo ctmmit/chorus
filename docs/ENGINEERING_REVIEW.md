@@ -80,9 +80,50 @@ and hostile to server-side use. Deferred past the finale per DESIGN_DOC.
 ### Q5 — Soul-version provenance: content hash + version on every digest
 
 Each digest output records `soul_version` = a short content hash of the
-`soul.md` used (plus an optional caller-supplied label). Cheap, makes the
-"which lens produced this" auditable, and is the hook the Layer-1
-agent-interview needs when the soul changes across calls.
+`soul.md` used, plus `soul_origin` = the bootstrap tier and source
+(`supplied` | `derived:<adapter>` | `interview` | `seed`). Cheap, makes
+"which lens, built how" auditable, and is the hook Layer 1 needs when the
+soul changes across calls.
+
+### Q6 — Soul schema + source-agnostic bootstrap (from readwise-skills review)
+
+Reviewing `readwiseio/readwise-skills` (build-persona, triage, reader-recap)
+validated the persona+curation pattern and sharpened four things.
+
+**Soul schema.** Adopt the build-persona structure; the key addition is a
+**Curation Guidance** block — explicit scoring calibration, not just triggers
+(e.g. "bar is high for AI; surface only when genuinely novel"). Sections:
+Identity & Role, Core Interests, Attention Triggers, Anti-interests, Taste &
+Sensibility, Curation Guidance. Highest-leverage quality lever on curation.
+
+**Bootstrap ladder (source-agnostic).** The service stays *soul in*; bootstrap
+is a pluggable caller-side ladder, every tier emitting the same schema —
+Tier 0 supplied → Tier 1 corpus-derived (Readwise = one adapter, Obsidian /
+raw-text = others; **none required**) → Tier 2 interview (universal, no data)
+→ Tier 3 seed/preset. Ships as SKILL.md recipes for the hackathon; optional
+`/bootstrap-soul` endpoint later. Honors §11 (no connector inside the service).
+
+**Digest & script output** (borrowed from triage / reader-recap):
+- Each highlight carries `why_surface` AND an honest `why_skip`, not a single
+  `one_line_reason` — the triage dual-pitch. (Supersedes the Q3 digest shape.)
+- Type the agent's takes with a flag taxonomy: `question | pushback | idea |
+  connection | cross_reference` — reader-recap's annotation flags, reused as
+  the structure of the opinionated script.
+- Script tone contract: conversational, second person, prose not bullets,
+  action/takeaways last. reader-recap's tone rules are the script's voice spec.
+
+**Token economy (operational).** Parse transcripts / large JSON in code, never
+in the LLM context — we hit a ~1MB tool-result wall pulling Readwise via the
+CLI. Fetch metadata-only fields first; expose a `response_fields`-style
+selector on the digest/poll response. (From build-persona's explicit guidance.)
+
+**Prior-art / reuse + strategic read.** build-persona/triage/reader-recap are
+the input-side reference; the transcript fetcher (`scripts/fetch_transcript.py`,
+`youtube-transcript-api`) already pulls captions locally for fixtures. Persona
++ curation is becoming commodity; Chorus's defensible layer is the
+**opinionated voiced output** — spend innovation tokens there, not on
+rebuilding curation machinery. Chorus can even *consume* a Readwise-style
+persona as a Tier-1 soul.
 
 ---
 

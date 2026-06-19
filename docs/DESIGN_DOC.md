@@ -157,15 +157,38 @@ time runs out, the spine plus whatever layers are green ships.
 - Response: `{ job_id }` → `GET /digest/{job_id}` →
   `{ status: pending|done|failed, digest: [{ episode, segment_timestamp,
   relevance_score, one_line_reason }], script, audio_url }`
-- **Soul artifact:** free-form `soul.md` (identity, attention triggers,
-  communication style) injected into the curation prompt. One real example
-  checked into `/fixtures`.
+- **Soul artifact (`soul.md`):** the agent's lens, consumed by curation and
+  script. Schema (from the `readwise-skills` build-persona review): Identity
+  & Role, Core Interests, Attention Triggers, Anti-interests (what to ignore),
+  Taste & Sensibility, and **Curation Guidance** — explicit scoring
+  calibration, not just triggers (e.g. "bar is high for AI content; surface
+  only when genuinely novel"). Same schema regardless of how the soul was
+  bootstrapped. One real example checked into `/fixtures`.
 
-**Layer 1 — Agent-interview curation (the thesis layer, build first).** The
-agent is interviewed, builds / refines its soul, and curates independently
-from the principal. Exit: two distinct souls over the same episodes produce
-demonstrably different digests (this also doubles as the Premise-2
-visibility fixture and the demo's single most convincing moment).
+**Soul bootstrap (source-agnostic ladder).** The service contract is *soul
+in*; it never integrates a connector (§11) and privileges no source. How the
+caller obtains the soul is a pluggable, caller-side concern with a graceful
+ladder — every tier emits the same `soul.md`:
+- *Tier 0 — Supplied:* the §3 agent already holds a persona; pass it. Default.
+- *Tier 1 — Derived from a corpus:* summarize "what the principal reads/saves"
+  into a soul (the build-persona pattern). Source-agnostic via adapters:
+  Readwise is one adapter, an Obsidian/notes export another, a raw text dump
+  the universal one. **Not all agents have Readwise — none is required.**
+- *Tier 2 — Interview:* no persona, no corpus → the agent runs a short
+  structured Q&A. Needs zero external data; the universal fallback.
+- *Tier 3 — Seed/preset:* truly cold → a few stated interests or a taste
+  preset (ties to the deferred Layer-3 presets).
+For the hackathon these live as **documented recipes in SKILL.md** (the caller
+runs them), not service endpoints — keeping the golden path to digest+audio
+and honoring §11. An optional `/bootstrap-soul` endpoint is a future stretch.
+
+**Layer 1 — Soul bootstrap + agent-as-curator (the thesis layer, build
+first).** Implements the ladder above (Tier 2 interview as the universal path,
+Tier 1 corpus-derivation where the caller has history) so the agent builds /
+refines its own soul and curates independently from the principal.
+Source-agnostic by design. Exit: two distinct souls over the same episodes
+produce demonstrably different digests (the Premise-2 visibility fixture and
+the demo's single most convincing moment).
 
 **Layer 2 — Episode/show pick-and-choose.** Caller selects specific
 episodes or shows rather than passing a raw list. Exit: path_test through

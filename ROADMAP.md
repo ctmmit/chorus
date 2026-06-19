@@ -62,14 +62,15 @@ path against the live endpoint using only SKILL.md, no human help.
 > SPINE COMPLETE at Goal 4 green. Layers begin only here.
 ---
 
-## Goal 5 — Layer 1: Agent-interview curation (the thesis layer)
+## Goal 5 — Layer 1: Soul bootstrap + agent-as-curator (the thesis layer)
 
 **Exit criterion:** two distinct souls over the same episode set produce
 demonstrably different digests (asserted by a fixture comparison in
 `path_test.sh`). Doubles as the Premise-2 visibility fixture.
 
-- [ ] 5.1 Interview flow that builds/refines `soul.md`
-- [ ] 5.2 Independent curation + soul-version provenance on output
+- [ ] 5.1 Soul bootstrap recipes (SKILL.md), source-agnostic ladder:
+      Tier 2 interview (universal) + Tier 1 corpus-derive (pluggable adapter)
+- [ ] 5.2 Independent curation + `soul_version`/`soul_origin` provenance on output
 
 ## Goal 6 — Layer 2: Episode/show pick-and-choose
 
