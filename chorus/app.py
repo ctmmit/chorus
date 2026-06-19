@@ -70,7 +70,7 @@ if __name__ == "__main__":
     # Local real-provider serving: `python -m chorus.app` (loads .env.local first).
     # On Railway, env vars are set in the platform, so the module-level `app`
     # above already gets real providers via the Procfile.
-    import uvicorn
+    import uvicorn  # type: ignore[import-not-found]
 
     from chorus.config import load_env
 
