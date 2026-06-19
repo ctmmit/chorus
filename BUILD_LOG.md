@@ -173,3 +173,13 @@ mp3 (ID3/MPEG layer III) from the Sonnet monologue. Full golden path now real
 end-to-end. podcast-creator/esperanto reserved for the two-host LAYER.
 
 ---
+
+## 2026-06-19T03:20 [build] ISS-000 deploy setup + history scrub
+
+History: git-filter-repo purged the rotated keys from all commits (0 hits).
+Deploy: chorus/app.py __main__ (python -m chorus.app loads .env.local + serves);
+requirements.txt, .python-version (3.12), DEPLOY.md (Railway steps + env vars +
+scope note: v1 serves the fixture catalog; live-episode transcripts via managed
+API is the next integration). gates green.
+
+---

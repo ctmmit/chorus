@@ -8,6 +8,8 @@ injectable store + deps so tests run fully offline against fixtures + mocks.
 """
 from __future__ import annotations
 
+import os
+
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 
@@ -62,3 +64,15 @@ def create_app(store: JobStore | None = None, deps: Deps | None = None) -> FastA
 
 
 app = create_app()
+
+
+if __name__ == "__main__":
+    # Local real-provider serving: `python -m chorus.app` (loads .env.local first).
+    # On Railway, env vars are set in the platform, so the module-level `app`
+    # above already gets real providers via the Procfile.
+    import uvicorn
+
+    from chorus.config import load_env
+
+    load_env()
+    uvicorn.run(create_app(), host="0.0.0.0", port=int(os.environ.get("PORT", "8000")))
