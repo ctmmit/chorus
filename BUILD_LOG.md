@@ -72,3 +72,15 @@ Models: Take, Script, TAKE_TYPES. 15 tests green (traceability + refusal +
 artifact). ruff + mypy clean. 3.3 (jobs + async API) next.
 
 ---
+
+## 2026-06-19T00:05 [build] ISS-000 Goal 3.3 async job + API (Goal 3 complete)
+
+jobs.py: SQLite JobStore (no Redis/Celery). pipeline.py: run_job orchestrates
+ingest→curate→script→audio with status queued→digest_ready→done|failed; all-
+transcripts-fail→failed (critical gap), audio-fail→done w/ audio_url=null
+(non-fatal). app.py: FastAPI POST /digest + GET /digest/{job_id}, injectable
+store+deps via create_app. Models: Job, JobStatus. 19 tests green (4 API:
+job_id, full lifecycle→done, all-fail→failed, 404). ruff+mypy clean.
+ROADMAP 3.1-3.3 done. Next: Goal 4 (wire path_test to API + SKILL.md + hosting).
+
+---

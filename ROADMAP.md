@@ -43,9 +43,9 @@ highlights); the audio job renders a downloadable file. Spine floor:
 single-voice opinionated monologue. (Engine: podcast-creator + ElevenLabs
 via esperanto, per ENGINEERING_REVIEW Q1.)
 
-- [ ] 3.1 Script synthesis with point of view (traceable to highlights)
-- [ ] 3.2 Audio generation call + downloadable artifact
-- [ ] 3.3 Async job + `GET /digest/{job_id}` poll (`pending|done|failed`)
+- [x] 3.1 Script synthesis with point of view (traceable to highlights)
+- [x] 3.2 Audio generation call + downloadable artifact
+- [x] 3.3 Async job + `GET /digest/{job_id}` poll (`pending|done|failed`)
 
 ## Goal 4 — End-to-end + SKILL.md cold-agent success
 

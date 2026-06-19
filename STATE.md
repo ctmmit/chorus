@@ -17,22 +17,22 @@ BUILD
 
 ## Current goal
 
-Goal 3 — Voice. Exit: agent-authored opinionated script (claims traceable to
-surfaced highlights); audio renders + downloadable. Spine floor: single-voice
-monologue.
+Goal 4 — End-to-end + SKILL.md. Exit: golden path green via path_test
+(digest ≤90s, citations resolve, missing skips, ungrounded refuses); SKILL.md
+cold-agent contract; hosting config.
 
 ## Current task
 
-Goal 2 curation COMPLETE (10 tests green incl. two-soul divergence eval +
-ungrounded refusal; ruff + mypy clean). Next: 3.1 script synthesis (Sonnet,
-traceable claims) behind LLM iface (mock now); 3.2 audio via
-podcast-creator/ElevenLabs (mock); 3.3 async job + poll. Status: not-started.
+Goal 3 voice COMPLETE (19 tests: script traceability, audio artifact, full
+async lifecycle POST→poll→done, all-fail→failed, 404; ruff+mypy clean). Next:
+4.1 hosting + response object; 4.2 SKILL.md; 4.3 wire path_test to the API via
+scripts/golden_path.py + latency assertion. Status: not-started.
 
 ## Health
 
-- Passing tests: 10 (last iteration: 6)
-- `path_test.ps1`: ingest+curation logic green via pytest; full path_test wired Goal 4
-- Last verified-green commit: curation (see git log)
+- Passing tests: 19 (last iteration: 10)
+- `path_test.ps1`: assertions covered by pytest; wired to the API in Goal 4
+- Last verified-green commit: goal 3 voice (see git log)
 - Build/typecheck/lint: ruff + mypy + pytest green
 
 ## Open issues (IDs reference BUILD_LOG entries)

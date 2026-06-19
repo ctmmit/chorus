@@ -13,11 +13,11 @@ def _script() -> Script:
 
 
 def test_mock_render_writes_downloadable_artifact(tmp_path: Path) -> None:
-    path = MockAudioRenderer().render(_script(), soul="x", out_dir=tmp_path)
+    path = MockAudioRenderer(out_dir=tmp_path).render(_script(), soul="x")
     assert path.exists()
     assert path.read_text(encoding="utf-8") == "A take."
 
 
 def test_mock_render_names_by_soul_version(tmp_path: Path) -> None:
-    path = MockAudioRenderer().render(_script(), soul="x", out_dir=tmp_path)
+    path = MockAudioRenderer(out_dir=tmp_path).render(_script(), soul="x")
     assert "deadbeef" in path.name

@@ -21,16 +21,19 @@ ARTIFACT_DIR = Path(__file__).resolve().parent.parent / "artifacts"
 
 @runtime_checkable
 class AudioRenderer(Protocol):
-    def render(self, script: Script, soul: str, out_dir: Path) -> Path: ...
+    def render(self, script: Script, soul: str) -> Path: ...
 
 
 class MockAudioRenderer:
     """Writes the monologue as a text artifact and returns its path. Stands in
     for the TTS engine; lets the job reach status=done offline."""
 
-    def render(self, script: Script, soul: str, out_dir: Path = ARTIFACT_DIR) -> Path:
-        out_dir.mkdir(parents=True, exist_ok=True)
-        path = out_dir / f"episode_{script.soul_version}.txt"
+    def __init__(self, out_dir: Path = ARTIFACT_DIR) -> None:
+        self.out_dir = out_dir
+
+    def render(self, script: Script, soul: str) -> Path:
+        self.out_dir.mkdir(parents=True, exist_ok=True)
+        path = self.out_dir / f"episode_{script.soul_version}.txt"
         path.write_text(script.monologue, encoding="utf-8")
         log.info("audio(mock): wrote %s", path)
         return path
@@ -40,15 +43,16 @@ class PodcastCreatorRenderer:
     """Real renderer: podcast-creator (LangGraph) + esperanto -> ElevenLabs.
     Single-voice profile is the spine floor. Activated when a key is present."""
 
-    def __init__(self, api_key: str) -> None:
+    def __init__(self, api_key: str, out_dir: Path = ARTIFACT_DIR) -> None:
         self.api_key = api_key
+        self.out_dir = out_dir
 
-    def render(self, script: Script, soul: str, out_dir: Path = ARTIFACT_DIR) -> Path:
-        out_dir.mkdir(parents=True, exist_ok=True)
+    def render(self, script: Script, soul: str) -> Path:
+        self.out_dir.mkdir(parents=True, exist_ok=True)
         # Wired when ELEVENLABS_API_KEY is provided:
         #   from podcast_creator import create_podcast
         #   create_podcast(content=script.monologue, episode_profile="single_voice",
-        #                  output_dir=str(out_dir), ...)  # esperanto -> ElevenLabs
+        #                  output_dir=str(self.out_dir), ...)  # esperanto -> ElevenLabs
         raise NotImplementedError(
             "PodcastCreatorRenderer requires ELEVENLABS_API_KEY and the podcast-creator dep"
         )

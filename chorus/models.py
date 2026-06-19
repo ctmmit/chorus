@@ -7,6 +7,8 @@ Data flow (Goal 1 portion):
 """
 from __future__ import annotations
 
+from enum import Enum
+
 from pydantic import BaseModel
 
 
@@ -116,3 +118,21 @@ class Script(BaseModel):
     soul_version: str
     takes: list[Take]
     monologue: str  # the spine-floor single-voice script text
+
+
+class JobStatus(str, Enum):
+    queued = "queued"
+    digest_ready = "digest_ready"
+    done = "done"
+    failed = "failed"
+
+
+class Job(BaseModel):
+    """The async job record (ENGINEERING_REVIEW Q3 lifecycle)."""
+
+    job_id: str
+    status: JobStatus
+    digest: Digest | None = None
+    script: Script | None = None
+    audio_url: str | None = None
+    error: str | None = None
