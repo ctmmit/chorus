@@ -97,3 +97,17 @@ JobStore.close() (Windows temp cleanup). ruff+mypy+19 pytest green; path_test
 green. ROADMAP 4.1-4.3 done. SPINE (Goals 1-4) COMPLETE.
 
 ---
+
+## 2026-06-19T01:00 [build] ISS-000 Goal 5 Layer 1 soul bootstrap
+
+bootstrap.py: source-agnostic SoulBuilder (DESIGN_DOC ladder) — MockSoulBuilder
+(Tier-1 derive_from_corpus: corpus keywords -> soul schema; Tier-2
+build_from_interview) + AnthropicSoulBuilder + factory. soul_origin provenance
+added to DigestRequest/Digest, flowed through pipeline. Scorer fix: positive
+signal now Attention Triggers + Core Interests only (Identity/Guidance prose was
+polluting derived souls); negative weight raised so each soul's Ignore list
+drives divergence. Two-soul divergence promoted into golden_path/path_test.
+24 tests green incl. derived-finance-soul-works + offtopic-corpus-refuses.
+ruff+mypy clean; path_test GREEN. ROADMAP 5.1-5.2 done.
+
+---

@@ -116,9 +116,10 @@ def build_digest(
     context: str,
     client: LLMClient,
     highlight_count: int = 4,
+    soul_origin: str = "supplied",
 ) -> Digest:
     episodes = [
         curate_episode(r, soul, context, client, max_highlights=highlight_count)
         for r in ingest.resolved
     ]
-    return Digest(soul_version=soul_version(soul), episodes=episodes)
+    return Digest(soul_version=soul_version(soul), soul_origin=soul_origin, episodes=episodes)

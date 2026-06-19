@@ -70,6 +70,7 @@ class DigestRequest(BaseModel):
     context: str  # caller-assembled principal-context blob
     episodes: list[EpisodeInput]
     highlight_count: int = 4
+    soul_origin: str = "supplied"  # supplied | derived:<adapter> | interview | seed
 
 
 class Highlight(BaseModel):
@@ -94,6 +95,7 @@ class EpisodeDigest(BaseModel):
 
 class Digest(BaseModel):
     soul_version: str  # provenance: which lens produced this (content hash)
+    soul_origin: str = "supplied"  # how the soul was bootstrapped (Q5)
     episodes: list[EpisodeDigest]
 
     @property

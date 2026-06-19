@@ -112,6 +112,17 @@ def main() -> None:
         if allfail.status.value != "failed" or not allfail.error:
             fail(f"all-missing status={allfail.status.value} (expected failed with error)")
 
+        # 5. Layer-1 thesis: two souls diverge on the SAME episode
+        inv, _ = _run(client, "soul_investor.md", ["c4tvVKDhpiY"])
+        pop, _ = _run(client, "soul_popculture.md", ["c4tvVKDhpiY"])
+        inv_ts = {round(h.segment_timestamp) for h in (inv.digest.highlights if inv.digest else [])}
+        pop_ts = {round(h.segment_timestamp) for h in (pop.digest.highlights if pop.digest else [])}
+        if not inv_ts or not pop_ts:
+            fail("two-soul divergence: a soul produced no highlights")
+        overlap = len(inv_ts & pop_ts) / max(len(inv_ts), len(pop_ts))
+        if overlap >= 0.5:
+            fail(f"two-soul divergence too weak (overlap {overlap:.0%})")
+
         client.close()
         store.close()  # release the SQLite handle so the temp dir can be removed
 

@@ -61,7 +61,12 @@ def run_job(job_id: str, request: DigestRequest, store: JobStore, deps: Deps) ->
         return
 
     digest = build_digest(
-        ingested, request.soul, request.context, deps.llm, request.highlight_count
+        ingested,
+        request.soul,
+        request.context,
+        deps.llm,
+        request.highlight_count,
+        soul_origin=request.soul_origin,
     )
     job.digest = digest
     job.status = JobStatus.digest_ready

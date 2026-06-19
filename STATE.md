@@ -17,17 +17,15 @@ BUILD
 
 ## Current goal
 
-Goal 5 — Layer 1: soul bootstrap + agent-as-curator. Exit: two distinct souls
-over the same episode set produce demonstrably different digests (asserted in
-path_test), and soul bootstrap recipes documented (source-agnostic ladder).
+Goal 6 — Layer 2: episode/show pick-and-choose. Exit: a selection endpoint
+resolves a chosen show/episode set and runs the spine green.
 
 ## Current task
 
-Goal 4 COMPLETE: path_test GREEN — golden_path.py drives the real API
-(latency ≤90s, citations resolve, missing skip, ungrounded refuse,
-all-fail→failed). SKILL.md cold-agent contract written; Procfile + /artifacts
-static serving. SPINE (Goals 1-4) done. Next: Goal 5 (Layer 1). Status:
-not-started.
+Goal 5 Layer 1 COMPLETE: soul bootstrap (bootstrap.py — Tier-1 corpus-derive +
+Tier-2 interview, source-agnostic, mock + Anthropic), soul_origin provenance on
+Digest; two-soul divergence now asserted in path_test (overlap <50%). 24 tests.
+Next: Goal 6 selection endpoint. Status: not-started.
 
 ## Health
 

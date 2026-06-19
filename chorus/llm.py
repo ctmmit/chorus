@@ -52,15 +52,17 @@ class LLMClient(Protocol):
 
 
 # Tuned so on-topic windows clear curation's threshold and off-topic ones do not.
+# Negative weight is high so each soul's Ignore list actively demotes the other
+# lens's territory — that is what drives two-soul divergence.
 _POS_WEIGHT = 0.16
-_NEG_WEIGHT = 0.22
+_NEG_WEIGHT = 0.34
 
 
 @lru_cache(maxsize=16)
 def _signal(soul: str, context: str) -> tuple[frozenset[str], frozenset[str]]:
-    positive = _keywords(
-        _section(soul, "attention", "curation guidance", "core interests", "identity")
-    ) | _keywords(context)
+    # Topic signal only — Attention Triggers + Core Interests. Identity / Curation
+    # Guidance are prose (boilerplate in derived souls) and would pollute scoring.
+    positive = _keywords(_section(soul, "attention", "core interests")) | _keywords(context)
     negative = _keywords(_section(soul, "ignore", "anti-interest", "anti interest", "penalize"))
     positive -= negative
     return frozenset(positive), frozenset(negative)

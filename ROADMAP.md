@@ -68,9 +68,9 @@ path against the live endpoint using only SKILL.md, no human help.
 demonstrably different digests (asserted by a fixture comparison in
 `path_test.sh`). Doubles as the Premise-2 visibility fixture.
 
-- [ ] 5.1 Soul bootstrap recipes (SKILL.md), source-agnostic ladder:
+- [x] 5.1 Soul bootstrap recipes (SKILL.md), source-agnostic ladder:
       Tier 2 interview (universal) + Tier 1 corpus-derive (pluggable adapter)
-- [ ] 5.2 Independent curation + `soul_version`/`soul_origin` provenance on output
+- [x] 5.2 Independent curation + `soul_version`/`soul_origin` provenance on output
 
 ## Goal 6 — Layer 2: Episode/show pick-and-choose
 
