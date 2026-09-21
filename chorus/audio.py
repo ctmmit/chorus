@@ -27,9 +27,17 @@ OUTPUT_FORMAT = "mp3_44100_128"
 RENDER_TIMEOUT_S = 120.0
 
 
+def artifact_stem(job_id: str) -> str:
+    """Artifacts are keyed on the JOB, not the soul: two jobs with the same soul
+    but different episodes must not overwrite each other's audio."""
+    if not job_id or not job_id.replace("-", "").replace("_", "").isalnum():
+        raise ValueError(f"job_id is not filename-safe: {job_id!r}")
+    return f"episode_{job_id}"
+
+
 @runtime_checkable
 class AudioRenderer(Protocol):
-    def render(self, script: Script, soul: str) -> Path: ...
+    def render(self, script: Script, soul: str, job_id: str) -> Path: ...
 
 
 class MockAudioRenderer:
@@ -39,9 +47,9 @@ class MockAudioRenderer:
     def __init__(self, out_dir: Path = ARTIFACT_DIR) -> None:
         self.out_dir = out_dir
 
-    def render(self, script: Script, soul: str) -> Path:
+    def render(self, script: Script, soul: str, job_id: str) -> Path:
         self.out_dir.mkdir(parents=True, exist_ok=True)
-        path = self.out_dir / f"episode_{script.soul_version}.txt"
+        path = self.out_dir / f"{artifact_stem(job_id)}.txt"
         path.write_text(script.monologue, encoding="utf-8")
         log.info("audio(mock): wrote %s", path)
         return path
@@ -63,7 +71,7 @@ class ElevenLabsRenderer:
         self.voice_id = voice_id or os.environ.get("ELEVENLABS_VOICE_ID", DEFAULT_VOICE_ID)
         self.model_id = model_id
 
-    def render(self, script: Script, soul: str) -> Path:
+    def render(self, script: Script, soul: str, job_id: str) -> Path:
         self.out_dir.mkdir(parents=True, exist_ok=True)
         resp = httpx.post(
             ELEVEN_TTS_URL.format(voice_id=self.voice_id),
@@ -81,7 +89,7 @@ class ElevenLabsRenderer:
             timeout=RENDER_TIMEOUT_S,
         )
         resp.raise_for_status()
-        path = self.out_dir / f"episode_{script.soul_version}.mp3"
+        path = self.out_dir / f"{artifact_stem(job_id)}.mp3"
         path.write_bytes(resp.content)
         log.info("audio(elevenlabs): wrote %s (%d bytes)", path, len(resp.content))
         return path

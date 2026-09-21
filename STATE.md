@@ -32,7 +32,7 @@ non-fixture episodes; curation taste-tuning (Ed Thorp refused — borderline).
 
 ## Health
 
-- Passing tests: 33 (last iteration: 30)
+- Passing tests: 47 (last iteration: 33)
 - `path_test.ps1`/.sh: GREEN through Goal 6 (6 assertions incl. divergence + selection)
 - Last verified-green commit: goal 6 layer-2 (see git log)
 - Build/typecheck/lint: ruff + mypy + pytest green; path_test green

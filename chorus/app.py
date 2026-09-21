@@ -5,12 +5,25 @@
 
 One mechanism, progressive states (ENGINEERING_REVIEW Q3). `create_app` takes an
 injectable store + deps so tests run fully offline against fixtures + mocks.
+
+Guards (the service holds paid provider keys server-side, so an open endpoint
+is an open wallet):
+- Bearer auth on every route, including /artifacts, when CHORUS_API_TOKEN is set.
+- Startup refuses to serve real providers without a token (lifespan check).
+- Request bodies over MAX_BODY_BYTES are rejected before JSON parsing; the
+  request models bound every field on top of that.
+- Startup marks any job left in flight by a previous process as failed.
 """
 from __future__ import annotations
 
+import logging
 import os
+import secrets
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from chorus import catalog
@@ -19,11 +32,67 @@ from chorus.jobs import JobStore
 from chorus.models import DigestRequest, Job, SelectionRequest
 from chorus.pipeline import Deps, default_deps, run_job
 
+log = logging.getLogger("chorus.app")
 
-def create_app(store: JobStore | None = None, deps: Deps | None = None) -> FastAPI:
+API_TOKEN_ENV = "CHORUS_API_TOKEN"
+PROVIDER_KEY_ENVS = ("ANTHROPIC_API_KEY", "ELEVENLABS_API_KEY")
+# Largest legitimate body: MAX_SOUL_CHARS + MAX_CONTEXT_CHARS + episodes is well
+# under 200 KB even with multi-byte characters. 1 MiB leaves headroom.
+MAX_BODY_BYTES = 1 << 20
+RESTART_REASON = "interrupted by service restart before completion"
+
+
+def _provider_keys_present() -> bool:
+    return any(os.environ.get(k) for k in PROVIDER_KEY_ENVS)
+
+
+def _authorized(request: Request, token: str) -> bool:
+    scheme, _, credential = request.headers.get("authorization", "").partition(" ")
+    return scheme.lower() == "bearer" and secrets.compare_digest(credential.strip(), token)
+
+
+def create_app(
+    store: JobStore | None = None,
+    deps: Deps | None = None,
+    api_token: str | None = None,
+) -> FastAPI:
+    """`api_token=None` reads CHORUS_API_TOKEN; unset means open access, which
+    the lifespan check allows only when no real provider key is configured."""
     store = store or JobStore()
     deps = deps or default_deps()
-    app = FastAPI(title="Chorus", version="0.1.0")
+    token = api_token if api_token is not None else os.environ.get(API_TOKEN_ENV) or None
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        if token is None and _provider_keys_present():
+            raise RuntimeError(
+                f"refusing to start: a provider key is configured but {API_TOKEN_ENV} is not. "
+                "An open endpoint with real keys is an open wallet."
+            )
+        if token is None:
+            log.warning("auth: %s unset — endpoints are OPEN (mock providers only)", API_TOKEN_ENV)
+        # Single-process assumption (Procfile runs one worker): at startup no
+        # background task can be alive, so every in-flight job is stranded.
+        swept = store.fail_in_flight(RESTART_REASON)
+        if swept:
+            log.warning("startup: marked %d in-flight job(s) failed (%s)", swept, RESTART_REASON)
+        yield
+        store.close()
+
+    app = FastAPI(title="Chorus", version="0.1.0", lifespan=lifespan)
+
+    @app.middleware("http")
+    async def guards(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+        length = request.headers.get("content-length", "")
+        if length.isdigit() and int(length) > MAX_BODY_BYTES:
+            return JSONResponse({"detail": "request body too large"}, status_code=413)
+        if token is not None and not _authorized(request, token):
+            return JSONResponse(
+                {"detail": "missing or invalid bearer token"},
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return await call_next(request)
 
     @app.post("/digest")
     def create_digest(request: DigestRequest, background: BackgroundTasks) -> dict[str, str]:
@@ -59,6 +128,7 @@ def create_app(store: JobStore | None = None, deps: Deps | None = None) -> FastA
         return {"job_id": job_id}
 
     # Serve rendered episodes so audio_url ("/artifacts/<name>") is downloadable.
+    # The middleware above applies here too, so artifacts need the same token.
     app.mount("/artifacts", StaticFiles(directory=str(ARTIFACT_DIR), check_dir=False), name="artifacts")
     return app
 

@@ -9,7 +9,19 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+# Request bounds. Every scoring call re-sends soul + context, so these cap the
+# per-job provider spend; the API has no caller auth in dev, so they also cap
+# what an anonymous caller can make us do. Fixture souls are ~1.6k chars.
+MAX_SOUL_CHARS = 40_000
+MAX_CONTEXT_CHARS = 40_000
+MAX_EPISODES = 25
+MAX_HIGHLIGHTS = 20
+MAX_URL_CHARS = 2_048
+MAX_VIDEO_ID_CHARS = 64
+MAX_SHOW_CHARS = 200
+MAX_TITLE_CHARS = 500
 
 
 class Segment(BaseModel):
@@ -32,10 +44,10 @@ class Transcript(BaseModel):
 class EpisodeInput(BaseModel):
     """One episode as supplied by the calling agent (the §6 request shape)."""
 
-    url: str | None = None
-    video_id: str | None = None
-    show: str | None = None
-    title: str | None = None
+    url: str | None = Field(default=None, max_length=MAX_URL_CHARS)
+    video_id: str | None = Field(default=None, max_length=MAX_VIDEO_ID_CHARS)
+    show: str | None = Field(default=None, max_length=MAX_SHOW_CHARS)
+    title: str | None = Field(default=None, max_length=MAX_TITLE_CHARS)
 
     def resolved_id(self) -> str:
         """The YouTube id to fetch a transcript for. Caller may pass either."""
@@ -66,21 +78,23 @@ class IngestResult(BaseModel):
 class DigestRequest(BaseModel):
     """The §6 request body for POST /digest."""
 
-    soul: str  # markdown persona / lens (any bootstrap tier produces this)
-    context: str  # caller-assembled principal-context blob
-    episodes: list[EpisodeInput]
-    highlight_count: int = 4
+    # markdown persona / lens (any bootstrap tier produces this)
+    soul: str = Field(min_length=1, max_length=MAX_SOUL_CHARS)
+    # caller-assembled principal-context blob (may be empty)
+    context: str = Field(max_length=MAX_CONTEXT_CHARS)
+    episodes: list[EpisodeInput] = Field(min_length=1, max_length=MAX_EPISODES)
+    highlight_count: int = Field(default=4, ge=1, le=MAX_HIGHLIGHTS)
     soul_origin: str = "supplied"  # supplied | derived:<adapter> | interview | seed
 
 
 class SelectionRequest(BaseModel):
     """Layer-2 pick-and-choose: select by show name and/or explicit video ids."""
 
-    soul: str
-    context: str
-    shows: list[str] | None = None
-    video_ids: list[str] | None = None
-    highlight_count: int = 4
+    soul: str = Field(min_length=1, max_length=MAX_SOUL_CHARS)
+    context: str = Field(max_length=MAX_CONTEXT_CHARS)
+    shows: list[str] | None = Field(default=None, max_length=MAX_EPISODES)
+    video_ids: list[str] | None = Field(default=None, max_length=MAX_EPISODES)
+    highlight_count: int = Field(default=4, ge=1, le=MAX_HIGHLIGHTS)
     soul_origin: str = "supplied"
 
 
@@ -141,7 +155,12 @@ class JobStatus(str, Enum):
 
 
 class Job(BaseModel):
-    """The async job record (ENGINEERING_REVIEW Q3 lifecycle)."""
+    """The async job record (ENGINEERING_REVIEW Q3 lifecycle).
+
+    `error` is set only on `failed`. `warnings` records non-fatal degradation
+    on a `done` job (script or audio could not be produced) so a caller can
+    tell "audio failed" from "audio not attempted".
+    """
 
     job_id: str
     status: JobStatus
@@ -149,3 +168,4 @@ class Job(BaseModel):
     script: Script | None = None
     audio_url: str | None = None
     error: str | None = None
+    warnings: list[str] = Field(default_factory=list)

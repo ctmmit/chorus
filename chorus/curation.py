@@ -78,6 +78,9 @@ def curate_episode(
     threshold: float = RELEVANCE_THRESHOLD,
     max_highlights: int = 4,
 ) -> EpisodeDigest:
+    if max_highlights < 1:
+        # A negative slice would silently drop the TOP-scored highlights.
+        raise ValueError(f"max_highlights must be >= 1, got {max_highlights}")
     transcript = resolved.transcript
     title = resolved.episode.title
     scored: list[tuple[float, str, _Window]] = []

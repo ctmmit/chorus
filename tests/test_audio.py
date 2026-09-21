@@ -16,14 +16,24 @@ def _script() -> Script:
 
 
 def test_mock_render_writes_downloadable_artifact(tmp_path: Path) -> None:
-    path = MockAudioRenderer(out_dir=tmp_path).render(_script(), soul="x")
+    path = MockAudioRenderer(out_dir=tmp_path).render(_script(), soul="x", job_id="job1")
     assert path.exists()
     assert path.read_text(encoding="utf-8") == "A take."
 
 
-def test_mock_render_names_by_soul_version(tmp_path: Path) -> None:
-    path = MockAudioRenderer(out_dir=tmp_path).render(_script(), soul="x")
-    assert "deadbeef" in path.name
+def test_mock_render_names_by_job_not_soul(tmp_path: Path) -> None:
+    # Two jobs with the SAME soul must not overwrite each other's artifact.
+    r = MockAudioRenderer(out_dir=tmp_path)
+    a = r.render(_script(), soul="x", job_id="job1")
+    b = r.render(_script(), soul="x", job_id="job2")
+    assert a != b
+    assert "job1" in a.name and "job2" in b.name
+    assert "deadbeef" not in a.name
+
+
+def test_render_rejects_unsafe_job_id(tmp_path: Path) -> None:
+    with pytest.raises(ValueError):
+        MockAudioRenderer(out_dir=tmp_path).render(_script(), soul="x", job_id="../etc")
 
 
 class _FakeResp:
@@ -43,9 +53,12 @@ def test_elevenlabs_renderer_posts_and_writes_audio(tmp_path: Path, monkeypatch:
         return _FakeResp()
 
     monkeypatch.setattr("chorus.audio.httpx.post", fake_post)
-    path = ElevenLabsRenderer("key", out_dir=tmp_path, voice_id="voice123").render(_script(), soul="x")
+    path = ElevenLabsRenderer("key", out_dir=tmp_path, voice_id="voice123").render(
+        _script(), soul="x", job_id="job1"
+    )
 
     assert path.suffix == ".mp3"
+    assert path.stem == "episode_job1"
     assert path.read_bytes() == _FakeResp.content
     assert "text-to-speech/voice123" in captured["url"]
     assert captured["json"]["text"] == "A take."  # type: ignore[index]

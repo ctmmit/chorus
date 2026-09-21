@@ -16,6 +16,10 @@ railway up                 # build + deploy from this directory
 
 In the Railway dashboard → Variables (or `railway variables set KEY=...`):
 
+- `CHORUS_API_TOKEN` — **required whenever a provider key is set.** Every route
+  (including `/artifacts`) demands `Authorization: Bearer <token>`. The service
+  refuses to start with real keys and no token. Generate one with
+  `python -c "import secrets; print(secrets.token_urlsafe(32))"`.
 - `ANTHROPIC_API_KEY` — required (curation + script). Without it the service runs
   the deterministic mock and returns mock digests.
 - `ELEVENLABS_API_KEY` — required for real audio. Without it `audio_url` is null.
@@ -38,8 +42,9 @@ was). Until then, drive the demo via `POST /digest/select` over `GET /shows`, or
 
 ```bash
 BASE=https://<your-app>.up.railway.app
-curl -s "$BASE/shows" | jq '.[].show'
-JOB=$(curl -s -X POST "$BASE/digest/select" -H 'content-type: application/json' \
+AUTH="Authorization: Bearer $CHORUS_API_TOKEN"
+curl -s -H "$AUTH" "$BASE/shows" | jq '.[].show'
+JOB=$(curl -s -X POST "$BASE/digest/select" -H "$AUTH" -H 'content-type: application/json' \
   -d '{"soul":"# Soul...","context":"...","shows":["20VC with Harry Stebbings"]}' | jq -r .job_id)
-curl -s "$BASE/digest/$JOB" | jq '{status, audio: .audio_url, n: (.digest.episodes|length)}'
+curl -s -H "$AUTH" "$BASE/digest/$JOB" | jq '{status, audio: .audio_url, warnings, n: (.digest.episodes|length)}'
 ```

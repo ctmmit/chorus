@@ -14,7 +14,23 @@ Not a summary — a thought partner with a point of view.
 ## Base URL & auth
 
 - Base URL: the deployed service (e.g. `https://chorus.up.railway.app`).
-- No caller auth in v1. The service holds its own provider keys server-side.
+- Auth: send `Authorization: Bearer <token>` on **every** request, including
+  `audio_url` downloads. The token is issued by whoever deployed the service.
+  A missing or wrong token returns `401`. (A dev instance running only mock
+  providers may have auth disabled; a deployed one with real keys never does.)
+- The service holds its own provider keys server-side; you never send them.
+
+## Limits
+
+| field | limit |
+|---|---|
+| `soul` | 1 to 40,000 characters |
+| `context` | up to 40,000 characters |
+| `episodes` | 1 to 25 per request |
+| `highlight_count` | 1 to 20 |
+| request body | 1 MiB |
+
+Out-of-range fields return `422`; an oversized body returns `413`.
 
 ## Contract
 
@@ -50,11 +66,12 @@ Each episode takes `video_id` OR `url` (YouTube). Returns:
 |---|---|---|
 | `queued` | accepted, not started | — |
 | `digest_ready` | text digest done (≤ ~90s) | `digest` |
-| `done` | audio rendered (≤ ~5 min) | `digest`, `script`, `audio_url` |
-| `failed` | could not produce a digest | `error` |
+| `done` | digest complete; script + audio rendered if they could be (≤ ~5 min) | `digest`, `script`, `audio_url`, `warnings` |
+| `failed` | could not produce a digest, or the service restarted mid-job | `error` |
 
-Poll until `done` or `failed`. The digest is usable at `digest_ready` if you
-don't want to wait for audio.
+Poll until `done` or `failed`. Every job reaches one of those two states; a job
+never stays `queued` or `digest_ready` indefinitely. The digest is usable at
+`digest_ready` if you don't want to wait for audio.
 
 ### Response shape (`done`)
 
@@ -82,21 +99,27 @@ don't want to wait for audio.
     ]
   },
   "script": { "soul_version": "1a2b3c4d", "takes": [ ... ], "monologue": "..." },
-  "audio_url": "/artifacts/episode_1a2b3c4d.txt"
+  "audio_url": "/artifacts/episode_a1b2c3....mp3",
+  "warnings": []
 }
 ```
 
 - Every highlight's `segment_timestamp` + `quote` resolve to the real transcript.
 - An episode with nothing relevant comes back `refused: true` with
   `refusal_reason: "nothing cleared the relevance bar"` — never an invented reason.
-- `audio_url` is downloadable from the base URL. It may be `null` if audio
-  rendering failed; the digest is still valid (degrade gracefully).
+- `audio_url` is downloadable from the base URL (send the bearer token). It is
+  unique per job. It may be `null` if audio rendering failed; `script` may
+  likewise be `null` if script synthesis failed. In both cases the digest is
+  still valid and `warnings` says what degraded (degrade gracefully).
 
 ## Errors
 
+- `401` — missing or invalid bearer token.
 - `404` on `GET /digest/{job_id}` — unknown `job_id`.
+- `413` / `422` — body too large / a field outside the limits above.
 - `status: "failed"` with `error` — e.g. none of the episodes had a retrievable
-  transcript. Surface the error; do not retry blindly.
+  transcript, a provider call failed before the digest existed, or the service
+  restarted mid-job. Surface the error; do not retry blindly.
 - A single episode with no transcript is **skipped**, not fatal — the digest
   completes on the rest.
 
@@ -121,10 +144,12 @@ one most affects what gets surfaced.
 ## Minimal example
 
 ```bash
-JOB=$(curl -s -X POST "$BASE/digest" -H 'Content-Type: application/json' \
+AUTH="Authorization: Bearer $CHORUS_API_TOKEN"
+JOB=$(curl -s -X POST "$BASE/digest" -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"soul":"# Soul...","context":"...","episodes":[{"video_id":"gs39QFYIbBY"}]}' \
   | jq -r .job_id)
 
 # poll until terminal
-curl -s "$BASE/digest/$JOB" | jq '{status, n: (.digest.episodes|length), audio: .audio_url}'
+curl -s -H "$AUTH" "$BASE/digest/$JOB" \
+  | jq '{status, n: (.digest.episodes|length), audio: .audio_url, warnings}'
 ```
