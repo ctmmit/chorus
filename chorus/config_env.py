@@ -20,12 +20,14 @@ import os
 from typing import TYPE_CHECKING
 
 from chorus.artifacts import ArtifactStore, LocalArtifactStore, VercelBlobStore
-from chorus.jobs import JobStore, SqliteJobStore
+from chorus.jobs import DEFAULT_DB, JobStore, SqliteJobStore
 from chorus.transcript_cache import SqliteTranscriptCache, TranscriptCache
 
 if TYPE_CHECKING:
+    from chorus.keys import KeyStore
     from chorus.pipeline import Deps
     from chorus.runners import JobRunner
+    from chorus.subscriptions import SubscriptionStore
 
 log = logging.getLogger("chorus.config_env")
 
@@ -46,6 +48,41 @@ def select_job_store() -> JobStore:
         log.info("jobs: %s set — using PostgresJobStore", DATABASE_URL_ENV)
         return PostgresJobStore(dsn)
     return SqliteJobStore()
+
+
+def select_key_store(store: JobStore | None = None) -> KeyStore:
+    """DATABASE_URL set -> PostgresKeyStore (Phase F: issued keys otherwise
+    live in an ephemeral SQLite file on Vercel and vanish between
+    invocations). Otherwise SqliteKeyStore, co-located with `store`'s SQLite
+    file when one is given (same file `store` uses, e.g. a test's tmp_path)
+    so issuing a key and using it against the same app instance work
+    together, exactly as chorus.app.create_app did when it built
+    SqliteKeyStore inline."""
+    dsn = os.environ.get(DATABASE_URL_ENV)
+    if dsn:
+        from chorus.stores.postgres import PostgresKeyStore
+
+        log.info("keys: %s set — using PostgresKeyStore", DATABASE_URL_ENV)
+        return PostgresKeyStore(dsn)
+    from chorus.keys import SqliteKeyStore
+
+    db_path = getattr(store, "db_path", None) or DEFAULT_DB
+    return SqliteKeyStore(db_path)
+
+
+def select_subscription_store(store: JobStore | None = None) -> SubscriptionStore:
+    """Same selection rule as select_key_store: Postgres when DATABASE_URL is
+    set, else SQLite co-located with `store`'s file (or DEFAULT_DB)."""
+    dsn = os.environ.get(DATABASE_URL_ENV)
+    if dsn:
+        from chorus.stores.postgres import PostgresSubscriptionStore
+
+        log.info("subscriptions: %s set — using PostgresSubscriptionStore", DATABASE_URL_ENV)
+        return PostgresSubscriptionStore(dsn)
+    from chorus.subscriptions import SqliteSubscriptionStore
+
+    db_path = getattr(store, "db_path", None) or DEFAULT_DB
+    return SqliteSubscriptionStore(db_path)
 
 
 def select_transcript_cache() -> TranscriptCache:

@@ -26,6 +26,13 @@ is an open wallet):
 - Request bodies over MAX_BODY_BYTES are rejected before JSON parsing; the
   request models bound every field on top of that.
 - Startup marks any job left in flight by a previous process as failed.
+- On a request that passes auth, `request.state.owner` is set to "master"
+  (the master token) or the issued key's email (chorus.keys.KeyStore.
+  owner_of) — chorus/subscriptions_api.py scopes a subscription to whichever
+  owner created it. A handful of routes are public by design (self-serve key
+  issuance, the unsubscribe link, the internal cron trigger, GET discovery
+  documents) and are listed in PUBLIC_ROUTES / PUBLIC_ROUTE_SUFFIXES /
+  DISCOVERY_PUBLIC_PREFIXES below rather than scattered through the middleware.
 """
 from __future__ import annotations
 
@@ -49,6 +56,9 @@ from chorus.models import DigestRequest, Job, KeyRequest, SelectionRequest
 from chorus.personas import PersonaRegistry, SqlitePersonaRegistry
 from chorus.pipeline import Deps
 from chorus.runners import InngestRunner, JobRunner
+from chorus.scheduler import CRON_SECRET_ENV
+from chorus.subscriptions import MASTER_OWNER, SubscriptionStore
+from chorus.subscriptions_api import build_subscriptions_router
 
 log = logging.getLogger("chorus.app")
 
@@ -66,20 +76,51 @@ INNGEST_EXEMPT_PATH = "/api/inngest"
 # credential to authenticate with. Only GET under these prefixes is exempt —
 # POST/DELETE on /personas still require the bearer token (see `guards`).
 DISCOVERY_PUBLIC_PREFIXES = ("/.well-known/", "/personas", "/network")
+# (method, exact path) routes that never require the user bearer token, each
+# with its own reason: POST /keys is how a caller obtains a token in the
+# first place; GET/POST /internal/cron/tick carries its own CRON_SECRET
+# bearer (chorus/subscriptions_api.py) — GET because Vercel Cron always
+# calls a cron path with GET, POST for curl/another scheduler/tests.
+PUBLIC_ROUTES: tuple[tuple[str, str], ...] = (
+    ("POST", "/keys"),
+    ("GET", "/internal/cron/tick"),
+    ("POST", "/internal/cron/tick"),
+)
+# (method, path suffix) routes matched by suffix because they carry a path
+# parameter: GET /subscriptions/{id}/unsubscribe is a public, HMAC-signed
+# link clicked from an email client holding no API token.
+PUBLIC_ROUTE_SUFFIXES: tuple[tuple[str, str], ...] = (
+    ("GET", "/unsubscribe"),
+)
 
 
 def _provider_keys_present() -> bool:
     return any(os.environ.get(k) for k in PROVIDER_KEY_ENVS)
 
 
-def _authorized(request: Request, token: str | None, key_store: KeyStore) -> bool:
-    scheme, _, credential = request.headers.get("authorization", "").partition(" ")
-    if scheme.lower() != "bearer":
-        return False
-    supplied = credential.strip()
-    if token is not None and secrets.compare_digest(supplied, token):
+def _is_public_route(request: Request) -> bool:
+    if request.url.path.startswith(INNGEST_EXEMPT_PATH):
         return True
-    return bool(supplied) and key_store.is_valid(supplied)
+    method, path = request.method, request.url.path
+    if (method, path) in PUBLIC_ROUTES:
+        return True
+    if method == "GET" and path.startswith(DISCOVERY_PUBLIC_PREFIXES):
+        return True
+    return any(method == m and path.endswith(suffix) for m, suffix in PUBLIC_ROUTE_SUFFIXES)
+
+
+def _resolve_owner(request: Request, token: str | None, key_store: KeyStore) -> str | None:
+    """"master" for the master token, the issued key's email for a valid
+    key, or None when unauthenticated/invalid. `token=None` (auth disabled)
+    still resolves a presented key's owner so request.state.owner is always
+    populated for route handlers, but never returns None in that case."""
+    scheme, _, credential = request.headers.get("authorization", "").partition(" ")
+    supplied = credential.strip() if scheme.lower() == "bearer" else ""
+    if token is not None and supplied and secrets.compare_digest(supplied, token):
+        return MASTER_OWNER
+    if supplied and key_store.is_valid(supplied):
+        return key_store.owner_of(supplied) or MASTER_OWNER
+    return None if token is not None else MASTER_OWNER
 
 
 def create_app(
@@ -90,6 +131,7 @@ def create_app(
     key_store: KeyStore | None = None,
     email_sender: EmailSender | None = None,
     personas: PersonaRegistry | None = None,
+    subscription_store: SubscriptionStore | None = None,
 ) -> FastAPI:
     """`api_token=None` reads CHORUS_API_TOKEN; unset means open access, which
     the lifespan check allows only when no real provider key is configured.
@@ -104,11 +146,13 @@ def create_app(
     personas = personas or SqlitePersonaRegistry(getattr(store, "db_path", DEFAULT_DB))
     token = api_token if api_token is not None else os.environ.get(API_TOKEN_ENV) or None
     owns_key_store = key_store is None
-    # Issued keys live next to the jobs when the store is SQLite. A Postgres
-    # KeyStore is a follow-up (Phase F); until then a Vercel deploy relies on
-    # the master CHORUS_API_TOKEN, since its SQLite file is ephemeral.
-    key_store = key_store or SqliteKeyStore(getattr(store, "db_path", DEFAULT_DB))
+    owns_subscription_store = subscription_store is None
+    # SQLite: co-located with `store`'s file (chorus/config_env.py). Postgres
+    # (DATABASE_URL set): survives across Vercel invocations, unlike SQLite.
+    key_store = key_store or config_env.select_key_store(store)
+    subscription_store = subscription_store or config_env.select_subscription_store(store)
     email_sender = email_sender or get_email_sender()
+    cron_secret = os.environ.get(CRON_SECRET_ENV) or None
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -133,6 +177,8 @@ def create_app(
         close_personas = getattr(personas, "close", None)
         if close_personas is not None:
             close_personas()
+        if owns_subscription_store and hasattr(subscription_store, "close"):
+            subscription_store.close()
 
     app = FastAPI(title="Chorus", version="0.1.0", lifespan=lifespan)
     app.state.personas = personas
@@ -143,22 +189,19 @@ def create_app(
         length = request.headers.get("content-length", "")
         if length.isdigit() and int(length) > MAX_BODY_BYTES:
             return JSONResponse({"detail": "request body too large"}, status_code=413)
-        # Exempt: Inngest signs its own requests (see module docstring), and
-        # POST /keys is how a caller obtains a token in the first place.
-        is_inngest = request.url.path.startswith(INNGEST_EXEMPT_PATH)
-        keys_route = request.method == "POST" and request.url.path == "/keys"
-        # Discovery documents + persona/network listing are public; only GET
-        # is exempt, so POST/DELETE on /personas still requires the token.
-        is_public_discovery = request.method == "GET" and request.url.path.startswith(
-            DISCOVERY_PUBLIC_PREFIXES
-        )
-        exempt = is_inngest or keys_route or is_public_discovery
-        if not exempt and token is not None and not _authorized(request, token, key_store):
-            return JSONResponse(
-                {"detail": "missing or invalid bearer token"},
-                status_code=401,
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+        # Public routes (_is_public_route): Inngest callbacks, self-serve key
+        # issuance, GET discovery documents, the unsubscribe link, and the
+        # internal cron trigger (its own CRON_SECRET bearer, checked in
+        # chorus/subscriptions_api.py).
+        if not _is_public_route(request):
+            owner = _resolve_owner(request, token, key_store)
+            if owner is None:
+                return JSONResponse(
+                    {"detail": "missing or invalid bearer token"},
+                    status_code=401,
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            request.state.owner = owner
         return await call_next(request)
 
     @app.post("/keys", status_code=202)
@@ -208,12 +251,18 @@ def create_app(
         runner.submit(job_id, digest_request, background)
         return {"job_id": job_id}
 
+    # Subscriptions (Phase F): CRUD + unsubscribe + POST /internal/cron/tick,
+    # all defined in chorus/subscriptions_api.py.
+    app.include_router(
+        build_subscriptions_router(subscription_store, store, deps, email_sender, cron_secret)
+    )
+
     # Inngest only when it is actually the active runner (a durable-step
     # invocation needs the same store/deps every step reads and writes).
     if isinstance(runner, InngestRunner):
         from chorus.inngest_app import register
 
-        register(app, runner.client, store, deps)
+        register(app, runner.client, store, deps, subscription_store, email_sender)
 
     # Serve rendered episodes locally so audio_url ("/artifacts/<name>") is
     # downloadable. When artifacts live in Vercel Blob, audio_url is already

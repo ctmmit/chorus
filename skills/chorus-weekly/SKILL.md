@@ -1,30 +1,79 @@
 ---
 name: chorus-weekly
-description: Schedule and deliver a weekly Chorus podcast digest for a principal. Use when an agent manages recurring subscriptions, context refresh, digest polling, and delivery.
+description: Set up and maintain a recurring weekly (or daily) Chorus podcast digest for a principal. Use when an agent creates or manages a subscription, refreshes its context, or handles delivery/unsubscribe.
 ---
 
 # Run Chorus every week
 
-Maintain the principal's podcast subscriptions in your own scheduler or agent
-memory. Chorus accepts the resulting episode selection; it does not own the
-schedule.
+Chorus owns the schedule now (docs/DEVELOPMENT_PLAN.md §3): create a
+**subscription** once and the service submits the digest job, waits for it,
+and emails the result on its own — `chorus-weekly` describing "your own
+scheduler or agent memory" running a manual gather-submit-poll loop is
+obsolete. Use the `chorus` skill's base URL, auth, and `POST /digest` /
+`GET /digest/{job_id}` contract for everything except the subscription
+lifecycle itself, which lives here.
 
-On the principal's chosen weekly cadence:
+## Create the subscription
 
-1. Gather episodes published since the previous successful run from every
-   subscribed show. Prefer stable YouTube `video_id` values; URLs also work.
-   Deduplicate episodes and keep at most 25 per request.
-2. Refresh `context` from the principal's current projects, reading, saved notes,
-   and unresolved questions. Use the latest approved `soul.md`; do not rewrite
-   the soul silently.
-3. Submit with MCP `submit_digest`, or use `submit_selection` when the episodes
-   are in Chorus's catalog. Store the returned `job_id` with the run date.
-4. Poll `get_digest(job_id)` with bounded backoff until `done` or `failed`.
-   Deliver `digest_ready` text early only when the principal prefers speed over
-   waiting for audio. Never retry a failed job blindly; surface its `error`.
-5. Deliver the highlights, source timestamps, warnings, and authenticated
-   `audio_url` through the principal's preferred channel. Record the terminal
-   job id and episode ids so next week's gather does not repeat them.
+`POST /subscriptions` once, with the same `soul`/`context`/`episodes`
+(or `shows`) shape as `POST /digest`, plus `email` and `cadence`:
 
-If no new subscribed episodes exist, send nothing. If one episode lacks a
-transcript, deliver the remaining digest and report the skipped episode.
+```json
+{
+  "email": "principal@example.com",
+  "soul": "<markdown: your lens>",
+  "context": "<current projects, reading, priorities>",
+  "shows": ["20VC with Harry Stebbings", "The Tim Ferriss Show"],
+  "cadence": "weekly",
+  "highlight_count": 4
+}
+```
+
+Prefer `shows` (catalog names, resolved fresh every run — a newly published
+episode is picked up automatically) over an explicit `episodes` list unless
+the principal wants a fixed set. `cadence: "weekly"` runs the next Friday
+13:00 UTC; `"daily"` runs the next 13:00 UTC. Store the returned
+`subscription_id` — you need it for every operation below.
+
+## Keep context fresh
+
+The `context` sent at creation goes stale. Before each week's run (or
+whenever the principal's projects/reading shift), `PATCH /subscriptions/{id}`:
+
+```bash
+curl -s -X PATCH "$BASE/subscriptions/$SUB_ID" -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"context":"<this week'"'"'s projects, reading, priorities>"}'
+```
+
+Use the latest approved `soul.md`; do not rewrite the soul silently — if the
+lens itself changed, that is a deliberate `PATCH` with the new `soul`, not an
+automatic side effect of a context refresh. The same route pauses
+(`{"active": false}`) or resumes (`{"active": true}`) delivery without
+losing the subscription, and can change `cadence` or the `episodes`/`shows`
+list.
+
+## Delivery
+
+Nothing to poll: on schedule, Chorus submits the job, waits for a terminal
+state, and emails the principal directly — highlights grouped by episode
+with the why-surfaced line and a working deep link per highlight, refused
+and skipped episodes listed honestly, one link to the rendered audio
+episode, and the lens's provenance. A failed run still emails a short
+failure notice and still advances the schedule; nothing is retried blindly.
+
+If the principal wants this week's digest immediately rather than waiting
+for the schedule, `POST /subscriptions/{id}/run` — same delivery, run now,
+returns `{"job_id"}` you can also poll directly with `GET /digest/{job_id}`
+if you want the text before the email lands.
+
+## Unsubscribe
+
+Every delivered email carries a one-click unsubscribe link
+(`GET /subscriptions/{id}/unsubscribe?token=...`) and the standard
+`List-Unsubscribe` headers. An agent acting for the principal can also just
+`DELETE /subscriptions/{id}` (or pause it with `PATCH {"active": false}`)
+through the API instead of waiting for the principal to click the link.
+
+If the principal cancels a subscribed show or wants fewer emails, prefer
+`PATCH` (reduce `episodes`/`shows`, or pause) over `DELETE` unless they
+explicitly want it gone.

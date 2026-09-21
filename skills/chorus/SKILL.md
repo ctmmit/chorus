@@ -264,3 +264,76 @@ JOB=$(curl -s -X POST "$BASE/digest" -H "$AUTH" -H 'Content-Type: application/js
 curl -s -H "$AUTH" "$BASE/digest/$JOB" \
   | jq '{status, n: (.digest.episodes|length), audio: .audio_url, warnings}'
 ```
+
+## Subscriptions
+
+A subscription is a stored digest request plus a schedule and a delivery
+address: create one and the service runs it every week (or day) on its own —
+you no longer poll and re-submit. Every write is scoped to whichever token
+created it: the master token sees and edits every subscription, an issued
+key sees and edits only its own (another key's subscription id 404s, exactly
+like an unknown one, so a key can't enumerate other principals).
+
+### Create
+
+`POST /subscriptions`
+
+```json
+{
+  "email": "you@example.com",
+  "soul": "<markdown: your lens>",
+  "context": "<plain text>",
+  "episodes": [{ "video_id": "gs39QFYIbBY" }],
+  "cadence": "weekly",
+  "highlight_count": 4
+}
+```
+
+Provide either `episodes` (explicit, same shape as `POST /digest`) or `shows`
+(catalog show names, resolved fresh each run — new episodes get picked up
+automatically). `cadence` is `"weekly"` (next Friday 13:00 UTC) or `"daily"`
+(next 13:00 UTC); `profile` works exactly as in `POST /digest` (omit for the
+single-voice default). The response is the stored `Subscription`, including
+its `subscription_id` and computed `next_run_at`.
+
+### Refresh context
+
+Context goes stale between runs. `PATCH /subscriptions/{id}` any time before
+the next run:
+
+```bash
+curl -s -X PATCH "$BASE/subscriptions/$SUB_ID" -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"context":"<this week'"'"'s projects, reading, priorities>"}'
+```
+
+The same route also toggles `active` (pause without deleting), changes
+`cadence`, or replaces `episodes`/`shows`/`highlight_count`. Only the fields
+you send are changed.
+
+### List, inspect, run now, delete
+
+- `GET /subscriptions` — every subscription you (or, with the master token,
+  anyone) own.
+- `GET /subscriptions/{id}` — one subscription.
+- `POST /subscriptions/{id}/run` — run it immediately (bypassing the
+  schedule) and return `{"job_id"}`; poll `GET /digest/{job_id}` as usual.
+  Also advances `next_run_at` and sends the same email a scheduled run would.
+- `DELETE /subscriptions/{id}` — stop and remove it.
+
+### Delivery and unsubscribe
+
+On its scheduled run the service submits the digest job itself, waits for it
+to reach a terminal state, and emails `email`: highlights grouped by
+episode with a working per-highlight link (`youtube.com/watch?v=<id>&t=<s>s`
+for YouTube episodes, the plain `audio_url` for RSS episodes), refused and
+skipped episodes listed honestly, one link to the rendered audio episode,
+and the lens's provenance (`soul_version`, `soul_origin`). A failed run still
+emails a short "this week's digest failed: `<error>`" notice and still
+advances the schedule — a subscription is never silently stuck.
+
+Every email carries a one-click unsubscribe link
+(`GET /subscriptions/{id}/unsubscribe?token=<sig>`, HMAC-signed, no API
+token required — it's meant to be clicked from an email client) and the
+`List-Unsubscribe` / `List-Unsubscribe-Post` headers Gmail and Yahoo require
+of bulk senders. Clicking it deactivates the subscription (`active: false`);
+clicking it again is a no-op, not an error.
