@@ -29,7 +29,7 @@ from chorus.audio import MockAudioRenderer  # noqa: E402
 from chorus.curation import REFUSAL, citation_resolves  # noqa: E402
 from chorus.jobs import JobStore  # noqa: E402
 from chorus.llm import MockLLMClient  # noqa: E402
-from chorus.models import Job  # noqa: E402
+from chorus.models import EpisodeInput, Job  # noqa: E402
 from chorus.pipeline import Deps  # noqa: E402
 from chorus.script import MockScriptComposer  # noqa: E402
 from chorus.transcripts import FixtureTranscriptProvider  # noqa: E402
@@ -88,7 +88,8 @@ def main() -> None:
         if not job.digest or not job.digest.highlights:
             fail("clean run produced no highlights")
         for h in job.digest.highlights:
-            if not citation_resolves(provider.get(h.episode_id), h.segment_timestamp, h.quote):
+            transcript = provider.get(EpisodeInput(video_id=h.episode_id))
+            if not citation_resolves(transcript, h.segment_timestamp, h.quote):
                 fail(f"citation did not resolve at {h.segment_timestamp}s in {h.episode_id}")
         if not job.audio_url:
             fail("clean run produced no audio_url")

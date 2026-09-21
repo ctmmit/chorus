@@ -24,19 +24,23 @@ In the Railway dashboard → Variables (or `railway variables set KEY=...`):
   the deterministic mock and returns mock digests.
 - `ELEVENLABS_API_KEY` — required for real audio. Without it `audio_url` is null.
 - `ELEVENLABS_VOICE_ID` — optional (defaults to ElevenLabs "Rachel").
-- `TRANSCRIPT_API_KEY` — for the live transcript path (see scope note below).
+- `TRANSCRIPT_API_KEY` — Supadata managed captions (YouTube). Optional; without
+  it the live chain skips straight to the RSS/Deepgram providers.
+- `DEEPGRAM_API_KEY` — Deepgram STT, the last-resort transcript fallback
+  (transcribes the episode audio directly). Optional.
 
 Railway injects `$PORT`; the Procfile already binds it.
 
-## Scope note (v1)
+## Scope note (v1 -> Phase C)
 
-`default_deps` currently uses the **fixture** transcript provider, so a deployed
-v1 resolves transcripts only for the episodes in `fixtures/transcripts/` (the
-demo catalog exposed at `GET /shows`). Fetching transcripts for arbitrary live
-episodes needs the managed-API transcript provider wired behind
-`TranscriptProvider` (the next real-integration piece, analogous to how audio
-was). Until then, drive the demo via `POST /digest/select` over `GET /shows`, or
-`POST /digest` with the fixture video ids.
+`default_deps` builds a **provider chain**: fixtures first (so the demo
+catalog at `GET /shows` always works offline), then whichever of Supadata
+(`TRANSCRIPT_API_KEY`), an episode's own Podcasting 2.0 `podcast:transcript`
+RSS tag, and Deepgram (`DEEPGRAM_API_KEY`) are configured, wrapped in a
+SQLite-backed cache (`chorus.db`, table `transcripts`) so a repeat request
+never re-hits a paid API. A digest over an arbitrary YouTube URL or an RSS
+`{feed_url, guid}` episode reaches `done` once at least one live provider has
+a key; with no keys set, only the fixture catalog resolves (as before).
 
 ## Smoke after deploy
 

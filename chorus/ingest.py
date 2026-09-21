@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 
 from chorus.models import EpisodeInput, IngestResult, ResolvedEpisode, SkippedEpisode
-from chorus.transcripts import TranscriptNotFound, TranscriptProvider
+from chorus.transcripts import TranscriptNotFound, TranscriptProvider, TranscriptProviderError
 
 log = logging.getLogger("chorus.ingest")
 
@@ -25,9 +25,8 @@ def ingest(episodes: list[EpisodeInput], provider: TranscriptProvider) -> Ingest
 
     for episode in episodes:
         try:
-            video_id = episode.resolved_id()
-            transcript = provider.get(video_id)
-        except (TranscriptNotFound, ValueError) as err:
+            transcript = provider.get(episode)
+        except (TranscriptNotFound, TranscriptProviderError, ValueError) as err:
             reason = str(err)
             log.warning("ingest: skipping episode (%s)", reason)
             skipped.append(SkippedEpisode(episode=episode, reason=reason))
