@@ -23,16 +23,16 @@ dogfood + demo) and provisioning real API keys to swap mocks for live providers.
 
 ## Current task
 
-Goals 1-6 COMPLETE + real providers verified end-to-end. Full live digest over
-5 episodes (real Haiku/Sonnet/ElevenLabs) → 10 highlights + 3.8MB mp3; lens
-discriminates correctly (refuses life/learning eps, surfaces markets eps). Keys
-purged from history. Deploy config ready (DEPLOY.md). Status: done.
-Remaining (human/optional): `railway up`; managed transcript provider for live
-non-fixture episodes; curation taste-tuning (Ed Thorp refused — borderline).
+Development plan (docs/DEVELOPMENT_PLAN.md §8) executed 21 Sep 2026: Phases
+A-H all merged into master (Vercel port, live transcript ladder, distribution
+via skills/MCP/self-serve keys, two-host episodes, weekly email subscriptions,
+Next.js viewer, agent discovery). See §10 of the plan for what remains for
+the human: push to GitHub, rotate keys, provision Vercel/Neon/Blob/Inngest/
+Resend, run the golden path against a preview URL.
 
 ## Health
 
-- Passing tests: 47 (last iteration: 33)
+- Passing tests: 223 Python + 47 web (last iteration: 47)
 - `path_test.ps1`/.sh: GREEN through Goal 6 (6 assertions incl. divergence + selection)
 - Last verified-green commit: goal 6 layer-2 (see git log)
 - Build/typecheck/lint: ruff + mypy + pytest green; path_test green

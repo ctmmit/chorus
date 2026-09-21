@@ -233,3 +233,42 @@ Sequencing notes:
 - Project NANDA: https://github.com/projnanda
 - NANDA index paper: https://arxiv.org/pdf/2507.14263
 - NANDA Town: https://github.com/projnanda/nandatown
+
+---
+
+## 10. Status — 21 Sep 2026 (execution pass)
+
+All eight phases were built in one orchestrated pass: Phase A and the batch
+curation change by the orchestrator, Phases B, C, E, F, G, H by Sonnet
+subagents in isolated worktrees, Phase D by Codex. Every branch merged into
+`master` with the full gate green after each merge.
+
+| Phase | Landed | Verified by |
+|---|---|---|
+| A. Hygiene | pinned deps, CI workflow, private fixture split (`../chorus-private`), synthetic public fixture | pytest with and without private fixtures |
+| B. Vercel port | `SqliteJobStore`/`PostgresJobStore`, `LocalArtifactStore`/`VercelBlobStore`, stage functions, `BackgroundRunner`/`InngestRunner`, `vercel.json` | 30 store/runner/Inngest tests |
+| C. Live transcripts | Supadata → RSS `podcast:transcript` (JSON/VTT/SRT) → Deepgram chain, SQLite/Postgres cache, `usage` telemetry | 46 provider tests, mocked HTTP |
+| D. Distribution | `skills/` layout, MCP server at `/mcp` + stdio, `POST /keys` self-serve keys via Resend, README-as-prompt, `AGENTS.md`, `llms.txt` | 11 tests; MCP mount tested against the real SDK |
+| E. Two-host episodes | `EpisodeProfile`, dialogue `Script.turns`, ElevenLabs Text-to-Dialogue renderer, per-turn grounding | 19 tests incl. fake-client parser tests |
+| F. Weekly email | subscriptions store/API, scheduler, Inngest tick + Vercel cron route, digest email with deep links and one-click unsubscribe | 42 tests incl. Monday→Friday scenario |
+| G. Viewer | Next.js app: timeline strip, highlight cards, player, soul diff, telemetry | 47 vitest tests, lint, typecheck, build |
+| H. Discovery | A2A agent card, NANDA AgentFacts, persona registry, `/network`, force-directed graph page | 19 tests; schemas checked against a2aproject/A2A v1.0.1 and projnanda/agentfacts-format |
+| Batch curation | one cached Haiku call per ~40 windows instead of one per window; token telemetry | 10 parser/request-shape tests |
+
+Totals: 223 Python tests, 47 web tests, ruff and mypy clean, golden path green.
+
+### Not done in this pass (needs the human or a live account)
+
+- Push to GitHub and create the public/private repos (see the runbook in the
+  final orchestrator message). The public repo's history still contains the
+  five commercial transcripts in early commits; squash or filter before the
+  first public push.
+- Rotate the two provider keys and delete `../audience-of-one-prescrub.bundle`.
+- Provision Vercel, Neon, Blob, Inngest, Resend, Supadata, Deepgram; set the
+  env vars in DEPLOY.md; run the golden path against a preview URL.
+- Postgres stores are only exercised when `TEST_DATABASE_URL` is set.
+- Ed25519 signing of AgentFacts; NANDA index registration (manual runbook in
+  docs/DISCOVERY.md).
+- Per-request voice ids in `profile.speakers` are accepted but not threaded to
+  the renderer (env-level voice ids are); the renderer is built once per process.
+- Subscriptions are HTTP-only; no MCP tools for them yet.
