@@ -119,3 +119,34 @@ def test_mock_batch_matches_single() -> None:
     soul = "## Attention triggers\n- margins and moats\n## Ignore\n- celebrity"
     texts = ["margins expand and moats widen", "celebrity gossip", "nothing"]
     assert m.score_windows(texts, soul, "") == [m.score_segment(t, soul, "") for t in texts]
+
+
+def test_job_usage_records_token_delta_per_job(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Two jobs share one metered client; each job must report only its own spend."""
+    from pathlib import Path
+
+    from fastapi.testclient import TestClient
+
+    from chorus.app import create_app
+    from chorus.audio import MockAudioRenderer
+    from chorus.jobs import JobStore
+    from chorus.pipeline import Deps
+    from chorus.script import MockScriptComposer
+    from chorus.transcripts import FixtureTranscriptProvider
+
+    fix = Path(__file__).resolve().parent.parent / "fixtures"
+    soul = (fix / "souls" / "soul_investor.md").read_text(encoding="utf-8")
+    # sample_public has 3 windows -> one batch per job; canned replies for two jobs.
+    fake = _FakeClient([_reply(3), _reply(3)])
+    deps = Deps(FixtureTranscriptProvider(), AnthropicLLMClient(client=fake), MockScriptComposer(),
+                MockAudioRenderer(out_dir=tmp_path / "artifacts"))
+    c = TestClient(create_app(JobStore(tmp_path / "jobs.db"), deps))
+    payload = {"soul": soul, "context": "", "episodes": [{"video_id": "sample_public"}]}
+    for _ in range(2):
+        job_id = c.post("/digest", json=payload).json()["job_id"]
+        body = c.get(f"/digest/{job_id}").json()
+        assert body["status"] == "done"
+        assert body["usage"]["llm_tokens"] == {
+            "calls": 1, "input_tokens": 100, "output_tokens": 20,
+            "cache_read_tokens": 80, "cache_write_tokens": 0,
+        }

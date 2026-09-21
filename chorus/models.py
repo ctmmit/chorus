@@ -206,6 +206,19 @@ class JobUsage(BaseModel):
     transcript_sources: dict[str, str] = Field(default_factory=dict)
     # Episodes ingest() could not resolve a transcript for, and why.
     skipped: list[SkippedEpisode] = Field(default_factory=list)
+    # Model tokens spent by this job (curation scorer), when the client reports them.
+    llm_tokens: LLMTokens | None = None
+
+
+class LLMTokens(BaseModel):
+    """Token counts for one job, split so the prompt-cache hit rate is visible:
+    a healthy batched run has cache_read >> input after the first call."""
+
+    calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
 
 class Job(BaseModel):

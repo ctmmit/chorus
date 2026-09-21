@@ -24,7 +24,7 @@ from chorus.curation import build_digest
 from chorus.ingest import AllEpisodesFailed, ingest
 from chorus.jobs import JobStore
 from chorus.llm import LLMClient, get_llm_client
-from chorus.models import DigestRequest, Job, JobStatus, JobUsage
+from chorus.models import DigestRequest, Job, JobStatus, JobUsage, LLMTokens
 from chorus.script import ScriptComposer, get_script_composer
 from chorus.transcript_cache import CachingTranscriptProvider, SqliteTranscriptCache
 from chorus.transcripts import (
@@ -84,6 +84,27 @@ def default_deps() -> Deps:
     )
 
 
+def _token_snapshot(llm: LLMClient) -> LLMTokens | None:
+    """Clients that meter tokens expose a `usage` accumulator (AnthropicLLMClient).
+    It is shared across jobs, so per-job numbers are a delta of two snapshots."""
+    meter = getattr(llm, "usage", None)
+    if meter is None:
+        return None
+    return LLMTokens(
+        calls=meter.calls,
+        input_tokens=meter.input_tokens,
+        output_tokens=meter.output_tokens,
+        cache_read_tokens=meter.cache_read_tokens,
+        cache_write_tokens=meter.cache_write_tokens,
+    )
+
+
+def _token_delta(before: LLMTokens | None, after: LLMTokens | None) -> LLMTokens | None:
+    if before is None or after is None:
+        return None
+    return LLMTokens(**{k: getattr(after, k) - getattr(before, k) for k in LLMTokens.model_fields})
+
+
 def run_job(job_id: str, request: DigestRequest, store: JobStore, deps: Deps) -> None:
     job = store.get(job_id)
     if job is None:
@@ -123,6 +144,7 @@ def _run(job: Job, request: DigestRequest, store: JobStore, deps: Deps) -> None:
 
     # Any exception here propagates to run_job's handler -> failed with reason.
     t0 = time.perf_counter()
+    tokens_before = _token_snapshot(deps.llm)
     job.digest = build_digest(
         ingested,
         request.soul,
@@ -132,6 +154,7 @@ def _run(job: Job, request: DigestRequest, store: JobStore, deps: Deps) -> None:
         soul_origin=request.soul_origin,
     )
     usage.stage_seconds["curate"] = time.perf_counter() - t0
+    usage.llm_tokens = _token_delta(tokens_before, _token_snapshot(deps.llm))
     job.status = JobStatus.digest_ready
     store.save(job)
 
