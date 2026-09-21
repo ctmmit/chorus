@@ -165,6 +165,73 @@ Triggers** (surface a segment when it touches these), **Anti-interests** (ignore
 e.g. "bar is high for AI content; surface only when genuinely novel"). The last
 one most affects what gets surfaced.
 
+## Episode format
+
+By default you get a single-voice episode: one host (voiced by your `soul`)
+delivering an opinionated take. To get a NotebookLM-style two-host episode —
+two voices in conversation, reacting to each other, with an arc — send a
+`profile` on the request. `profile` is optional; omitting it is identical to
+sending the single-voice default.
+
+**The agent still writes every line.** `profile` only configures who is
+speaking and how (personas, tone, engagement techniques) — it does not hand
+the dialogue to an auto-writer. Grounding is absolute and per-turn: every
+line of dialogue must trace back to a highlight your digest actually
+surfaced, or it is dropped before you ever see it, exactly like an
+ungrounded take is dropped from the single-voice script today.
+
+```json
+{
+  "soul": "<markdown: your lens>",
+  "context": "<plain text>",
+  "episodes": [{ "video_id": "gs39QFYIbBY" }],
+  "highlight_count": 4,
+  "profile": {
+    "name": "two-host",
+    "format": "dialogue",
+    "speakers": [
+      { "role": "host", "name": "Host", "persona": "the soul" },
+      {
+        "role": "cohost",
+        "name": "Cohost",
+        "persona": "A sharp, skeptical foil. You defend the guest's position against the host's takes and press for specifics: whenever the host makes a claim, ask for the number, the counterexample, or the mechanism.",
+        "voice_id": null
+      }
+    ],
+    "style": {
+      "tone": "sharp, argumentative, fast-paced",
+      "engagement": ["interruptions", "callbacks", "disagreement", "concrete numbers"],
+      "target_minutes": 5
+    }
+  }
+}
+```
+
+- `format`: `"monologue"` (default) or `"dialogue"`. `"dialogue"` requires
+  exactly one `"host"` speaker and one `"cohost"` speaker.
+- A speaker's `persona` is markdown describing how THAT speaker talks — the
+  host's persona defaults to the literal string `"the soul"`, meaning "use my
+  `soul` itself as this speaker's voice." The cohost needs its own persona
+  (there's no default foil built in beyond what you send).
+- `style.engagement` is explicit config for techniques the dialogue should
+  use (interruptions, callbacks, disagreement, pressing for concrete
+  numbers) — borrowed structure, not an auto-writer's judgment call.
+- `style.target_minutes` (1–20, default 5) caps how much dialogue gets
+  written, at roughly 150 spoken words/minute.
+- `voice_id` per speaker is optional; unset falls back to the service's
+  `ELEVENLABS_VOICE_ID` (host) / `ELEVENLABS_COHOST_VOICE_ID` (cohost).
+
+In the response, a dialogue script's `script.turns` is a list of
+`{ "speaker": "host" | "cohost", "text", "episode_id", "segment_timestamp" }`
+— resolve `episode_id` + `segment_timestamp` against `digest` exactly like a
+highlight citation, because that's what grounds it. `script.monologue` still
+exists for a dialogue script too: it's the readable transcript ("HOST:
+...\n\nCOHOST: ...") built from `turns`, so a caller that only reads
+`monologue` (as every caller could before this feature existed) still gets
+something coherent. `script.takes` are the beats the dialogue was built from
+(pass 1 of the two-pass outline-then-dialogue process); `script.format` tells
+you which shape you got.
+
 ## Minimal example
 
 ```bash

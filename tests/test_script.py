@@ -6,7 +6,7 @@ from pathlib import Path
 from chorus.curation import build_digest
 from chorus.ingest import ingest
 from chorus.llm import MockLLMClient
-from chorus.models import TAKE_TYPES, EpisodeInput
+from chorus.models import TAKE_TYPES, EpisodeInput, MONOLOGUE_PROFILE, TWO_HOST_PROFILE
 from chorus.script import MockScriptComposer
 from chorus.transcripts import FixtureTranscriptProvider
 
@@ -45,3 +45,63 @@ def test_refused_episode_yields_no_takes() -> None:
     script = MockScriptComposer().write_script(digest, soul, context)
     assert script.takes == []
     assert "Nothing cleared the bar" in script.monologue
+
+
+# --- Phase E: two-host dialogue (docs/DEVELOPMENT_PLAN.md §4) --------------
+
+
+def test_monologue_profile_explicit_matches_default() -> None:
+    """Passing MONOLOGUE_PROFILE explicitly must be identical to omitting a
+    profile — single-voice stays the default and unchanged."""
+    digest, soul, context = _digest(ANDREESSEN, "soul_investor.md")
+    default_script = MockScriptComposer().write_script(digest, soul, context)
+    explicit_script = MockScriptComposer().write_script(digest, soul, context, MONOLOGUE_PROFILE)
+    assert default_script == explicit_script
+    assert explicit_script.format == "monologue"
+    assert explicit_script.turns == []
+
+
+def test_dialogue_mock_alternates_speakers() -> None:
+    digest, soul, context = _digest(ANDREESSEN, "soul_investor.md")
+    script = MockScriptComposer().write_script(digest, soul, context, TWO_HOST_PROFILE)
+
+    assert script.format == "dialogue"
+    assert script.turns, "clean episode should yield dialogue turns"
+    speakers = [t.speaker for t in script.turns]
+    # Deterministic alternation: host states the take, cohost pushes back.
+    assert speakers == ["host", "cohost"] * (len(speakers) // 2)
+
+
+def test_dialogue_every_turn_traceable_to_a_highlight() -> None:
+    digest, soul, context = _digest(ANDREESSEN, "soul_investor.md")
+    script = MockScriptComposer().write_script(digest, soul, context, TWO_HOST_PROFILE)
+
+    valid = {(h.episode_id, round(h.segment_timestamp)) for h in digest.highlights}
+    assert script.turns
+    for turn in script.turns:
+        assert (turn.episode_id, round(turn.segment_timestamp)) in valid, "turn not traceable"
+
+
+def test_dialogue_monologue_field_contains_readable_transcript_of_every_turn() -> None:
+    digest, soul, context = _digest(ANDREESSEN, "soul_investor.md")
+    script = MockScriptComposer().write_script(digest, soul, context, TWO_HOST_PROFILE)
+
+    for turn in script.turns:
+        assert f"{turn.speaker.upper()}: {turn.text}" in script.monologue
+
+
+def test_dialogue_refused_episode_yields_no_turns() -> None:
+    digest, soul, context = _digest(EGGS, "soul_investor.md")  # ungrounded -> refused
+    script = MockScriptComposer().write_script(digest, soul, context, TWO_HOST_PROFILE)
+    assert script.turns == []
+    assert script.takes == []
+    assert "Nothing cleared the bar" in script.monologue
+
+
+def test_monologue_format_unchanged_from_before_phase_e() -> None:
+    """No profile passed at all (the pre-Phase-E call shape) must still
+    produce a monologue-format script with empty turns."""
+    digest, soul, context = _digest(ANDREESSEN, "soul_investor.md")
+    script = MockScriptComposer().write_script(digest, soul, context)
+    assert script.format == "monologue"
+    assert script.turns == []
