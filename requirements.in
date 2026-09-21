@@ -12,3 +12,5 @@ psycopg_pool>=3.2,<4
 # BackgroundTasks replacement on Vercel, where a function can be frozen the
 # instant the response is sent.
 inngest>=0.4,<1
+# Phase D: MCP server (chorus/mcp_server.py) for agent callers.
+mcp>=1.30,<2

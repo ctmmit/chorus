@@ -1,0 +1,24 @@
+# Chorus
+
+> Chorus is an agent-native FastAPI and MCP service that turns podcast transcripts into persona-conditioned, timestamp-grounded highlights and a short audio episode.
+
+Agents should start with the README build instructions, then use the skill for
+the complete request and response contract. The service accepts either a master
+bearer token or a self-serve API key delivered by email.
+
+## Agent entrypoints
+
+- [Build instructions](https://github.com/ctmmit/chorus/blob/main/README.md): Install the skill or MCP server, interview the principal, and submit the first digest.
+- [Chorus skill](https://github.com/ctmmit/chorus/blob/main/SKILL.md): Complete HTTP contract, limits, lifecycle, and error semantics.
+- [Soul interview skill](https://github.com/ctmmit/chorus/blob/main/skills/chorus-soul-bootstrap/SKILL.md): Questions and exact soul.md schema.
+- [Weekly digest skill](https://github.com/ctmmit/chorus/blob/main/skills/chorus-weekly/SKILL.md): Recurring gather, context refresh, polling, and delivery workflow.
+
+## Developer documentation
+
+- [Deployment](https://github.com/ctmmit/chorus/blob/main/DEPLOY.md): Environment and hosting setup.
+- [Development plan](https://github.com/ctmmit/chorus/blob/main/docs/DEVELOPMENT_PLAN.md): Architecture decisions and phased roadmap.
+- [Agent conventions](https://github.com/ctmmit/chorus/blob/main/AGENTS.md): Repository map, verification gates, and implementation rules.
+
+## Optional
+
+- [OpenAPI](https://chorus.up.railway.app/openapi.json): Machine-readable HTTP schemas for a deployed Chorus instance.

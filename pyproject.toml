@@ -16,6 +16,8 @@ dependencies = [
   "psycopg[binary]>=3.2,<4",
   "psycopg_pool>=3.2,<4",
   "inngest>=0.4,<1",
+  # Phase D: MCP server for agent callers.
+  "mcp>=1.30,<2",
 ]
 
 [project.optional-dependencies]
