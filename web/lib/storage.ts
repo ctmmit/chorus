@@ -7,15 +7,14 @@ const KEY_TOKEN = "chorus.token";
 const KEY_RECENT_JOBS = "chorus.recentJobs";
 const MAX_RECENT_JOBS = 25;
 
+/** Navigation-only history of jobs submitted from this browser (Phase C's
+ * usage.skipped now carries skip detection, so this no longer needs to
+ * remember what was requested — just enough to relink to the job). */
 export interface RecentJob {
   job_id: string;
   base_url: string;
   created_at: string; // ISO 8601
   label: string;
-  /** Video ids the viewer asked for when it submitted this job, used to
-   * detect episodes that were skipped server-side (present in the request,
-   * absent from the digest) — the API itself does not report skips. */
-  requested_episode_ids: string[];
 }
 
 function readLocalStorage(key: string): string | null {
@@ -62,10 +61,6 @@ export function getRecentJobs(): RecentJob[] {
   } catch {
     return [];
   }
-}
-
-export function getRecentJob(jobId: string): RecentJob | undefined {
-  return getRecentJobs().find((j) => j.job_id === jobId);
 }
 
 export function addRecentJob(entry: RecentJob): void {

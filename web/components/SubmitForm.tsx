@@ -149,7 +149,6 @@ export function SubmitForm() {
         base_url: baseUrl,
         created_at: new Date().toISOString(),
         label: `${requestedIds.length} episode${requestedIds.length === 1 ? "" : "s"} · ${soulOrigin}`,
-        requested_episode_ids: requestedIds,
       });
       router.push(`/jobs/${job_id}`);
     } catch (err) {

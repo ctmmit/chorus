@@ -1,5 +1,5 @@
 {
-  "job_id": "c13fea54ebee4890abc11f6f00ad77c7",
+  "job_id": "e94187e7f25e4383809d16378e309c9c",
   "status": "done",
   "digest": {
     "soul_version": "77974213",
@@ -1444,7 +1444,37 @@
     ],
     "monologue": "[idea] On gs39QFYIbBY at 19:47 \u2014 well 10 doublings is about a thousand and four more is about another 16 more multiplying so you get up to around sixteen thousand times so that's what...\n\n[pushback] On gs39QFYIbBY at 1:31 \u2014 began to cash in with an edge in the marketplace could you define just for people who may not have familiarity the common stock warrants what is a...\n\n[connection] On gs39QFYIbBY at 3:02 \u2014 before he could sell his house and get his price meanwhile this is short-term thinking he wanted to hold out for a little extra money and he was...\n\n[question] On gs39QFYIbBY at 22:52 \u2014 cross if you're not prepared for that then you're going to make all kinds of bad decisions along the way like getting out of the bottom so let...\n\n[cross_reference] On c4tvVKDhpiY at 59:01 \u2014 economics after after Joseph Shumpeder is the kind of you know the economist who kind of developed the theory of creative destruction um uh and and this economist...\n\n[idea] On c4tvVKDhpiY at 25:43 \u2014 hence reading so much of your writing for years. When we look forward, what do you, how do you think about the future of venture? Is it as...\n\n[pushback] On c4tvVKDhpiY at 62:03 \u2014 sum economics. It's the lump of labor fallacy. It happens over and over and over again. It's always been wrong. It's going to be wrong again. >> Leave...\n\n[connection] On c4tvVKDhpiY at 36:18 \u2014 they and then by the time you meet them it's just like they've alienated like six of the mainstream venture firms and now they're the diamond in the...\n\n[question] On wAnDWfEIwoE at 45:33 \u2014 pain and inflammation improved mitochondrial function and even improving visual function itself what sets CH lights apart and why they're my preferred red light therapy device is that...\n\n[cross_reference] On wAnDWfEIwoE at 82:02 \u2014 I'm training very intensely physically and I'm doing really intense mental work and I oscillate between them in beautiful ways and I have a lot of empty space...\n\n[idea] On wAnDWfEIwoE at 118:24 \u2014 want to like you think about predator and prey Dynamics in in the world or in competition or in anything like you want to be competing now there's...\n\n[pushback] On wAnDWfEIwoE at 47:04 \u2014 you said that you were devastated you experienced a tremendous amount of pain from these losses in particular the one that you just described if you don't mind...\n\n[connection] On xKZ_8ULR91Y at 7:36 \u2014 so again like the dynamics change and like but I think a lot of the same kind of basic engineering questions are not so dissimilar but like all...\n\n[question] On xKZ_8ULR91Y at 18:13 \u2014 power and cool it kind of useless. So, you know, we're working very closely with with kind of almost everyone in in that space to think about what...\n\n[cross_reference] On xKZ_8ULR91Y at 6:05 \u2014 noisier and there tends to be a lot more of it. And it's also different between different models that we build for different applications, right? As we try...\n\n[idea] On xKZ_8ULR91Y at 13:40 \u2014 like that >> and doing that well often involves human judgment of like thinking about like how is today different from all of the other days and you...\n\n[pushback] On 2Ryr95iiYNk at 13:39 \u2014 Leon was making. But I do think a few things are probably going to lead to not having widespread misses because of token maxing. And if you're not...\n\n[connection] On 2Ryr95iiYNk at 1:30 \u2014 meat and potatoes of semiconductors and memory and the stack and the bottlenecks, which I'm sure all of you, uh just like me, want to engage with you...\n\n[question] On 2Ryr95iiYNk at 7:34 \u2014 and that's a good segue because that idea of a framework and your mental model Today, memory prices are up 60 to Micron's margins are probably what high...\n\n[cross_reference] On 2Ryr95iiYNk at 15:09 \u2014 we're finding out that there's we're nowhere near the amount of you know, people's ceiling price for how much they'll spend. So, I think you'll get a lot..."
   },
-  "audio_url": "/artifacts/episode_c13fea54ebee4890abc11f6f00ad77c7.txt",
+  "audio_url": "/artifacts/episode_e94187e7f25e4383809d16378e309c9c.txt",
   "error": null,
-  "warnings": []
+  "warnings": [],
+  "usage": {
+    "stage_seconds": {
+      "ingest": 0.11499420000473037,
+      "curate": 0.04738609999185428,
+      "script": 0.0003060000017285347,
+      "audio": 0.0013627000153064728
+    },
+    "transcript_sources": {
+      "gs39QFYIbBY": "fixture",
+      "c4tvVKDhpiY": "fixture",
+      "wAnDWfEIwoE": "fixture",
+      "xKZ_8ULR91Y": "fixture",
+      "2Ryr95iiYNk": "fixture"
+    },
+    "skipped": [
+      {
+        "episode": {
+          "url": null,
+          "video_id": "KhZfxZ-C-2g",
+          "show": null,
+          "title": null,
+          "feed_url": null,
+          "guid": null,
+          "audio_url": null
+        },
+        "reason": "no transcript fixture for KhZfxZ-C-2g at C:\\Users\\colin\\OneDrive\\Projects\\media-agent\\audience-of-one\\.claude\\worktrees\\agent-a787e2005922814bf\\fixtures\\transcripts\\KhZfxZ-C-2g.json"
+      }
+    ],
+    "llm_tokens": null
+  }
 }

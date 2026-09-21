@@ -1,5 +1,5 @@
 {
-  "job_id": "5ae1599a70374a7b8e1a8f9a769fcdb4",
+  "job_id": "1f4ccd824c5347e18bafc55fb40b3b42",
   "status": "done",
   "digest": {
     "soul_version": "14ce3100",
@@ -284,7 +284,20 @@
     ],
     "monologue": "[idea] On c4tvVKDhpiY at 18:09 \u2014 now, but um I think in general don't read the comments uh is helpful. I mean it's really hard. I mean, you know, everybody's human. I think it's...\n\n[pushback] On c4tvVKDhpiY at 49:58 \u2014 you look at the economic growth rate itself it actually tells you a lot. Um and as you know there you know just as an example there are...\n\n[connection] On c4tvVKDhpiY at 57:29 \u2014 the way, the free ones are pretty good now. And by the way, Google gives away a lot of AI value for free. and Microsoft is starting to...\n\n[question] On c4tvVKDhpiY at 69:39 \u2014 genuinely not what I'm trying to do and I'm just going to ask questions um and do that. Um, generally the way that plays out like at our..."
   },
-  "audio_url": "/artifacts/episode_5ae1599a70374a7b8e1a8f9a769fcdb4.txt",
+  "audio_url": "/artifacts/episode_1f4ccd824c5347e18bafc55fb40b3b42.txt",
   "error": null,
-  "warnings": []
+  "warnings": [],
+  "usage": {
+    "stage_seconds": {
+      "ingest": 0.027422199986176565,
+      "curate": 0.011084800004027784,
+      "script": 0.00012010001228190958,
+      "audio": 0.0009299000084865838
+    },
+    "transcript_sources": {
+      "c4tvVKDhpiY": "fixture"
+    },
+    "skipped": [],
+    "llm_tokens": null
+  }
 }

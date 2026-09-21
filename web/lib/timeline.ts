@@ -108,14 +108,3 @@ export function overlapPercentage(
   const union = new Set([...a, ...b]).size;
   return union === 0 ? 0 : (shared / union) * 100;
 }
-
-/** Episode ids present in `requestedIds` but absent from the digest —
- * skipped server-side (missing transcript, ingest failure, etc). The API
- * does not report a reason for these (see web/README.md "API gaps"). */
-export function skippedEpisodeIds(
-  requestedIds: string[],
-  digestEpisodes: { episode_id: string }[],
-): string[] {
-  const present = new Set(digestEpisodes.map((e) => e.episode_id));
-  return requestedIds.filter((id) => !present.has(id));
-}
