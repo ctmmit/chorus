@@ -46,13 +46,26 @@ The job is async (audio takes minutes). One submit, then poll one endpoint.
   "context": "<plain text: what the principal is working on/reading this week>",
   "episodes": [
     { "video_id": "gs39QFYIbBY" },
-    { "url": "https://www.youtube.com/watch?v=c4tvVKDhpiY" }
+    { "url": "https://www.youtube.com/watch?v=c4tvVKDhpiY" },
+    { "feed_url": "https://feeds.example.com/show.xml", "guid": "ep-142" }
   ],
   "highlight_count": 4
 }
 ```
 
-Each episode takes `video_id` OR `url` (YouTube). Returns:
+Each episode is one of:
+
+- `{ "video_id": "..." }` or `{ "url": "..." }` — a YouTube episode.
+- `{ "feed_url": "...", "guid": "..." }` (optionally `"audio_url"` too) — a
+  podcast RSS episode, identified the way Podcasting 2.0 identifies it: the
+  feed plus the `<guid>` of the `<item>`. Use `audio_url` instead of `guid`
+  if that's all you have (the service matches on `<enclosure url>`).
+
+The service resolves a transcript through a provider ladder (managed YouTube
+captions, the episode's own RSS `podcast:transcript` tag, then speech-to-text
+on the audio as a last resort) — you never need to know which one fired;
+`usage.transcript_sources` (below) tells you after the fact if you're curious.
+Returns:
 
 ```json
 { "job_id": "a1b2c3..." }
@@ -100,11 +113,22 @@ never stays `queued` or `digest_ready` indefinitely. The digest is usable at
   },
   "script": { "soul_version": "1a2b3c4d", "takes": [ ... ], "monologue": "..." },
   "audio_url": "/artifacts/episode_a1b2c3....mp3",
-  "warnings": []
+  "warnings": [],
+  "usage": {
+    "stage_seconds": { "ingest": 0.8, "curate": 12.4, "script": 3.1, "audio": 9.6 },
+    "transcript_sources": { "c4tvVKDhpiY": "supadata", "ep-142": "rss:json" },
+    "skipped": [ { "episode": { "...": "..." }, "reason": "why it couldn't resolve" } ]
+  }
 }
 ```
 
 - Every highlight's `segment_timestamp` + `quote` resolve to the real transcript.
+- `usage` is run telemetry, not part of the lifecycle contract — safe to ignore.
+  `transcript_sources` maps each resolved episode id to which provider produced
+  its transcript ("fixture", "supadata", "rss:json"/"rss:vtt"/"rss:srt", or
+  "deepgram"); `skipped` lists episodes that never resolved and why (the same
+  information a skipped episode's absence from `digest.episodes` otherwise
+  throws away).
 - An episode with nothing relevant comes back `refused: true` with
   `refusal_reason: "nothing cleared the relevance bar"` — never an invented reason.
 - `audio_url` is downloadable from the base URL (send the bearer token). It is

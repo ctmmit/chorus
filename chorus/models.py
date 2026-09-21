@@ -7,6 +7,7 @@ Data flow (Goal 1 portion):
 """
 from __future__ import annotations
 
+import hashlib
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -22,6 +23,11 @@ MAX_URL_CHARS = 2_048
 MAX_VIDEO_ID_CHARS = 64
 MAX_SHOW_CHARS = 200
 MAX_TITLE_CHARS = 500
+MAX_GUID_CHARS = 500
+# Length of the sha1 prefix used to build a stable id for RSS episodes
+# (video_id-shaped, short enough to stay under MAX_VIDEO_ID_CHARS everywhere
+# a resolved id is stored/logged).
+RSS_ID_HASH_CHARS = 16
 
 
 class Segment(BaseModel):
@@ -35,6 +41,10 @@ class Segment(BaseModel):
 class Transcript(BaseModel):
     video_id: str
     segments: list[Segment]
+    # Which provider produced this transcript (e.g. "fixture", "supadata",
+    # "rss:json", "deepgram"). None only for transcripts built before Phase C
+    # (kept optional so old cached payloads still validate).
+    source: str | None = None
 
     @property
     def word_count(self) -> int:
@@ -42,22 +52,42 @@ class Transcript(BaseModel):
 
 
 class EpisodeInput(BaseModel):
-    """One episode as supplied by the calling agent (the §6 request shape)."""
+    """One episode as supplied by the calling agent (the §6 request shape).
+
+    Either a YouTube identifier (`video_id`/`url`) or an RSS identifier
+    (`feed_url` + `guid`, optionally `audio_url`) must be present."""
 
     url: str | None = Field(default=None, max_length=MAX_URL_CHARS)
     video_id: str | None = Field(default=None, max_length=MAX_VIDEO_ID_CHARS)
     show: str | None = Field(default=None, max_length=MAX_SHOW_CHARS)
     title: str | None = Field(default=None, max_length=MAX_TITLE_CHARS)
+    # RSS / Podcasting 2.0 identification (Phase C): a podcast feed plus the
+    # <guid> of one <item>. audio_url may be supplied directly (or resolved
+    # from the feed's <enclosure>) so the Deepgram fallback has something to
+    # transcribe.
+    feed_url: str | None = Field(default=None, max_length=MAX_URL_CHARS)
+    guid: str | None = Field(default=None, max_length=MAX_GUID_CHARS)
+    audio_url: str | None = Field(default=None, max_length=MAX_URL_CHARS)
 
     def resolved_id(self) -> str:
-        """The YouTube id to fetch a transcript for. Caller may pass either."""
+        """A stable id to fetch/cache a transcript for. YouTube episodes use
+        the video id; RSS episodes (no YouTube id) get a deterministic id
+        derived from guid (falling back to audio_url) so the same episode
+        always resolves to the same cache key."""
         if self.video_id:
             return self.video_id
         if self.url:
             from chorus.transcripts import extract_video_id
 
             return extract_video_id(self.url)
-        raise ValueError("EpisodeInput requires either url or video_id")
+        if self.guid or self.audio_url:
+            key = self.guid or self.audio_url
+            assert key is not None  # narrows for mypy; guarded by the `or` above
+            digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:RSS_ID_HASH_CHARS]
+            return f"rss-{digest}"
+        raise ValueError(
+            "EpisodeInput requires one of: video_id, url, or (guid/audio_url)"
+        )
 
 
 class ResolvedEpisode(BaseModel):
@@ -165,6 +195,19 @@ class JobStatus(str, Enum):
     failed = "failed"
 
 
+class JobUsage(BaseModel):
+    """Run telemetry (§8 row C). Nothing here is load-bearing for the
+    lifecycle; it is the cost/observability meter a caller (or a human) can
+    read to see what a job actually did — previously thrown away."""
+
+    # Wall-clock seconds per pipeline stage: "ingest" | "curate" | "script" | "audio".
+    stage_seconds: dict[str, float] = Field(default_factory=dict)
+    # resolved episode id -> which TranscriptProvider produced it (Transcript.source).
+    transcript_sources: dict[str, str] = Field(default_factory=dict)
+    # Episodes ingest() could not resolve a transcript for, and why.
+    skipped: list[SkippedEpisode] = Field(default_factory=list)
+
+
 class Job(BaseModel):
     """The async job record (ENGINEERING_REVIEW Q3 lifecycle).
 
@@ -180,3 +223,4 @@ class Job(BaseModel):
     audio_url: str | None = None
     error: str | None = None
     warnings: list[str] = Field(default_factory=list)
+    usage: JobUsage | None = None
