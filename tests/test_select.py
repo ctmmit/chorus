@@ -8,8 +8,9 @@ from fastapi.testclient import TestClient
 
 from chorus import catalog
 from chorus.app import create_app
+from chorus.artifacts import LocalArtifactStore
 from chorus.audio import MockAudioRenderer
-from chorus.jobs import JobStore
+from chorus.jobs import SqliteJobStore
 from chorus.llm import MockLLMClient
 from chorus.pipeline import Deps
 from chorus.script import MockScriptComposer
@@ -27,8 +28,9 @@ def client(tmp_path: Path) -> TestClient:
         llm=MockLLMClient(),
         composer=MockScriptComposer(),
         renderer=MockAudioRenderer(out_dir=tmp_path / "artifacts"),
+        artifacts=LocalArtifactStore(tmp_path / "artifacts"),
     )
-    return TestClient(create_app(JobStore(tmp_path / "jobs.db"), deps))
+    return TestClient(create_app(SqliteJobStore(tmp_path / "jobs.db"), deps))
 
 
 def _creds() -> dict:

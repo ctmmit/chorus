@@ -22,7 +22,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from chorus.app import create_app  # noqa: E402
 from chorus.audio import ARTIFACT_DIR  # noqa: E402
-from chorus.jobs import JobStore  # noqa: E402
+from chorus.jobs import SqliteJobStore  # noqa: E402
 from chorus.pipeline import default_deps  # noqa: E402
 
 FIX = Path(__file__).resolve().parent.parent / "fixtures"
@@ -37,7 +37,7 @@ def main() -> None:
         "highlight_count": 4,
     }
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
-        store = JobStore(Path(d) / "jobs.db")
+        store = SqliteJobStore(Path(d) / "jobs.db")
         client = TestClient(create_app(store, default_deps()))
         print(f"LIVE: full digest over {len(CLEAN)} episodes (real Haiku/Sonnet/ElevenLabs)...")
         t = time.perf_counter()

@@ -1,12 +1,18 @@
 """Goal 3.2 / ISS-001 — audio rendering: mock artifact + real ElevenLabs path
-(with httpx mocked, so no spend) + renderer selection."""
+(with httpx mocked, so no spend) + renderer selection.
+
+Phase B: renderers return `RenderedAudio` (bytes + metadata) instead of
+writing files themselves — chorus.artifacts.ArtifactStore is what "writes"
+now (see tests/test_store_contract.py and the ArtifactStore-specific cases
+below)."""
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
 
-from chorus.audio import ElevenLabsRenderer, MockAudioRenderer, get_audio_renderer
+from chorus.artifacts import LocalArtifactStore
+from chorus.audio import ElevenLabsRenderer, MockAudioRenderer, RenderedAudio, get_audio_renderer
 from chorus.models import Script, Take
 
 
@@ -15,25 +21,17 @@ def _script() -> Script:
     return Script(soul_version="deadbeef", takes=takes, monologue="A take.")
 
 
-def test_mock_render_writes_downloadable_artifact(tmp_path: Path) -> None:
-    path = MockAudioRenderer(out_dir=tmp_path).render(_script(), soul="x", job_id="job1")
-    assert path.exists()
-    assert path.read_text(encoding="utf-8") == "A take."
+def test_mock_render_returns_monologue_as_text_bytes() -> None:
+    rendered = MockAudioRenderer().render(_script(), soul="x", job_id="job1")
+    assert isinstance(rendered, RenderedAudio)
+    assert rendered.data == b"A take."
+    assert rendered.media_type == "text/plain"
+    assert rendered.extension == "txt"
 
 
-def test_mock_render_names_by_job_not_soul(tmp_path: Path) -> None:
-    # Two jobs with the SAME soul must not overwrite each other's artifact.
-    r = MockAudioRenderer(out_dir=tmp_path)
-    a = r.render(_script(), soul="x", job_id="job1")
-    b = r.render(_script(), soul="x", job_id="job2")
-    assert a != b
-    assert "job1" in a.name and "job2" in b.name
-    assert "deadbeef" not in a.name
-
-
-def test_render_rejects_unsafe_job_id(tmp_path: Path) -> None:
+def test_render_rejects_unsafe_job_id() -> None:
     with pytest.raises(ValueError):
-        MockAudioRenderer(out_dir=tmp_path).render(_script(), soul="x", job_id="../etc")
+        MockAudioRenderer().render(_script(), soul="x", job_id="../etc")
 
 
 class _FakeResp:
@@ -43,7 +41,7 @@ class _FakeResp:
         return None
 
 
-def test_elevenlabs_renderer_posts_and_writes_audio(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_elevenlabs_renderer_posts_and_returns_audio_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict = {}
 
     def fake_post(url: str, **kw: object) -> _FakeResp:
@@ -53,13 +51,12 @@ def test_elevenlabs_renderer_posts_and_writes_audio(tmp_path: Path, monkeypatch:
         return _FakeResp()
 
     monkeypatch.setattr("chorus.audio.httpx.post", fake_post)
-    path = ElevenLabsRenderer("key", out_dir=tmp_path, voice_id="voice123").render(
-        _script(), soul="x", job_id="job1"
-    )
+    rendered = ElevenLabsRenderer("key", voice_id="voice123").render(_script(), soul="x", job_id="job1")
 
-    assert path.suffix == ".mp3"
-    assert path.stem == "episode_job1"
-    assert path.read_bytes() == _FakeResp.content
+    assert isinstance(rendered, RenderedAudio)
+    assert rendered.media_type == "audio/mpeg"
+    assert rendered.extension == "mp3"
+    assert rendered.data == _FakeResp.content
     assert "text-to-speech/voice123" in captured["url"]
     assert captured["json"]["text"] == "A take."  # type: ignore[index]
     assert captured["params"]["output_format"].startswith("mp3")  # type: ignore[index]
@@ -73,3 +70,25 @@ def test_get_audio_renderer_selects_elevenlabs_with_key(monkeypatch: pytest.Monk
 def test_get_audio_renderer_mock_without_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
     assert isinstance(get_audio_renderer(), MockAudioRenderer)
+
+
+# --- ArtifactStore: what actually writes the rendered bytes now -----------
+
+
+def test_local_artifact_store_writes_and_returns_local_url(tmp_path: Path) -> None:
+    store = LocalArtifactStore(directory=tmp_path)
+    url = store.put("episode_job1.txt", b"hello", "text/plain")
+    assert url == "/artifacts/episode_job1.txt"
+    assert (tmp_path / "episode_job1.txt").read_bytes() == b"hello"
+
+
+def test_local_artifact_store_names_are_unique_per_job(tmp_path: Path) -> None:
+    # Two jobs with the SAME soul must not overwrite each other's artifact —
+    # the artifact NAME (built from artifact_stem(job_id) by the pipeline),
+    # not the store, is what guarantees this; check the store honors whatever
+    # name it is given.
+    store = LocalArtifactStore(directory=tmp_path)
+    a = store.put("episode_job1.txt", b"x", "text/plain")
+    b = store.put("episode_job2.txt", b"x", "text/plain")
+    assert a != b
+    assert "job1" in a and "job2" in b

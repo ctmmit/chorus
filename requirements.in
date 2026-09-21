@@ -4,3 +4,11 @@ pydantic>=2.7,<3
 httpx>=0.27,<1
 anthropic>=0.40,<1
 python-dotenv>=1.0,<2
+# Phase B (Vercel port, docs/DEVELOPMENT_PLAN.md §5): Postgres JobStore +
+# TranscriptCache (chorus/stores/postgres.py), targeting Neon's pooled DSN.
+psycopg[binary]>=3.2,<4
+psycopg_pool>=3.2,<4
+# Durable-step job runner (chorus/runners.py, chorus/inngest_app.py) — the
+# BackgroundTasks replacement on Vercel, where a function can be frozen the
+# instant the response is sent.
+inngest>=0.4,<1

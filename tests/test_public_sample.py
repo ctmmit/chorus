@@ -7,10 +7,11 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from chorus.app import create_app
+from chorus.artifacts import LocalArtifactStore
 from chorus.audio import MockAudioRenderer
 from chorus.curation import citation_resolves, curate_episode
 from chorus.ingest import ingest
-from chorus.jobs import JobStore
+from chorus.jobs import SqliteJobStore
 from chorus.llm import MockLLMClient
 from chorus.models import EpisodeInput
 from chorus.pipeline import Deps
@@ -47,8 +48,9 @@ def test_sample_full_lifecycle_via_api(tmp_path: Path) -> None:
         llm=MockLLMClient(),
         composer=MockScriptComposer(),
         renderer=MockAudioRenderer(out_dir=tmp_path / "artifacts"),
+        artifacts=LocalArtifactStore(tmp_path / "artifacts"),
     )
-    client = TestClient(create_app(JobStore(tmp_path / "jobs.db"), deps))
+    client = TestClient(create_app(SqliteJobStore(tmp_path / "jobs.db"), deps))
     payload = {
         "soul": _soul("soul_investor.md"),
         "context": "",

@@ -54,8 +54,11 @@ def main() -> None:
 
     renderer = get_audio_renderer()
     print(f"\nRendering audio via {type(renderer).__name__}...")
-    audio_path = renderer.render(script, soul, job_id="smoke")
-    print(f"AUDIO: {audio_path} ({audio_path.stat().st_size} bytes)")
+    rendered = renderer.render(script, soul, job_id="smoke")
+    from chorus.artifacts import LocalArtifactStore
+
+    url = LocalArtifactStore().put(f"smoke.{rendered.extension}", rendered.data, rendered.media_type)
+    print(f"AUDIO: {url} ({len(rendered.data)} bytes)")
     print("\nSMOKE OK")
 
 

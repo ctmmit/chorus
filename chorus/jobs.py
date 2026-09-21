@@ -1,11 +1,17 @@
-"""SQLite-backed job store (ENGINEERING_REVIEW: no Redis/Celery — boring by
-default). The whole Job is persisted as JSON; `status` is a column for queries."""
+"""Job store: `JobStore` is the Protocol every backend implements (ENGINEERING_
+REVIEW: no Redis/Celery — boring by default). `SqliteJobStore` is the local/dev/
+test implementation (the whole Job persisted as JSON; `status` is a column for
+queries). `chorus.stores.postgres.PostgresJobStore` is the Vercel implementation,
+selected by `chorus.config_env` when `DATABASE_URL` is set — same Protocol, same
+column layout, same `fail_in_flight` semantics.
+"""
 from __future__ import annotations
 
 import sqlite3
 import threading
 import uuid
 from pathlib import Path
+from typing import Protocol, runtime_checkable
 
 from chorus.models import Job, JobStatus
 
@@ -16,7 +22,23 @@ DEFAULT_DB = Path(__file__).resolve().parent.parent / "chorus.db"
 IN_FLIGHT_STATUSES = (JobStatus.queued, JobStatus.digest_ready)
 
 
-class JobStore:
+@runtime_checkable
+class JobStore(Protocol):
+    def create(self) -> str: ...
+
+    def get(self, job_id: str) -> Job | None: ...
+
+    def save(self, job: Job) -> None: ...
+
+    def fail_in_flight(self, reason: str) -> int: ...
+
+    def close(self) -> None: ...
+
+
+class SqliteJobStore:
+    """`jobs(job_id TEXT PRIMARY KEY, status TEXT NOT NULL, payload TEXT NOT
+    NULL)` in the local `chorus.db` by default. Local dev + tests."""
+
     def __init__(self, db_path: Path | str = DEFAULT_DB) -> None:
         self.db_path = str(db_path)
         # check_same_thread=False: BackgroundTasks may run on a worker thread.

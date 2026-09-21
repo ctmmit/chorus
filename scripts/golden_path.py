@@ -25,9 +25,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from fastapi.testclient import TestClient  # noqa: E402
 
 from chorus.app import create_app  # noqa: E402
+from chorus.artifacts import LocalArtifactStore  # noqa: E402
 from chorus.audio import MockAudioRenderer  # noqa: E402
 from chorus.curation import REFUSAL, citation_resolves  # noqa: E402
-from chorus.jobs import JobStore  # noqa: E402
+from chorus.jobs import SqliteJobStore  # noqa: E402
 from chorus.llm import MockLLMClient  # noqa: E402
 from chorus.models import EpisodeInput, Job  # noqa: E402
 from chorus.pipeline import Deps  # noqa: E402
@@ -75,8 +76,14 @@ def main() -> None:
     provider = FixtureTranscriptProvider()
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         tmp = Path(d)
-        store = JobStore(tmp / "jobs.db")
-        deps = Deps(provider, MockLLMClient(), MockScriptComposer(), MockAudioRenderer(out_dir=tmp))
+        store = SqliteJobStore(tmp / "jobs.db")
+        deps = Deps(
+            provider,
+            MockLLMClient(),
+            MockScriptComposer(),
+            MockAudioRenderer(out_dir=tmp),
+            LocalArtifactStore(tmp),
+        )
         client = TestClient(create_app(store, deps))
 
         # 1. clean run: done, within latency, citations resolve, audio present

@@ -128,8 +128,9 @@ def test_job_usage_records_token_delta_per_job(tmp_path) -> None:  # type: ignor
     from fastapi.testclient import TestClient
 
     from chorus.app import create_app
+    from chorus.artifacts import LocalArtifactStore
     from chorus.audio import MockAudioRenderer
-    from chorus.jobs import JobStore
+    from chorus.jobs import SqliteJobStore
     from chorus.pipeline import Deps
     from chorus.script import MockScriptComposer
     from chorus.transcripts import FixtureTranscriptProvider
@@ -139,8 +140,9 @@ def test_job_usage_records_token_delta_per_job(tmp_path) -> None:  # type: ignor
     # sample_public has 3 windows -> one batch per job; canned replies for two jobs.
     fake = _FakeClient([_reply(3), _reply(3)])
     deps = Deps(FixtureTranscriptProvider(), AnthropicLLMClient(client=fake), MockScriptComposer(),
-                MockAudioRenderer(out_dir=tmp_path / "artifacts"))
-    c = TestClient(create_app(JobStore(tmp_path / "jobs.db"), deps))
+                MockAudioRenderer(out_dir=tmp_path / "artifacts"),
+                LocalArtifactStore(tmp_path / "artifacts"))
+    c = TestClient(create_app(SqliteJobStore(tmp_path / "jobs.db"), deps))
     payload = {"soul": soul, "context": "", "episodes": [{"video_id": "sample_public"}]}
     for _ in range(2):
         job_id = c.post("/digest", json=payload).json()["job_id"]
