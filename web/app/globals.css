@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+/* Fulcrum design tokens (C:/Users/colin/.claude/skills/fulcrum-style).
+ * Web-native ivory ground; light by default with a dark variant so the
+ * surface still works when the OS/browser prefers dark (design must work
+ * in both — research-surface.html reference). */
+:root {
+  --navy: #0f2340;
+  --ink: #1c2434;
+  --silver: #8b9199;
+  --green: #2d7a52;
+  --red: #a8362e;
+  --blue: #2c5d99;
+  --taupe: #d8cfbf;
+  --paper: #fbf8f1;
+  --ivory: #f6f1e7;
+  --surface-white: #ffffff;
+
+  --background: var(--ivory);
+  --foreground: var(--ink);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --navy: #17335c;
+    --ink: #e7e5df;
+    --silver: #9aa1ab;
+    --green: #4fa87a;
+    --red: #d06a61;
+    --blue: #5b8fca;
+    --taupe: #3a3f4a;
+    --paper: #1a2030;
+    --ivory: #12161f;
+    --surface-white: #1a2030;
+
+    --background: var(--ivory);
+    --foreground: var(--ink);
+  }
+}
+
+@theme inline {
+  --color-navy: var(--navy);
+  --color-ink: var(--ink);
+  --color-silver: var(--silver);
+  --color-green: var(--green);
+  --color-red: var(--red);
+  --color-blue: var(--blue);
+  --color-taupe: var(--taupe);
+  --color-paper: var(--paper);
+  --color-ivory: var(--ivory);
+  --color-surface: var(--surface-white);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --font-serif: var(--font-source-serif), Cambria, Georgia, serif;
+  --font-sans: var(--font-inter), Calibri, "Helvetica Neue", sans-serif;
+  --font-mono: var(--font-plex-mono), Consolas, "SF Mono", monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-serif);
+}
+
+/* Tabular figures for every number in the app — never a wobbling column. */
+.font-mono {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Small-caps label convention (Calibri/Inter labels, tracked out). */
+.label-caps {
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--silver);
+}
+
+/* Keyboard-focus ring for the timeline strip's ticks/links (SVG elements
+ * don't get Tailwind's ring utilities reliably across browsers). */
+.timeline-tick:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}

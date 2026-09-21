@@ -1,0 +1,290 @@
+{
+  "job_id": "5ae1599a70374a7b8e1a8f9a769fcdb4",
+  "status": "done",
+  "digest": {
+    "soul_version": "14ce3100",
+    "soul_origin": "supplied",
+    "episodes": [
+      {
+        "episode_id": "c4tvVKDhpiY",
+        "episode_title": null,
+        "highlights": [
+          {
+            "episode_id": "c4tvVKDhpiY",
+            "episode_title": null,
+            "segment_timestamp": 1089.92,
+            "quote": "now, but um I think in general don't read the comments uh is helpful. I mean it's really hard. I mean, you know, everybody's human. I think it's...",
+            "relevance_score": 1.0,
+            "why_surface": "7 attention-trigger match(es)"
+          },
+          {
+            "episode_id": "c4tvVKDhpiY",
+            "episode_title": null,
+            "segment_timestamp": 2998.0,
+            "quote": "you look at the economic growth rate itself it actually tells you a lot. Um and as you know there you know just as an example there are...",
+            "relevance_score": 0.96,
+            "why_surface": "6 attention-trigger match(es)"
+          },
+          {
+            "episode_id": "c4tvVKDhpiY",
+            "episode_title": null,
+            "segment_timestamp": 3449.44,
+            "quote": "the way, the free ones are pretty good now. And by the way, Google gives away a lot of AI value for free. and Microsoft is starting to...",
+            "relevance_score": 0.96,
+            "why_surface": "6 attention-trigger match(es)"
+          },
+          {
+            "episode_id": "c4tvVKDhpiY",
+            "episode_title": null,
+            "segment_timestamp": 4179.04,
+            "quote": "genuinely not what I'm trying to do and I'm just going to ask questions um and do that. Um, generally the way that plays out like at our...",
+            "relevance_score": 0.96,
+            "why_surface": "6 attention-trigger match(es)"
+          }
+        ],
+        "refused": false,
+        "refusal_reason": null,
+        "duration_seconds": 4581.84,
+        "windows": [
+          {
+            "start": 0.0,
+            "score": 0.16
+          },
+          {
+            "start": 90.72,
+            "score": 0.48
+          },
+          {
+            "start": 182.0,
+            "score": 0.48
+          },
+          {
+            "start": 273.44,
+            "score": 0.46
+          },
+          {
+            "start": 364.4,
+            "score": 0.14
+          },
+          {
+            "start": 454.72,
+            "score": 0.64
+          },
+          {
+            "start": 546.0,
+            "score": 0.0
+          },
+          {
+            "start": 637.36,
+            "score": 0.8
+          },
+          {
+            "start": 728.48,
+            "score": 0.48
+          },
+          {
+            "start": 819.12,
+            "score": 0.32
+          },
+          {
+            "start": 909.28,
+            "score": 0.0
+          },
+          {
+            "start": 999.28,
+            "score": 0.48
+          },
+          {
+            "start": 1089.92,
+            "score": 1.0
+          },
+          {
+            "start": 1179.92,
+            "score": 0.32
+          },
+          {
+            "start": 1270.24,
+            "score": 0.32
+          },
+          {
+            "start": 1362.08,
+            "score": 0.16
+          },
+          {
+            "start": 1453.84,
+            "score": 0.48
+          },
+          {
+            "start": 1543.92,
+            "score": 0.64
+          },
+          {
+            "start": 1634.48,
+            "score": 0.8
+          },
+          {
+            "start": 1724.96,
+            "score": 0.0
+          },
+          {
+            "start": 1815.76,
+            "score": 0.0
+          },
+          {
+            "start": 1906.07,
+            "score": 0.48
+          },
+          {
+            "start": 1996.64,
+            "score": 0.16
+          },
+          {
+            "start": 2087.6,
+            "score": 0.8
+          },
+          {
+            "start": 2178.8,
+            "score": 0.94
+          },
+          {
+            "start": 2268.96,
+            "score": 0.46
+          },
+          {
+            "start": 2360.08,
+            "score": 0.48
+          },
+          {
+            "start": 2450.8,
+            "score": 0.32
+          },
+          {
+            "start": 2541.12,
+            "score": 0.32
+          },
+          {
+            "start": 2631.44,
+            "score": 0.48
+          },
+          {
+            "start": 2724.32,
+            "score": 0.32
+          },
+          {
+            "start": 2814.4,
+            "score": 0.64
+          },
+          {
+            "start": 2905.68,
+            "score": 0.0
+          },
+          {
+            "start": 2998.0,
+            "score": 0.96
+          },
+          {
+            "start": 3088.08,
+            "score": 0.0
+          },
+          {
+            "start": 3178.48,
+            "score": 0.0
+          },
+          {
+            "start": 3268.72,
+            "score": 0.32
+          },
+          {
+            "start": 3359.12,
+            "score": 0.64
+          },
+          {
+            "start": 3449.44,
+            "score": 0.96
+          },
+          {
+            "start": 3541.68,
+            "score": 0.94
+          },
+          {
+            "start": 3632.0,
+            "score": 0.14
+          },
+          {
+            "start": 3723.36,
+            "score": 0.28
+          },
+          {
+            "start": 3814.16,
+            "score": 0.14
+          },
+          {
+            "start": 3905.92,
+            "score": 0.32
+          },
+          {
+            "start": 3997.36,
+            "score": 0.64
+          },
+          {
+            "start": 4088.8,
+            "score": 0.46
+          },
+          {
+            "start": 4179.04,
+            "score": 0.96
+          },
+          {
+            "start": 4269.84,
+            "score": 0.64
+          },
+          {
+            "start": 4360.8,
+            "score": 0.8
+          },
+          {
+            "start": 4451.44,
+            "score": 0.3
+          },
+          {
+            "start": 4541.44,
+            "score": 0.32
+          }
+        ]
+      }
+    ]
+  },
+  "script": {
+    "soul_version": "14ce3100",
+    "takes": [
+      {
+        "text": "[idea] On c4tvVKDhpiY at 18:09 \u2014 now, but um I think in general don't read the comments uh is helpful. I mean it's really hard. I mean, you know, everybody's human. I think it's...",
+        "take_type": "idea",
+        "episode_id": "c4tvVKDhpiY",
+        "segment_timestamp": 1089.92
+      },
+      {
+        "text": "[pushback] On c4tvVKDhpiY at 49:58 \u2014 you look at the economic growth rate itself it actually tells you a lot. Um and as you know there you know just as an example there are...",
+        "take_type": "pushback",
+        "episode_id": "c4tvVKDhpiY",
+        "segment_timestamp": 2998.0
+      },
+      {
+        "text": "[connection] On c4tvVKDhpiY at 57:29 \u2014 the way, the free ones are pretty good now. And by the way, Google gives away a lot of AI value for free. and Microsoft is starting to...",
+        "take_type": "connection",
+        "episode_id": "c4tvVKDhpiY",
+        "segment_timestamp": 3449.44
+      },
+      {
+        "text": "[question] On c4tvVKDhpiY at 69:39 \u2014 genuinely not what I'm trying to do and I'm just going to ask questions um and do that. Um, generally the way that plays out like at our...",
+        "take_type": "question",
+        "episode_id": "c4tvVKDhpiY",
+        "segment_timestamp": 4179.04
+      }
+    ],
+    "monologue": "[idea] On c4tvVKDhpiY at 18:09 \u2014 now, but um I think in general don't read the comments uh is helpful. I mean it's really hard. I mean, you know, everybody's human. I think it's...\n\n[pushback] On c4tvVKDhpiY at 49:58 \u2014 you look at the economic growth rate itself it actually tells you a lot. Um and as you know there you know just as an example there are...\n\n[connection] On c4tvVKDhpiY at 57:29 \u2014 the way, the free ones are pretty good now. And by the way, Google gives away a lot of AI value for free. and Microsoft is starting to...\n\n[question] On c4tvVKDhpiY at 69:39 \u2014 genuinely not what I'm trying to do and I'm just going to ask questions um and do that. Um, generally the way that plays out like at our..."
+  },
+  "audio_url": "/artifacts/episode_5ae1599a70374a7b8e1a8f9a769fcdb4.txt",
+  "error": null,
+  "warnings": []
+}

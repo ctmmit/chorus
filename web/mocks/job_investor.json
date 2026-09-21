@@ -1,0 +1,1450 @@
+{
+  "job_id": "c13fea54ebee4890abc11f6f00ad77c7",
+  "status": "done",
+  "digest": {
+    "soul_version": "77974213",
+    "soul_origin": "supplied",
+    "episodes": [
+      {
+        "episode_id": "gs39QFYIbBY",
+        "episode_title": null,
+        "highlights": [
+          {
+            "episode_id": "gs39QFYIbBY",
+            "episode_title": null,
+            "segment_timestamp": 1187.04,
+            "quote": "well 10 doublings is about a thousand and four more is about another 16 more multiplying so you get up to around sixteen thousand times so that's what...",
+            "relevance_score": 0.96,
+            "why_surface": "6 attention-trigger match(es)"
+          },
+          {
+            "episode_id": "gs39QFYIbBY",
+            "episode_title": null,
+            "segment_timestamp": 91.32,
+            "quote": "began to cash in with an edge in the marketplace could you define just for people who may not have familiarity the common stock warrants what is a...",
+            "relevance_score": 0.8,
+            "why_surface": "5 attention-trigger match(es)"
+          },
+          {
+            "episode_id": "gs39QFYIbBY",
+            "episode_title": null,
+            "segment_timestamp": 182.4,
+            "quote": "before he could sell his house and get his price meanwhile this is short-term thinking he wanted to hold out for a little extra money and he was...",
+            "relevance_score": 0.8,
+            "why_surface": "5 attention-trigger match(es)"
+          },
+          {
+            "episode_id": "gs39QFYIbBY",
+            "episode_title": null,
+            "segment_timestamp": 1372.8,
+            "quote": "cross if you're not prepared for that then you're going to make all kinds of bad decisions along the way like getting out of the bottom so let...",
+            "relevance_score": 0.8,
+            "why_surface": "5 attention-trigger match(es)"
+          }
+        ],
+        "refused": false,
+        "refusal_reason": null,
+        "duration_seconds": 5040.78,
+        "windows": [
+          {
+            "start": 0.0,
+            "score": 0.48
+          },
+          {
+            "start": 91.32,
+            "score": 0.8
+          },
+          {
+            "start": 182.4,
+            "score": 0.8
+          },
+          {
+            "start": 273.6,
+            "score": 0.16
+          },
+          {
+            "start": 364.5,
+            "score": 0.32
+          },
+          {
+            "start": 454.5,
+            "score": 0.32
+          },
+          {
+            "start": 544.8,
+            "score": 0.48
+          },
+          {
+            "start": 637.08,
+            "score": 0.32
+          },
+          {
+            "start": 727.2,
+            "score": 0.48
+          },
+          {
+            "start": 818.24,
+            "score": 0.16
+          },
+          {
+            "start": 910.62,
+            "score": 0.32
+          },
+          {
+            "start": 1003.38,
+            "score": 0.64
+          },
+          {
+            "start": 1093.74,
+            "score": 0.32
+          },
+          {
+            "start": 1187.04,
+            "score": 0.96
+          },
+          {
+            "start": 1280.46,
+            "score": 0.32
+          },
+          {
+            "start": 1372.8,
+            "score": 0.8
+          },
+          {
+            "start": 1465.2,
+            "score": 0.32
+          },
+          {
+            "start": 1556.88,
+            "score": 0.16
+          },
+          {
+            "start": 1648.74,
+            "score": 0.14
+          },
+          {
+            "start": 1739.22,
+            "score": 0.48
+          },
+          {
+            "start": 1832.58,
+            "score": 0.64
+          },
+          {
+            "start": 1923.78,
+            "score": 0.0
+          },
+          {
+            "start": 2016.9,
+            "score": 0.32
+          },
+          {
+            "start": 2108.22,
+            "score": 0.0
+          },
+          {
+            "start": 2198.28,
+            "score": 0.46
+          },
+          {
+            "start": 2289.96,
+            "score": 0.48
+          },
+          {
+            "start": 2381.7,
+            "score": 0.32
+          },
+          {
+            "start": 2472.6,
+            "score": 0.16
+          },
+          {
+            "start": 2563.08,
+            "score": 0.16
+          },
+          {
+            "start": 2653.26,
+            "score": 0.32
+          },
+          {
+            "start": 2743.5,
+            "score": 0.0
+          },
+          {
+            "start": 2833.74,
+            "score": 0.32
+          },
+          {
+            "start": 2926.14,
+            "score": 0.16
+          },
+          {
+            "start": 3017.82,
+            "score": 0.48
+          },
+          {
+            "start": 3110.16,
+            "score": 0.16
+          },
+          {
+            "start": 3200.94,
+            "score": 0.16
+          },
+          {
+            "start": 3291.42,
+            "score": 0.64
+          },
+          {
+            "start": 3381.72,
+            "score": 0.8
+          },
+          {
+            "start": 3474.54,
+            "score": 0.32
+          },
+          {
+            "start": 3565.14,
+            "score": 0.32
+          },
+          {
+            "start": 3656.16,
+            "score": 0.16
+          },
+          {
+            "start": 3746.34,
+            "score": 0.32
+          },
+          {
+            "start": 3839.34,
+            "score": 0.0
+          },
+          {
+            "start": 3929.76,
+            "score": 0.16
+          },
+          {
+            "start": 4020.6,
+            "score": 0.0
+          },
+          {
+            "start": 4111.1,
+            "score": 0.32
+          },
+          {
+            "start": 4203.06,
+            "score": 0.32
+          },
+          {
+            "start": 4294.26,
+            "score": 0.32
+          },
+          {
+            "start": 4384.74,
+            "score": 0.32
+          },
+          {
+            "start": 4475.22,
+            "score": 0.32
+          },
+          {
+            "start": 4565.94,
+            "score": 0.16
+          },
+          {
+            "start": 4656.48,
+            "score": 0.16
+          },
+          {
+            "start": 4746.84,
+            "score": 0.32
+          },
+          {
+            "start": 4837.5,
+            "score": 0.32
+          },
+          {
+            "start": 4928.04,
+            "score": 0.32
+          },
+          {
+            "start": 5022.0,
+            "score": 0.0
+          }
+        ]
+      },
+      {
+        "episode_id": "c4tvVKDhpiY",
+        "episode_title": null,
+        "highlights": [
+          {
+            "episode_id": "c4tvVKDhpiY",
+            "episode_title": null,
+            "segment_timestamp": 3541.68,
+            "quote": "economics after after Joseph Shumpeder is the kind of you know the economist who kind of developed the theory of creative destruction um uh and and this economist...",
+            "relevance_score": 1.0,
+            "why_surface": "10 attention-trigger match(es)"
+          },
+          {
+            "episode_id": "c4tvVKDhpiY",
+            "episode_title": null,
+            "segment_timestamp": 1543.92,
+            "quote": "hence reading so much of your writing for years. When we look forward, what do you, how do you think about the future of venture? Is it as...",
+            "relevance_score": 0.96,
+            "why_surface": "6 attention-trigger match(es)"
+          },
+          {
+            "episode_id": "c4tvVKDhpiY",
+            "episode_title": null,
+            "segment_timestamp": 3723.36,
+            "quote": "sum economics. It's the lump of labor fallacy. It happens over and over and over again. It's always been wrong. It's going to be wrong again. >> Leave...",
+            "relevance_score": 0.96,
+            "why_surface": "6 attention-trigger match(es)"
+          },
+          {
+            "episode_id": "c4tvVKDhpiY",
+            "episode_title": null,
+            "segment_timestamp": 2178.8,
+            "quote": "they and then by the time you meet them it's just like they've alienated like six of the mainstream venture firms and now they're the diamond in the...",
+            "relevance_score": 0.8,
+            "why_surface": "5 attention-trigger match(es)"
+          }
+        ],
+        "refused": false,
+        "refusal_reason": null,
+        "duration_seconds": 4581.84,
+        "windows": [
+          {
+            "start": 0.0,
+            "score": 0.32
+          },
+          {
+            "start": 90.72,
+            "score": 0.48
+          },
+          {
+            "start": 182.0,
+            "score": 0.48
+          },
+          {
+            "start": 273.44,
+            "score": 0.64
+          },
+          {
+            "start": 364.4,
+            "score": 0.16
+          },
+          {
+            "start": 454.72,
+            "score": 0.32
+          },
+          {
+            "start": 546.0,
+            "score": 0.32
+          },
+          {
+            "start": 637.36,
+            "score": 0.48
+          },
+          {
+            "start": 728.48,
+            "score": 0.32
+          },
+          {
+            "start": 819.12,
+            "score": 0.0
+          },
+          {
+            "start": 909.28,
+            "score": 0.0
+          },
+          {
+            "start": 999.28,
+            "score": 0.16
+          },
+          {
+            "start": 1089.92,
+            "score": 0.46
+          },
+          {
+            "start": 1179.92,
+            "score": 0.0
+          },
+          {
+            "start": 1270.24,
+            "score": 0.0
+          },
+          {
+            "start": 1362.08,
+            "score": 0.0
+          },
+          {
+            "start": 1453.84,
+            "score": 0.16
+          },
+          {
+            "start": 1543.92,
+            "score": 0.96
+          },
+          {
+            "start": 1634.48,
+            "score": 0.64
+          },
+          {
+            "start": 1724.96,
+            "score": 0.14
+          },
+          {
+            "start": 1815.76,
+            "score": 0.48
+          },
+          {
+            "start": 1906.07,
+            "score": 0.32
+          },
+          {
+            "start": 1996.64,
+            "score": 0.16
+          },
+          {
+            "start": 2087.6,
+            "score": 0.64
+          },
+          {
+            "start": 2178.8,
+            "score": 0.8
+          },
+          {
+            "start": 2268.96,
+            "score": 0.48
+          },
+          {
+            "start": 2360.08,
+            "score": 0.48
+          },
+          {
+            "start": 2450.8,
+            "score": 0.32
+          },
+          {
+            "start": 2541.12,
+            "score": 0.48
+          },
+          {
+            "start": 2631.44,
+            "score": 0.8
+          },
+          {
+            "start": 2724.32,
+            "score": 0.16
+          },
+          {
+            "start": 2814.4,
+            "score": 0.16
+          },
+          {
+            "start": 2905.68,
+            "score": 0.0
+          },
+          {
+            "start": 2998.0,
+            "score": 0.8
+          },
+          {
+            "start": 3088.08,
+            "score": 0.16
+          },
+          {
+            "start": 3178.48,
+            "score": 0.48
+          },
+          {
+            "start": 3268.72,
+            "score": 0.32
+          },
+          {
+            "start": 3359.12,
+            "score": 0.48
+          },
+          {
+            "start": 3449.44,
+            "score": 0.64
+          },
+          {
+            "start": 3541.68,
+            "score": 1.0
+          },
+          {
+            "start": 3632.0,
+            "score": 0.46
+          },
+          {
+            "start": 3723.36,
+            "score": 0.96
+          },
+          {
+            "start": 3814.16,
+            "score": 0.0
+          },
+          {
+            "start": 3905.92,
+            "score": 0.32
+          },
+          {
+            "start": 3997.36,
+            "score": 0.48
+          },
+          {
+            "start": 4088.8,
+            "score": 0.64
+          },
+          {
+            "start": 4179.04,
+            "score": 0.8
+          },
+          {
+            "start": 4269.84,
+            "score": 0.48
+          },
+          {
+            "start": 4360.8,
+            "score": 0.14
+          },
+          {
+            "start": 4451.44,
+            "score": 0.32
+          },
+          {
+            "start": 4541.44,
+            "score": 0.32
+          }
+        ]
+      },
+      {
+        "episode_id": "wAnDWfEIwoE",
+        "episode_title": null,
+        "highlights": [
+          {
+            "episode_id": "wAnDWfEIwoE",
+            "episode_title": null,
+            "segment_timestamp": 2733.6,
+            "quote": "pain and inflammation improved mitochondrial function and even improving visual function itself what sets CH lights apart and why they're my preferred red light therapy device is that...",
+            "relevance_score": 1.0,
+            "why_surface": "8 attention-trigger match(es)"
+          },
+          {
+            "episode_id": "wAnDWfEIwoE",
+            "episode_title": null,
+            "segment_timestamp": 4922.12,
+            "quote": "I'm training very intensely physically and I'm doing really intense mental work and I oscillate between them in beautiful ways and I have a lot of empty space...",
+            "relevance_score": 0.96,
+            "why_surface": "6 attention-trigger match(es)"
+          },
+          {
+            "episode_id": "wAnDWfEIwoE",
+            "episode_title": null,
+            "segment_timestamp": 7104.88,
+            "quote": "want to like you think about predator and prey Dynamics in in the world or in competition or in anything like you want to be competing now there's...",
+            "relevance_score": 0.96,
+            "why_surface": "6 attention-trigger match(es)"
+          },
+          {
+            "episode_id": "wAnDWfEIwoE",
+            "episode_title": null,
+            "segment_timestamp": 2824.16,
+            "quote": "you said that you were devastated you experienced a tremendous amount of pain from these losses in particular the one that you just described if you don't mind...",
+            "relevance_score": 0.8,
+            "why_surface": "5 attention-trigger match(es)"
+          }
+        ],
+        "refused": false,
+        "refusal_reason": null,
+        "duration_seconds": 11826.47,
+        "windows": [
+          {
+            "start": 0.32,
+            "score": 0.48
+          },
+          {
+            "start": 91.04,
+            "score": 0.14
+          },
+          {
+            "start": 182.04,
+            "score": 0.64
+          },
+          {
+            "start": 273.24,
+            "score": 0.16
+          },
+          {
+            "start": 365.68,
+            "score": 0.48
+          },
+          {
+            "start": 456.24,
+            "score": 0.0
+          },
+          {
+            "start": 546.84,
+            "score": 0.32
+          },
+          {
+            "start": 637.08,
+            "score": 0.64
+          },
+          {
+            "start": 727.4,
+            "score": 0.16
+          },
+          {
+            "start": 819.2,
+            "score": 0.48
+          },
+          {
+            "start": 910.84,
+            "score": 0.32
+          },
+          {
+            "start": 1002.28,
+            "score": 0.48
+          },
+          {
+            "start": 1092.48,
+            "score": 0.32
+          },
+          {
+            "start": 1183.32,
+            "score": 0.32
+          },
+          {
+            "start": 1275.04,
+            "score": 0.48
+          },
+          {
+            "start": 1365.56,
+            "score": 0.16
+          },
+          {
+            "start": 1456.24,
+            "score": 0.16
+          },
+          {
+            "start": 1546.88,
+            "score": 0.16
+          },
+          {
+            "start": 1638.04,
+            "score": 0.16
+          },
+          {
+            "start": 1729.08,
+            "score": 0.0
+          },
+          {
+            "start": 1820.64,
+            "score": 0.0
+          },
+          {
+            "start": 1912.08,
+            "score": 0.0
+          },
+          {
+            "start": 2002.4,
+            "score": 0.32
+          },
+          {
+            "start": 2095.04,
+            "score": 0.32
+          },
+          {
+            "start": 2185.96,
+            "score": 0.64
+          },
+          {
+            "start": 2277.04,
+            "score": 0.0
+          },
+          {
+            "start": 2368.16,
+            "score": 0.32
+          },
+          {
+            "start": 2459.08,
+            "score": 0.32
+          },
+          {
+            "start": 2549.68,
+            "score": 0.16
+          },
+          {
+            "start": 2641.8,
+            "score": 0.16
+          },
+          {
+            "start": 2733.6,
+            "score": 1.0
+          },
+          {
+            "start": 2824.16,
+            "score": 0.8
+          },
+          {
+            "start": 2915.48,
+            "score": 0.0
+          },
+          {
+            "start": 3005.76,
+            "score": 0.32
+          },
+          {
+            "start": 3096.8,
+            "score": 0.16
+          },
+          {
+            "start": 3188.08,
+            "score": 0.32
+          },
+          {
+            "start": 3279.8,
+            "score": 0.16
+          },
+          {
+            "start": 3370.24,
+            "score": 0.48
+          },
+          {
+            "start": 3461.28,
+            "score": 0.16
+          },
+          {
+            "start": 3552.08,
+            "score": 0.48
+          },
+          {
+            "start": 3644.24,
+            "score": 0.48
+          },
+          {
+            "start": 3734.96,
+            "score": 0.48
+          },
+          {
+            "start": 3825.8,
+            "score": 0.16
+          },
+          {
+            "start": 3917.16,
+            "score": 0.16
+          },
+          {
+            "start": 4007.88,
+            "score": 0.16
+          },
+          {
+            "start": 4099.68,
+            "score": 0.48
+          },
+          {
+            "start": 4192.72,
+            "score": 0.32
+          },
+          {
+            "start": 4285.44,
+            "score": 0.64
+          },
+          {
+            "start": 4376.12,
+            "score": 0.8
+          },
+          {
+            "start": 4467.0,
+            "score": 0.48
+          },
+          {
+            "start": 4557.04,
+            "score": 0.16
+          },
+          {
+            "start": 4648.56,
+            "score": 0.16
+          },
+          {
+            "start": 4739.84,
+            "score": 0.48
+          },
+          {
+            "start": 4831.32,
+            "score": 0.48
+          },
+          {
+            "start": 4922.12,
+            "score": 0.96
+          },
+          {
+            "start": 5013.44,
+            "score": 0.48
+          },
+          {
+            "start": 5104.84,
+            "score": 0.16
+          },
+          {
+            "start": 5198.04,
+            "score": 0.48
+          },
+          {
+            "start": 5288.76,
+            "score": 0.32
+          },
+          {
+            "start": 5379.2,
+            "score": 0.48
+          },
+          {
+            "start": 5469.44,
+            "score": 0.0
+          },
+          {
+            "start": 5559.72,
+            "score": 0.32
+          },
+          {
+            "start": 5650.56,
+            "score": 0.0
+          },
+          {
+            "start": 5741.68,
+            "score": 0.16
+          },
+          {
+            "start": 5831.92,
+            "score": 0.48
+          },
+          {
+            "start": 5922.68,
+            "score": 0.8
+          },
+          {
+            "start": 6013.56,
+            "score": 0.48
+          },
+          {
+            "start": 6103.72,
+            "score": 0.32
+          },
+          {
+            "start": 6194.04,
+            "score": 0.32
+          },
+          {
+            "start": 6286.04,
+            "score": 0.32
+          },
+          {
+            "start": 6376.56,
+            "score": 0.0
+          },
+          {
+            "start": 6466.56,
+            "score": 0.32
+          },
+          {
+            "start": 6558.8,
+            "score": 0.32
+          },
+          {
+            "start": 6649.16,
+            "score": 0.0
+          },
+          {
+            "start": 6739.92,
+            "score": 0.16
+          },
+          {
+            "start": 6830.48,
+            "score": 0.16
+          },
+          {
+            "start": 6922.08,
+            "score": 0.32
+          },
+          {
+            "start": 7013.0,
+            "score": 0.0
+          },
+          {
+            "start": 7104.88,
+            "score": 0.96
+          },
+          {
+            "start": 7198.52,
+            "score": 0.32
+          },
+          {
+            "start": 7290.24,
+            "score": 0.32
+          },
+          {
+            "start": 7381.84,
+            "score": 0.48
+          },
+          {
+            "start": 7472.12,
+            "score": 0.64
+          },
+          {
+            "start": 7565.24,
+            "score": 0.16
+          },
+          {
+            "start": 7657.16,
+            "score": 0.0
+          },
+          {
+            "start": 7749.68,
+            "score": 0.14
+          },
+          {
+            "start": 7840.88,
+            "score": 0.0
+          },
+          {
+            "start": 7932.0,
+            "score": 0.48
+          },
+          {
+            "start": 8022.76,
+            "score": 0.16
+          },
+          {
+            "start": 8114.12,
+            "score": 0.16
+          },
+          {
+            "start": 8206.48,
+            "score": 0.16
+          },
+          {
+            "start": 8297.96,
+            "score": 0.16
+          },
+          {
+            "start": 8391.44,
+            "score": 0.46
+          },
+          {
+            "start": 8483.2,
+            "score": 0.64
+          },
+          {
+            "start": 8575.08,
+            "score": 0.64
+          },
+          {
+            "start": 8665.44,
+            "score": 0.32
+          },
+          {
+            "start": 8756.04,
+            "score": 0.16
+          },
+          {
+            "start": 8846.52,
+            "score": 0.48
+          },
+          {
+            "start": 8936.52,
+            "score": 0.16
+          },
+          {
+            "start": 9026.52,
+            "score": 0.8
+          },
+          {
+            "start": 9116.56,
+            "score": 0.8
+          },
+          {
+            "start": 9207.16,
+            "score": 0.16
+          },
+          {
+            "start": 9298.6,
+            "score": 0.16
+          },
+          {
+            "start": 9389.4,
+            "score": 0.14
+          },
+          {
+            "start": 9479.56,
+            "score": 0.32
+          },
+          {
+            "start": 9571.44,
+            "score": 0.64
+          },
+          {
+            "start": 9661.76,
+            "score": 0.48
+          },
+          {
+            "start": 9753.96,
+            "score": 0.16
+          },
+          {
+            "start": 9845.56,
+            "score": 0.16
+          },
+          {
+            "start": 9937.56,
+            "score": 0.16
+          },
+          {
+            "start": 10029.04,
+            "score": 0.8
+          },
+          {
+            "start": 10121.56,
+            "score": 0.16
+          },
+          {
+            "start": 10211.88,
+            "score": 0.32
+          },
+          {
+            "start": 10301.96,
+            "score": 0.32
+          },
+          {
+            "start": 10392.04,
+            "score": 0.64
+          },
+          {
+            "start": 10483.32,
+            "score": 0.16
+          },
+          {
+            "start": 10575.16,
+            "score": 0.48
+          },
+          {
+            "start": 10665.16,
+            "score": 0.8
+          },
+          {
+            "start": 10756.96,
+            "score": 0.64
+          },
+          {
+            "start": 10848.96,
+            "score": 0.64
+          },
+          {
+            "start": 10939.72,
+            "score": 0.16
+          },
+          {
+            "start": 11031.96,
+            "score": 0.16
+          },
+          {
+            "start": 11124.2,
+            "score": 0.48
+          },
+          {
+            "start": 11214.52,
+            "score": 0.0
+          },
+          {
+            "start": 11307.32,
+            "score": 0.32
+          },
+          {
+            "start": 11398.68,
+            "score": 0.48
+          },
+          {
+            "start": 11490.28,
+            "score": 0.16
+          },
+          {
+            "start": 11580.36,
+            "score": 0.0
+          },
+          {
+            "start": 11670.64,
+            "score": 0.78
+          },
+          {
+            "start": 11762.76,
+            "score": 0.0
+          }
+        ]
+      },
+      {
+        "episode_id": "xKZ_8ULR91Y",
+        "episode_title": null,
+        "highlights": [
+          {
+            "episode_id": "xKZ_8ULR91Y",
+            "episode_title": null,
+            "segment_timestamp": 456.48,
+            "quote": "so again like the dynamics change and like but I think a lot of the same kind of basic engineering questions are not so dissimilar but like all...",
+            "relevance_score": 1.0,
+            "why_surface": "8 attention-trigger match(es)"
+          },
+          {
+            "episode_id": "xKZ_8ULR91Y",
+            "episode_title": null,
+            "segment_timestamp": 1093.28,
+            "quote": "power and cool it kind of useless. So, you know, we're working very closely with with kind of almost everyone in in that space to think about what...",
+            "relevance_score": 0.96,
+            "why_surface": "6 attention-trigger match(es)"
+          },
+          {
+            "episode_id": "xKZ_8ULR91Y",
+            "episode_title": null,
+            "segment_timestamp": 365.28,
+            "quote": "noisier and there tends to be a lot more of it. And it's also different between different models that we build for different applications, right? As we try...",
+            "relevance_score": 0.8,
+            "why_surface": "5 attention-trigger match(es)"
+          },
+          {
+            "episode_id": "xKZ_8ULR91Y",
+            "episode_title": null,
+            "segment_timestamp": 820.8,
+            "quote": "like that >> and doing that well often involves human judgment of like thinking about like how is today different from all of the other days and you...",
+            "relevance_score": 0.8,
+            "why_surface": "5 attention-trigger match(es)"
+          }
+        ],
+        "refused": false,
+        "refusal_reason": null,
+        "duration_seconds": 1771.12,
+        "windows": [
+          {
+            "start": 0.32,
+            "score": 0.64
+          },
+          {
+            "start": 92.48,
+            "score": 0.46
+          },
+          {
+            "start": 182.56,
+            "score": 0.14
+          },
+          {
+            "start": 274.48,
+            "score": 0.46
+          },
+          {
+            "start": 365.28,
+            "score": 0.8
+          },
+          {
+            "start": 456.48,
+            "score": 1.0
+          },
+          {
+            "start": 548.16,
+            "score": 0.64
+          },
+          {
+            "start": 639.52,
+            "score": 0.62
+          },
+          {
+            "start": 730.64,
+            "score": 0.48
+          },
+          {
+            "start": 820.8,
+            "score": 0.8
+          },
+          {
+            "start": 911.6,
+            "score": 0.64
+          },
+          {
+            "start": 1002.48,
+            "score": 0.48
+          },
+          {
+            "start": 1093.28,
+            "score": 0.96
+          },
+          {
+            "start": 1184.88,
+            "score": 0.64
+          },
+          {
+            "start": 1276.32,
+            "score": 0.8
+          },
+          {
+            "start": 1366.96,
+            "score": 0.0
+          },
+          {
+            "start": 1458.64,
+            "score": 0.48
+          },
+          {
+            "start": 1549.2,
+            "score": 0.48
+          },
+          {
+            "start": 1640.64,
+            "score": 0.8
+          },
+          {
+            "start": 1730.96,
+            "score": 0.32
+          }
+        ]
+      },
+      {
+        "episode_id": "2Ryr95iiYNk",
+        "episode_title": null,
+        "highlights": [
+          {
+            "episode_id": "2Ryr95iiYNk",
+            "episode_title": null,
+            "segment_timestamp": 819.0,
+            "quote": "Leon was making. But I do think a few things are probably going to lead to not having widespread misses because of token maxing. And if you're not...",
+            "relevance_score": 0.8,
+            "why_surface": "5 attention-trigger match(es)"
+          },
+          {
+            "episode_id": "2Ryr95iiYNk",
+            "episode_title": null,
+            "segment_timestamp": 90.64,
+            "quote": "meat and potatoes of semiconductors and memory and the stack and the bottlenecks, which I'm sure all of you, uh just like me, want to engage with you...",
+            "relevance_score": 0.64,
+            "why_surface": "4 attention-trigger match(es)"
+          },
+          {
+            "episode_id": "2Ryr95iiYNk",
+            "episode_title": null,
+            "segment_timestamp": 454.28,
+            "quote": "and that's a good segue because that idea of a framework and your mental model Today, memory prices are up 60 to Micron's margins are probably what high...",
+            "relevance_score": 0.48,
+            "why_surface": "3 attention-trigger match(es)"
+          },
+          {
+            "episode_id": "2Ryr95iiYNk",
+            "episode_title": null,
+            "segment_timestamp": 909.24,
+            "quote": "we're finding out that there's we're nowhere near the amount of you know, people's ceiling price for how much they'll spend. So, I think you'll get a lot...",
+            "relevance_score": 0.48,
+            "why_surface": "3 attention-trigger match(es)"
+          }
+        ],
+        "refused": false,
+        "refusal_reason": null,
+        "duration_seconds": 1516.12,
+        "windows": [
+          {
+            "start": 0.0,
+            "score": 0.16
+          },
+          {
+            "start": 90.64,
+            "score": 0.64
+          },
+          {
+            "start": 181.2,
+            "score": 0.32
+          },
+          {
+            "start": 273.16,
+            "score": 0.0
+          },
+          {
+            "start": 364.08,
+            "score": 0.32
+          },
+          {
+            "start": 454.28,
+            "score": 0.48
+          },
+          {
+            "start": 544.48,
+            "score": 0.0
+          },
+          {
+            "start": 636.32,
+            "score": 0.0
+          },
+          {
+            "start": 726.92,
+            "score": 0.32
+          },
+          {
+            "start": 819.0,
+            "score": 0.8
+          },
+          {
+            "start": 909.24,
+            "score": 0.48
+          },
+          {
+            "start": 1000.28,
+            "score": 0.32
+          },
+          {
+            "start": 1091.6,
+            "score": 0.32
+          },
+          {
+            "start": 1182.04,
+            "score": 0.0
+          },
+          {
+            "start": 1272.72,
+            "score": 0.46
+          },
+          {
+            "start": 1365.48,
+            "score": 0.32
+          },
+          {
+            "start": 1456.68,
+            "score": 0.32
+          }
+        ]
+      }
+    ]
+  },
+  "script": {
+    "soul_version": "77974213",
+    "takes": [
+      {
+        "text": "[idea] On gs39QFYIbBY at 19:47 \u2014 well 10 doublings is about a thousand and four more is about another 16 more multiplying so you get up to around sixteen thousand times so that's what...",
+        "take_type": "idea",
+        "episode_id": "gs39QFYIbBY",
+        "segment_timestamp": 1187.04
+      },
+      {
+        "text": "[pushback] On gs39QFYIbBY at 1:31 \u2014 began to cash in with an edge in the marketplace could you define just for people who may not have familiarity the common stock warrants what is a...",
+        "take_type": "pushback",
+        "episode_id": "gs39QFYIbBY",
+        "segment_timestamp": 91.32
+      },
+      {
+        "text": "[connection] On gs39QFYIbBY at 3:02 \u2014 before he could sell his house and get his price meanwhile this is short-term thinking he wanted to hold out for a little extra money and he was...",
+        "take_type": "connection",
+        "episode_id": "gs39QFYIbBY",
+        "segment_timestamp": 182.4
+      },
+      {
+        "text": "[question] On gs39QFYIbBY at 22:52 \u2014 cross if you're not prepared for that then you're going to make all kinds of bad decisions along the way like getting out of the bottom so let...",
+        "take_type": "question",
+        "episode_id": "gs39QFYIbBY",
+        "segment_timestamp": 1372.8
+      },
+      {
+        "text": "[cross_reference] On c4tvVKDhpiY at 59:01 \u2014 economics after after Joseph Shumpeder is the kind of you know the economist who kind of developed the theory of creative destruction um uh and and this economist...",
+        "take_type": "cross_reference",
+        "episode_id": "c4tvVKDhpiY",
+        "segment_timestamp": 3541.68
+      },
+      {
+        "text": "[idea] On c4tvVKDhpiY at 25:43 \u2014 hence reading so much of your writing for years. When we look forward, what do you, how do you think about the future of venture? Is it as...",
+        "take_type": "idea",
+        "episode_id": "c4tvVKDhpiY",
+        "segment_timestamp": 1543.92
+      },
+      {
+        "text": "[pushback] On c4tvVKDhpiY at 62:03 \u2014 sum economics. It's the lump of labor fallacy. It happens over and over and over again. It's always been wrong. It's going to be wrong again. >> Leave...",
+        "take_type": "pushback",
+        "episode_id": "c4tvVKDhpiY",
+        "segment_timestamp": 3723.36
+      },
+      {
+        "text": "[connection] On c4tvVKDhpiY at 36:18 \u2014 they and then by the time you meet them it's just like they've alienated like six of the mainstream venture firms and now they're the diamond in the...",
+        "take_type": "connection",
+        "episode_id": "c4tvVKDhpiY",
+        "segment_timestamp": 2178.8
+      },
+      {
+        "text": "[question] On wAnDWfEIwoE at 45:33 \u2014 pain and inflammation improved mitochondrial function and even improving visual function itself what sets CH lights apart and why they're my preferred red light therapy device is that...",
+        "take_type": "question",
+        "episode_id": "wAnDWfEIwoE",
+        "segment_timestamp": 2733.6
+      },
+      {
+        "text": "[cross_reference] On wAnDWfEIwoE at 82:02 \u2014 I'm training very intensely physically and I'm doing really intense mental work and I oscillate between them in beautiful ways and I have a lot of empty space...",
+        "take_type": "cross_reference",
+        "episode_id": "wAnDWfEIwoE",
+        "segment_timestamp": 4922.12
+      },
+      {
+        "text": "[idea] On wAnDWfEIwoE at 118:24 \u2014 want to like you think about predator and prey Dynamics in in the world or in competition or in anything like you want to be competing now there's...",
+        "take_type": "idea",
+        "episode_id": "wAnDWfEIwoE",
+        "segment_timestamp": 7104.88
+      },
+      {
+        "text": "[pushback] On wAnDWfEIwoE at 47:04 \u2014 you said that you were devastated you experienced a tremendous amount of pain from these losses in particular the one that you just described if you don't mind...",
+        "take_type": "pushback",
+        "episode_id": "wAnDWfEIwoE",
+        "segment_timestamp": 2824.16
+      },
+      {
+        "text": "[connection] On xKZ_8ULR91Y at 7:36 \u2014 so again like the dynamics change and like but I think a lot of the same kind of basic engineering questions are not so dissimilar but like all...",
+        "take_type": "connection",
+        "episode_id": "xKZ_8ULR91Y",
+        "segment_timestamp": 456.48
+      },
+      {
+        "text": "[question] On xKZ_8ULR91Y at 18:13 \u2014 power and cool it kind of useless. So, you know, we're working very closely with with kind of almost everyone in in that space to think about what...",
+        "take_type": "question",
+        "episode_id": "xKZ_8ULR91Y",
+        "segment_timestamp": 1093.28
+      },
+      {
+        "text": "[cross_reference] On xKZ_8ULR91Y at 6:05 \u2014 noisier and there tends to be a lot more of it. And it's also different between different models that we build for different applications, right? As we try...",
+        "take_type": "cross_reference",
+        "episode_id": "xKZ_8ULR91Y",
+        "segment_timestamp": 365.28
+      },
+      {
+        "text": "[idea] On xKZ_8ULR91Y at 13:40 \u2014 like that >> and doing that well often involves human judgment of like thinking about like how is today different from all of the other days and you...",
+        "take_type": "idea",
+        "episode_id": "xKZ_8ULR91Y",
+        "segment_timestamp": 820.8
+      },
+      {
+        "text": "[pushback] On 2Ryr95iiYNk at 13:39 \u2014 Leon was making. But I do think a few things are probably going to lead to not having widespread misses because of token maxing. And if you're not...",
+        "take_type": "pushback",
+        "episode_id": "2Ryr95iiYNk",
+        "segment_timestamp": 819.0
+      },
+      {
+        "text": "[connection] On 2Ryr95iiYNk at 1:30 \u2014 meat and potatoes of semiconductors and memory and the stack and the bottlenecks, which I'm sure all of you, uh just like me, want to engage with you...",
+        "take_type": "connection",
+        "episode_id": "2Ryr95iiYNk",
+        "segment_timestamp": 90.64
+      },
+      {
+        "text": "[question] On 2Ryr95iiYNk at 7:34 \u2014 and that's a good segue because that idea of a framework and your mental model Today, memory prices are up 60 to Micron's margins are probably what high...",
+        "take_type": "question",
+        "episode_id": "2Ryr95iiYNk",
+        "segment_timestamp": 454.28
+      },
+      {
+        "text": "[cross_reference] On 2Ryr95iiYNk at 15:09 \u2014 we're finding out that there's we're nowhere near the amount of you know, people's ceiling price for how much they'll spend. So, I think you'll get a lot...",
+        "take_type": "cross_reference",
+        "episode_id": "2Ryr95iiYNk",
+        "segment_timestamp": 909.24
+      }
+    ],
+    "monologue": "[idea] On gs39QFYIbBY at 19:47 \u2014 well 10 doublings is about a thousand and four more is about another 16 more multiplying so you get up to around sixteen thousand times so that's what...\n\n[pushback] On gs39QFYIbBY at 1:31 \u2014 began to cash in with an edge in the marketplace could you define just for people who may not have familiarity the common stock warrants what is a...\n\n[connection] On gs39QFYIbBY at 3:02 \u2014 before he could sell his house and get his price meanwhile this is short-term thinking he wanted to hold out for a little extra money and he was...\n\n[question] On gs39QFYIbBY at 22:52 \u2014 cross if you're not prepared for that then you're going to make all kinds of bad decisions along the way like getting out of the bottom so let...\n\n[cross_reference] On c4tvVKDhpiY at 59:01 \u2014 economics after after Joseph Shumpeder is the kind of you know the economist who kind of developed the theory of creative destruction um uh and and this economist...\n\n[idea] On c4tvVKDhpiY at 25:43 \u2014 hence reading so much of your writing for years. When we look forward, what do you, how do you think about the future of venture? Is it as...\n\n[pushback] On c4tvVKDhpiY at 62:03 \u2014 sum economics. It's the lump of labor fallacy. It happens over and over and over again. It's always been wrong. It's going to be wrong again. >> Leave...\n\n[connection] On c4tvVKDhpiY at 36:18 \u2014 they and then by the time you meet them it's just like they've alienated like six of the mainstream venture firms and now they're the diamond in the...\n\n[question] On wAnDWfEIwoE at 45:33 \u2014 pain and inflammation improved mitochondrial function and even improving visual function itself what sets CH lights apart and why they're my preferred red light therapy device is that...\n\n[cross_reference] On wAnDWfEIwoE at 82:02 \u2014 I'm training very intensely physically and I'm doing really intense mental work and I oscillate between them in beautiful ways and I have a lot of empty space...\n\n[idea] On wAnDWfEIwoE at 118:24 \u2014 want to like you think about predator and prey Dynamics in in the world or in competition or in anything like you want to be competing now there's...\n\n[pushback] On wAnDWfEIwoE at 47:04 \u2014 you said that you were devastated you experienced a tremendous amount of pain from these losses in particular the one that you just described if you don't mind...\n\n[connection] On xKZ_8ULR91Y at 7:36 \u2014 so again like the dynamics change and like but I think a lot of the same kind of basic engineering questions are not so dissimilar but like all...\n\n[question] On xKZ_8ULR91Y at 18:13 \u2014 power and cool it kind of useless. So, you know, we're working very closely with with kind of almost everyone in in that space to think about what...\n\n[cross_reference] On xKZ_8ULR91Y at 6:05 \u2014 noisier and there tends to be a lot more of it. And it's also different between different models that we build for different applications, right? As we try...\n\n[idea] On xKZ_8ULR91Y at 13:40 \u2014 like that >> and doing that well often involves human judgment of like thinking about like how is today different from all of the other days and you...\n\n[pushback] On 2Ryr95iiYNk at 13:39 \u2014 Leon was making. But I do think a few things are probably going to lead to not having widespread misses because of token maxing. And if you're not...\n\n[connection] On 2Ryr95iiYNk at 1:30 \u2014 meat and potatoes of semiconductors and memory and the stack and the bottlenecks, which I'm sure all of you, uh just like me, want to engage with you...\n\n[question] On 2Ryr95iiYNk at 7:34 \u2014 and that's a good segue because that idea of a framework and your mental model Today, memory prices are up 60 to Micron's margins are probably what high...\n\n[cross_reference] On 2Ryr95iiYNk at 15:09 \u2014 we're finding out that there's we're nowhere near the amount of you know, people's ceiling price for how much they'll spend. So, I think you'll get a lot..."
+  },
+  "audio_url": "/artifacts/episode_c13fea54ebee4890abc11f6f00ad77c7.txt",
+  "error": null,
+  "warnings": []
+}
