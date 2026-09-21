@@ -1,0 +1,56 @@
+[
+  {
+    "show": "The Tim Ferriss Show",
+    "episodes": [
+      {
+        "video_id": "gs39QFYIbBY",
+        "title": "Ed Thorp on How to Think for Yourself, Be Inner-Directed, and the Dangers of Investing Fads"
+      }
+    ]
+  },
+  {
+    "show": "20VC with Harry Stebbings",
+    "episodes": [
+      {
+        "video_id": "c4tvVKDhpiY",
+        "title": "Marc Andreessen on The Future of VC: Will a16z Go Public & Why Introspection is Dangerous?"
+      }
+    ]
+  },
+  {
+    "show": "Huberman Lab",
+    "episodes": [
+      {
+        "video_id": "wAnDWfEIwoE",
+        "title": "The Art of Learning & Living Life | Josh Waitzkin"
+      }
+    ]
+  },
+  {
+    "show": "Jane Street",
+    "episodes": [
+      {
+        "video_id": "xKZ_8ULR91Y",
+        "title": "Jane Street on GPUs, Trading, and Hiring: A Conversation with Dwarkesh"
+      }
+    ]
+  },
+  {
+    "show": "Sohn Conference Foundation",
+    "episodes": [
+      {
+        "video_id": "2Ryr95iiYNk",
+        "title": "Inside the Mind of a Tech Investor with Gavin Baker"
+      }
+    ]
+  },
+  {
+    "show": "Joshua Weissman",
+    "episodes": [
+      {
+        "video_id": "IAgmW_gTxls",
+        "title": "How I make the perfect scrambled eggs"
+      }
+    ]
+  }
+]
