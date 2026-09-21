@@ -11,8 +11,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from chorus.app import create_app
+from chorus.artifacts import LocalArtifactStore
 from chorus.audio import MockAudioRenderer
-from chorus.jobs import JobStore
+from chorus.jobs import SqliteJobStore
 from chorus.llm import MockLLMClient
 from chorus.pipeline import Deps
 from chorus.script import MockScriptComposer
@@ -30,8 +31,9 @@ def client(tmp_path: Path) -> TestClient:
         llm=MockLLMClient(),
         composer=MockScriptComposer(),
         renderer=MockAudioRenderer(out_dir=tmp_path / "artifacts"),
+        artifacts=LocalArtifactStore(tmp_path / "artifacts"),
     )
-    return TestClient(create_app(JobStore(tmp_path / "jobs.db"), deps))
+    return TestClient(create_app(SqliteJobStore(tmp_path / "jobs.db"), deps))
 
 
 def _payload(*video_ids: str) -> dict:
@@ -96,9 +98,10 @@ def _client_with(tmp_path: Path, **overrides: object) -> TestClient:
         llm=MockLLMClient(),
         composer=MockScriptComposer(),
         renderer=MockAudioRenderer(out_dir=tmp_path / "artifacts"),
+        artifacts=LocalArtifactStore(tmp_path / "artifacts"),
     )
     kw.update(overrides)
-    return TestClient(create_app(JobStore(tmp_path / "jobs.db"), Deps(**kw)))
+    return TestClient(create_app(SqliteJobStore(tmp_path / "jobs.db"), Deps(**kw)))
 
 
 def test_llm_exception_ends_failed_not_stuck(tmp_path: Path) -> None:
@@ -141,10 +144,11 @@ def test_audio_urls_are_unique_per_job(client: TestClient) -> None:
 def test_startup_sweeps_in_flight_jobs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     for k in ("ANTHROPIC_API_KEY", "ELEVENLABS_API_KEY"):
         monkeypatch.delenv(k, raising=False)
-    store = JobStore(tmp_path / "jobs.db")
+    store = SqliteJobStore(tmp_path / "jobs.db")
     stranded = store.create()  # queued, and no background task will ever run it
     deps = Deps(FixtureTranscriptProvider(), MockLLMClient(), MockScriptComposer(),
-                MockAudioRenderer(out_dir=tmp_path / "artifacts"))
+                MockAudioRenderer(out_dir=tmp_path / "artifacts"),
+                LocalArtifactStore(tmp_path / "artifacts"))
     with TestClient(create_app(store, deps)) as c:  # `with` runs the lifespan
         body = c.get(f"/digest/{stranded}").json()
     assert body["status"] == "failed"
@@ -155,17 +159,19 @@ def test_startup_refuses_real_keys_without_token(tmp_path: Path, monkeypatch: py
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     monkeypatch.delenv("CHORUS_API_TOKEN", raising=False)
     deps = Deps(FixtureTranscriptProvider(), MockLLMClient(), MockScriptComposer(),
-                MockAudioRenderer(out_dir=tmp_path / "artifacts"))
+                MockAudioRenderer(out_dir=tmp_path / "artifacts"),
+                LocalArtifactStore(tmp_path / "artifacts"))
     with pytest.raises(RuntimeError, match="CHORUS_API_TOKEN"):
-        with TestClient(create_app(JobStore(tmp_path / "jobs.db"), deps)):
+        with TestClient(create_app(SqliteJobStore(tmp_path / "jobs.db"), deps)):
             pass
 
 
 @pytest.fixture
 def secured(tmp_path: Path) -> TestClient:
     deps = Deps(FixtureTranscriptProvider(), MockLLMClient(), MockScriptComposer(),
-                MockAudioRenderer(out_dir=tmp_path / "artifacts"))
-    return TestClient(create_app(JobStore(tmp_path / "jobs.db"), deps, api_token="s3cret"))
+                MockAudioRenderer(out_dir=tmp_path / "artifacts"),
+                LocalArtifactStore(tmp_path / "artifacts"))
+    return TestClient(create_app(SqliteJobStore(tmp_path / "jobs.db"), deps, api_token="s3cret"))
 
 
 def test_bearer_token_required_on_every_route(secured: TestClient) -> None:

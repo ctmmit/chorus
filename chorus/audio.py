@@ -1,9 +1,15 @@
-"""Audio rendering: voice the script into a downloadable episode.
+"""Audio rendering: voice the script into episode bytes.
 
 Spine floor (ENGINEERING_REVIEW Q1): a single-voice opinionated monologue. We
 voice it with a direct ElevenLabs TTS call (httpx, no heavy deps). The two-host
 dialogue LAYER is reserved for podcast-creator + esperanto later. Offline (no
-key) a MockAudioRenderer writes a placeholder so the lifecycle + path_test work.
+key) a MockAudioRenderer returns the monologue as text so the lifecycle +
+path_test work.
+
+Phase B: a renderer no longer writes files — Vercel's filesystem is ephemeral,
+so `render` returns the bytes (`RenderedAudio`) and the pipeline hands them to
+an `ArtifactStore` (chorus/artifacts.py), which is the thing that knows
+whether "writing" means local disk or a Vercel Blob PUT.
 """
 from __future__ import annotations
 
@@ -13,12 +19,15 @@ from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 import httpx
+from pydantic import BaseModel
 
+# ARTIFACT_DIR and artifact_stem now live in chorus.artifacts (naming/storage
+# concerns, not rendering); re-exported here since callers historically did
+# `from chorus.audio import ARTIFACT_DIR` / `artifact_stem`.
+from chorus.artifacts import ARTIFACT_DIR, artifact_stem
 from chorus.models import Script
 
 log = logging.getLogger("chorus.audio")
-
-ARTIFACT_DIR = Path(__file__).resolve().parent.parent / "artifacts"
 
 ELEVEN_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
 DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # ElevenLabs "Rachel" (override via ELEVENLABS_VOICE_ID)
@@ -27,37 +36,40 @@ OUTPUT_FORMAT = "mp3_44100_128"
 RENDER_TIMEOUT_S = 120.0
 
 
-def artifact_stem(job_id: str) -> str:
-    """Artifacts are keyed on the JOB, not the soul: two jobs with the same soul
-    but different episodes must not overwrite each other's audio."""
-    if not job_id or not job_id.replace("-", "").replace("_", "").isalnum():
-        raise ValueError(f"job_id is not filename-safe: {job_id!r}")
-    return f"episode_{job_id}"
+class RenderedAudio(BaseModel):
+    """What a renderer produces: bytes plus enough metadata for the caller to
+    store them (content type) and name the artifact (extension)."""
+
+    data: bytes
+    media_type: str
+    extension: str
 
 
 @runtime_checkable
 class AudioRenderer(Protocol):
-    def render(self, script: Script, soul: str, job_id: str) -> Path: ...
+    def render(self, script: Script, soul: str, job_id: str) -> RenderedAudio: ...
 
 
 class MockAudioRenderer:
-    """Writes the monologue as a text artifact and returns its path. Stands in
-    for the TTS engine offline; lets the job reach status=done without a key."""
+    """Returns the monologue as UTF-8 text bytes. Stands in for the TTS engine
+    offline; lets the job reach status=done without a key."""
 
     def __init__(self, out_dir: Path = ARTIFACT_DIR) -> None:
+        # `out_dir` is accepted (and unused beyond bookkeeping) for backward
+        # compatibility with callers/tests that still construct this with a
+        # scratch directory; rendering itself no longer touches disk.
         self.out_dir = out_dir
 
-    def render(self, script: Script, soul: str, job_id: str) -> Path:
-        self.out_dir.mkdir(parents=True, exist_ok=True)
-        path = self.out_dir / f"{artifact_stem(job_id)}.txt"
-        path.write_text(script.monologue, encoding="utf-8")
-        log.info("audio(mock): wrote %s", path)
-        return path
+    def render(self, script: Script, soul: str, job_id: str) -> RenderedAudio:
+        artifact_stem(job_id)  # validate job_id is filename-safe, as before
+        data = script.monologue.encode("utf-8")
+        log.info("audio(mock): rendered %d bytes for job %s", len(data), job_id)
+        return RenderedAudio(data=data, media_type="text/plain", extension="txt")
 
 
 class ElevenLabsRenderer:
     """Real single-voice TTS via ElevenLabs. Activated when a key is present.
-    Voices `script.monologue` and writes an mp3 the API can serve from /artifacts."""
+    Voices `script.monologue` and returns the mp3 bytes."""
 
     def __init__(
         self,
@@ -67,12 +79,12 @@ class ElevenLabsRenderer:
         model_id: str = DEFAULT_MODEL,
     ) -> None:
         self.api_key = api_key
-        self.out_dir = out_dir
+        self.out_dir = out_dir  # unused beyond bookkeeping; see MockAudioRenderer
         self.voice_id = voice_id or os.environ.get("ELEVENLABS_VOICE_ID", DEFAULT_VOICE_ID)
         self.model_id = model_id
 
-    def render(self, script: Script, soul: str, job_id: str) -> Path:
-        self.out_dir.mkdir(parents=True, exist_ok=True)
+    def render(self, script: Script, soul: str, job_id: str) -> RenderedAudio:
+        artifact_stem(job_id)  # validate job_id is filename-safe, as before
         resp = httpx.post(
             ELEVEN_TTS_URL.format(voice_id=self.voice_id),
             headers={
@@ -89,10 +101,8 @@ class ElevenLabsRenderer:
             timeout=RENDER_TIMEOUT_S,
         )
         resp.raise_for_status()
-        path = self.out_dir / f"{artifact_stem(job_id)}.mp3"
-        path.write_bytes(resp.content)
-        log.info("audio(elevenlabs): wrote %s (%d bytes)", path, len(resp.content))
-        return path
+        log.info("audio(elevenlabs): rendered %d bytes for job %s", len(resp.content), job_id)
+        return RenderedAudio(data=resp.content, media_type="audio/mpeg", extension="mp3")
 
 
 def get_audio_renderer() -> AudioRenderer:

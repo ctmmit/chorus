@@ -3,12 +3,19 @@
     POST /digest          -> {job_id}
     GET  /digest/{job_id} -> Job (status queued|digest_ready|done|failed)
 
-One mechanism, progressive states (ENGINEERING_REVIEW Q3). `create_app` takes an
-injectable store + deps so tests run fully offline against fixtures + mocks.
+One mechanism, progressive states (ENGINEERING_REVIEW Q3). `create_app` takes
+injectable store/deps/runner so tests run fully offline against fixtures +
+mocks, and so the Vercel port (Phase B) is purely additive: which store,
+artifact backend, and job runner get used is decided by chorus.config_env
+from the environment (SQLite/local/BackgroundTasks with nothing set; Postgres/
+Blob/Inngest on Vercel), never by anything in this file.
 
 Guards (the service holds paid provider keys server-side, so an open endpoint
 is an open wallet):
-- Bearer auth on every route, including /artifacts, when CHORUS_API_TOKEN is set.
+- Bearer auth on every route except /api/inngest, when CHORUS_API_TOKEN is
+  set. /api/inngest is exempt because Inngest signs its own requests (with
+  INNGEST_SIGNING_KEY) and is not a browser/agent-facing route; requiring our
+  bearer token there as well would just make Inngest's callback fail.
 - Startup refuses to serve real providers without a token (lifespan check).
 - Request bodies over MAX_BODY_BYTES are rejected before JSON parsing; the
   request models bound every field on top of that.
@@ -26,11 +33,12 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from chorus import catalog
-from chorus.audio import ARTIFACT_DIR
+from chorus import catalog, config_env
+from chorus.artifacts import LocalArtifactStore
 from chorus.jobs import JobStore
 from chorus.models import DigestRequest, Job, SelectionRequest
-from chorus.pipeline import Deps, default_deps, run_job
+from chorus.pipeline import Deps
+from chorus.runners import InngestRunner, JobRunner
 
 log = logging.getLogger("chorus.app")
 
@@ -40,6 +48,9 @@ PROVIDER_KEY_ENVS = ("ANTHROPIC_API_KEY", "ELEVENLABS_API_KEY")
 # under 200 KB even with multi-byte characters. 1 MiB leaves headroom.
 MAX_BODY_BYTES = 1 << 20
 RESTART_REASON = "interrupted by service restart before completion"
+# Inngest signs its own requests (INNGEST_SIGNING_KEY) and calls this path
+# directly, not through an agent holding CHORUS_API_TOKEN.
+INNGEST_EXEMPT_PATH = "/api/inngest"
 
 
 def _provider_keys_present() -> bool:
@@ -55,11 +66,13 @@ def create_app(
     store: JobStore | None = None,
     deps: Deps | None = None,
     api_token: str | None = None,
+    runner: JobRunner | None = None,
 ) -> FastAPI:
     """`api_token=None` reads CHORUS_API_TOKEN; unset means open access, which
     the lifespan check allows only when no real provider key is configured."""
-    store = store or JobStore()
-    deps = deps or default_deps()
+    store = store or config_env.select_job_store()
+    deps = deps or config_env.build_deps()
+    runner = runner or config_env.select_runner(store, deps)
     token = api_token if api_token is not None else os.environ.get(API_TOKEN_ENV) or None
 
     @asynccontextmanager
@@ -71,8 +84,10 @@ def create_app(
             )
         if token is None:
             log.warning("auth: %s unset — endpoints are OPEN (mock providers only)", API_TOKEN_ENV)
-        # Single-process assumption (Procfile runs one worker): at startup no
-        # background task can be alive, so every in-flight job is stranded.
+        # Single-process assumption (local/Railway run one worker; on Vercel
+        # each invocation is its own process): at startup no background task
+        # or in-flight Inngest step from THIS process can be alive, so every
+        # in-flight job recorded before this boot is stranded.
         swept = store.fail_in_flight(RESTART_REASON)
         if swept:
             log.warning("startup: marked %d in-flight job(s) failed (%s)", swept, RESTART_REASON)
@@ -86,7 +101,10 @@ def create_app(
         length = request.headers.get("content-length", "")
         if length.isdigit() and int(length) > MAX_BODY_BYTES:
             return JSONResponse({"detail": "request body too large"}, status_code=413)
-        if token is not None and not _authorized(request, token):
+        # Inngest signs its own requests and calls this path directly, not
+        # through an agent holding CHORUS_API_TOKEN — see module docstring.
+        is_inngest = request.url.path.startswith(INNGEST_EXEMPT_PATH)
+        if not is_inngest and token is not None and not _authorized(request, token):
             return JSONResponse(
                 {"detail": "missing or invalid bearer token"},
                 status_code=401,
@@ -97,7 +115,7 @@ def create_app(
     @app.post("/digest")
     def create_digest(request: DigestRequest, background: BackgroundTasks) -> dict[str, str]:
         job_id = store.create()
-        background.add_task(run_job, job_id, request, store, deps)
+        runner.submit(job_id, request, background)
         return {"job_id": job_id}
 
     @app.get("/digest/{job_id}")
@@ -124,12 +142,25 @@ def create_app(
             soul_origin=request.soul_origin,
         )
         job_id = store.create()
-        background.add_task(run_job, job_id, digest_request, store, deps)
+        runner.submit(job_id, digest_request, background)
         return {"job_id": job_id}
 
-    # Serve rendered episodes so audio_url ("/artifacts/<name>") is downloadable.
-    # The middleware above applies here too, so artifacts need the same token.
-    app.mount("/artifacts", StaticFiles(directory=str(ARTIFACT_DIR), check_dir=False), name="artifacts")
+    # Inngest only when it is actually the active runner (a durable-step
+    # invocation needs the same store/deps every step reads and writes).
+    if isinstance(runner, InngestRunner):
+        from chorus.inngest_app import register
+
+        register(app, runner.client, store, deps)
+
+    # Serve rendered episodes locally so audio_url ("/artifacts/<name>") is
+    # downloadable. When artifacts live in Vercel Blob, audio_url is already
+    # an absolute URL and this mount would just serve an empty directory.
+    if isinstance(deps.artifacts, LocalArtifactStore):
+        app.mount(
+            "/artifacts",
+            StaticFiles(directory=str(deps.artifacts.directory), check_dir=False),
+            name="artifacts",
+        )
     return app
 
 
@@ -138,8 +169,8 @@ app = create_app()
 
 if __name__ == "__main__":
     # Local real-provider serving: `python -m chorus.app` (loads .env.local first).
-    # On Railway, env vars are set in the platform, so the module-level `app`
-    # above already gets real providers via the Procfile.
+    # On Railway/Vercel, env vars are set in the platform, so the module-level
+    # `app` above already gets real providers via config_env's selection.
     import uvicorn  # type: ignore[import-not-found]
 
     from chorus.config import load_env
