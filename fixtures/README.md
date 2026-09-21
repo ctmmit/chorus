@@ -1,8 +1,22 @@
 # Fixtures
 
-The golden-path inputs, checked in and real. `path_test` runs against these
-every iteration. Per ENGINEERING_REVIEW Q2, transcripts are **pre-transcribed**
-here so tests never hit a live third party.
+The golden-path inputs. `path_test` runs against these every iteration. Per
+ENGINEERING_REVIEW Q2, transcripts are **pre-transcribed** so tests never hit a
+live third party.
+
+## Public vs private
+
+The real show transcripts are captions of commercial podcasts and are **not**
+committed to this repo (`fixtures/transcripts/*.json` is gitignored). They live
+in the private repo `ctmmit/chorus-private`. To work with them locally:
+
+```bash
+scripts/sync_private_fixtures.sh      # or scripts\sync_private_fixtures.ps1
+```
+
+Without them, tests that need real transcripts skip (see `tests/conftest.py`)
+and the synthetic `sample_public.json` transcript, which is committed, still
+exercises the whole spine.
 
 ## Contents (complete)
 

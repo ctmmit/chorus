@@ -8,3 +8,8 @@ __pycache__/
 .mypy_cache/
 *.db
 artifacts/
+
+# Real show transcripts are private (see fixtures/README.md); only synthetic samples are committed.
+fixtures/transcripts/*.json
+!fixtures/transcripts/sample_*.json
+requirements-dev.lock

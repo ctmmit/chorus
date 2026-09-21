@@ -1,0 +1,30 @@
+{
+  "video_id": "sample_public",
+  "_comment": "Synthetic, redistributable transcript for the public test suite. Three 90s windows: two carry investor-lens signal (unit economics, moats, capital allocation, margins), one is off-topic chatter. Real show transcripts live in the private fixtures repo.",
+  "segments": [
+    {"start": 0.0, "text": "Welcome back, today we are talking with an operator who has run three software companies."},
+    {"start": 6.5, "text": "Let's start with the business model shift you saw last year."},
+    {"start": 12.0, "text": "The unit economics changed completely once inference costs fell by an order of magnitude."},
+    {"start": 20.4, "text": "Gross margins went from forty percent to seventy percent in two quarters."},
+    {"start": 28.1, "text": "That cost curve is the mechanism, and it is falsifiable: watch the margins next quarter."},
+    {"start": 36.9, "text": "Competitors without pricing power will feel it first, and their moats were thin to begin with."},
+    {"start": 45.2, "text": "So the competitive dynamics reward whoever controls distribution, not whoever has the best model."},
+    {"start": 54.0, "text": "Capital allocation follows: the incumbents are buying back stock instead of funding the transition."},
+    {"start": 63.3, "text": "Management incentives explain that; their comp is tied to earnings per share, not market structure."},
+    {"start": 72.8, "text": "And the balance sheet decisions they make this year decide who survives the re-pricing."},
+    {"start": 81.0, "text": "Which is a base-rate-defying claim, so let me give you the mechanism and the number."},
+    {"start": 90.5, "text": "Anyway, before we go deeper, funny story from the green room earlier."},
+    {"start": 96.0, "text": "The host spilled coffee on the producer and everyone laughed for five minutes."},
+    {"start": 104.2, "text": "We talked about the weather, a celebrity wedding, and which restaurant has the best tacos."},
+    {"start": 113.7, "text": "Somebody's cousin knows the drummer from that band, which was the drama of the week."},
+    {"start": 123.0, "text": "Then we argued about whether pineapple belongs on pizza, which it does not."},
+    {"start": 132.4, "text": "None of this matters for the show, but it was a good time."},
+    {"start": 141.9, "text": "Okay, back to it. What about regulation as a catalyst?"},
+    {"start": 150.1, "text": "The policy change re-prices the whole industry because it changes who bears the compliance cost."},
+    {"start": 181.0, "text": "Pricing power moves to the two players with the licenses, and everyone else becomes a price taker."},
+    {"start": 190.3, "text": "That market structure is the moat now, and the regulatory catalyst created it overnight."},
+    {"start": 199.8, "text": "So my falsifiable claim: their margins expand by ten points within four quarters or I am wrong."},
+    {"start": 209.4, "text": "Labor is the other cost curve; AI compresses the analyst layer and that shows up in operating margins."},
+    {"start": 219.0, "text": "Capital allocation again decides it: the ones reinvesting the savings win the next decade."}
+  ]
+}

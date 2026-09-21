@@ -110,12 +110,23 @@ class Highlight(BaseModel):
     why_surface: str
 
 
+class WindowScore(BaseModel):
+    """Relevance of one scored transcript window. Every window is reported,
+    surfaced or not, so a viewer can draw the whole episode and a caller can
+    audit what the lens rejected."""
+
+    start: float
+    score: float
+
+
 class EpisodeDigest(BaseModel):
     episode_id: str
     episode_title: str | None
     highlights: list[Highlight]
     refused: bool = False
     refusal_reason: str | None = None
+    duration_seconds: float | None = None  # start of the last transcript segment
+    windows: list[WindowScore] = Field(default_factory=list)
 
 
 class Digest(BaseModel):

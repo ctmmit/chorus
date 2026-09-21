@@ -19,6 +19,7 @@ from chorus.models import (
     ResolvedEpisode,
     Segment,
     Transcript,
+    WindowScore,
 )
 
 RELEVANCE_THRESHOLD = 0.35
@@ -83,9 +84,12 @@ def curate_episode(
         raise ValueError(f"max_highlights must be >= 1, got {max_highlights}")
     transcript = resolved.transcript
     title = resolved.episode.title
+    duration = transcript.segments[-1].start if transcript.segments else None
     scored: list[tuple[float, str, _Window]] = []
+    windows: list[WindowScore] = []
     for w in window_segments(transcript.segments):
         score, reason = client.score_segment(w.text, soul, context)
+        windows.append(WindowScore(start=w.start, score=round(score, 3)))
         if score >= threshold:
             scored.append((score, reason, w))
 
@@ -96,6 +100,8 @@ def curate_episode(
             highlights=[],
             refused=True,
             refusal_reason=REFUSAL,
+            duration_seconds=duration,
+            windows=windows,
         )
 
     scored.sort(key=lambda t: t[0], reverse=True)
@@ -110,7 +116,13 @@ def curate_episode(
         )
         for score, reason, w in scored[:max_highlights]
     ]
-    return EpisodeDigest(episode_id=transcript.video_id, episode_title=title, highlights=highlights)
+    return EpisodeDigest(
+        episode_id=transcript.video_id,
+        episode_title=title,
+        highlights=highlights,
+        duration_seconds=duration,
+        windows=windows,
+    )
 
 
 def build_digest(
