@@ -1,0 +1,95 @@
+{
+  "nodes": [
+    {
+      "id": "8ea1e73305f1483c9624f36364741b98",
+      "kind": "persona",
+      "label": "Value Investor",
+      "size": 3
+    },
+    {
+      "id": "c6783a3b10b94f3c9deca5dfab66b975",
+      "kind": "persona",
+      "label": "Pop-Culture Critic",
+      "size": 1
+    },
+    {
+      "id": "89496c89dc614e10831b90e8f4fe3839",
+      "kind": "persona",
+      "label": "Founder Operator",
+      "size": 3
+    },
+    {
+      "id": "show:the tim ferriss show",
+      "kind": "show",
+      "label": "The Tim Ferriss Show",
+      "size": 0
+    },
+    {
+      "id": "show:20vc with harry stebbings",
+      "kind": "show",
+      "label": "20VC with Harry Stebbings",
+      "size": 2
+    },
+    {
+      "id": "show:huberman lab",
+      "kind": "show",
+      "label": "Huberman Lab",
+      "size": 1
+    },
+    {
+      "id": "show:jane street",
+      "kind": "show",
+      "label": "Jane Street",
+      "size": 2
+    },
+    {
+      "id": "show:sohn conference foundation",
+      "kind": "show",
+      "label": "Sohn Conference Foundation",
+      "size": 1
+    },
+    {
+      "id": "show:joshua weissman",
+      "kind": "show",
+      "label": "Joshua Weissman",
+      "size": 1
+    }
+  ],
+  "edges": [
+    {
+      "source": "8ea1e73305f1483c9624f36364741b98",
+      "target": "show:20vc with harry stebbings",
+      "kind": "listens_to"
+    },
+    {
+      "source": "8ea1e73305f1483c9624f36364741b98",
+      "target": "show:sohn conference foundation",
+      "kind": "listens_to"
+    },
+    {
+      "source": "8ea1e73305f1483c9624f36364741b98",
+      "target": "show:jane street",
+      "kind": "listens_to"
+    },
+    {
+      "source": "c6783a3b10b94f3c9deca5dfab66b975",
+      "target": "show:joshua weissman",
+      "kind": "listens_to"
+    },
+    {
+      "source": "89496c89dc614e10831b90e8f4fe3839",
+      "target": "show:20vc with harry stebbings",
+      "kind": "listens_to"
+    },
+    {
+      "source": "89496c89dc614e10831b90e8f4fe3839",
+      "target": "show:jane street",
+      "kind": "listens_to"
+    },
+    {
+      "source": "89496c89dc614e10831b90e8f4fe3839",
+      "target": "show:huberman lab",
+      "kind": "listens_to"
+    }
+  ]
+}

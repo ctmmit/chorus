@@ -165,6 +165,26 @@ Triggers** (surface a segment when it touches these), **Anti-interests** (ignore
 e.g. "bar is high for AI content; surface only when genuinely novel"). The last
 one most affects what gets surfaced.
 
+## Discovery
+
+Another agent finds this service, and any persona registered on it, through
+standard public documents — no credential required to read them:
+
+- `GET /.well-known/agent.json` (and the current-spec alias
+  `/.well-known/agent-card.json`) — an A2A Agent Card for the service.
+- `GET /.well-known/agent-facts.json` — a NANDA AgentFacts document for the
+  service.
+- `GET /personas` — public personas registered on this instance.
+- `GET /personas/{id}/agent.json` and `/personas/{id}/agent-facts.json` — the
+  same two documents, scoped to one persona (a soul as its own agent).
+- `GET /network` — the persona/show graph as data (nodes + edges), the
+  DEVELOPMENT_PLAN.md §6 "infrastructure level" viewer's data source.
+
+Registering, updating, or deleting a persona (`POST`/`DELETE /personas`)
+still needs the bearer token. See `docs/DISCOVERY.md` for the full picture:
+what's published where, how to register a persona, and the manual NANDA
+index registration runbook.
+
 ## Minimal example
 
 ```bash
