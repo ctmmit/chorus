@@ -9,6 +9,8 @@ import { absoluteUrl, trimTrailingSlash } from "./url";
 import type {
   DigestRequest,
   Job,
+  NetworkGraph,
+  Persona,
   SelectionRequest,
   ShowListing,
 } from "./api-types";
@@ -84,6 +86,34 @@ export async function submitDigestSelect(
 export async function fetchJob(baseUrl: string, token: string, jobId: string): Promise<Job> {
   if (MOCK_MODE) return mockFetch<Job>(`/digest/${encodeURIComponent(jobId)}`);
   return authedFetch<Job>(baseUrl, token, `/digest/${encodeURIComponent(jobId)}`);
+}
+
+// --- Discovery (chorus/discovery.py, Phase H) -------------------------------
+// GET /network and GET /personas/{id} are public (no bearer required — see
+// chorus/app.py's DISCOVERY_PUBLIC_PREFIXES), but authedFetch only adds the
+// Authorization header when a token is present, so passing one through here
+// is harmless and keeps a single fetch path for mock vs. live.
+
+export async function fetchNetwork(baseUrl: string, token: string): Promise<NetworkGraph> {
+  if (MOCK_MODE) return mockFetch<NetworkGraph>("/network");
+  return authedFetch<NetworkGraph>(baseUrl, token, "/network");
+}
+
+/** Public listing of public personas — used by the network graph to look up
+ * a persona's description for the hover panel (the /network payload itself
+ * carries only id/kind/label/size, not description). */
+export async function listPersonas(baseUrl: string, token: string): Promise<Persona[]> {
+  if (MOCK_MODE) return mockFetch<Persona[]>("/personas");
+  return authedFetch<Persona[]>(baseUrl, token, "/personas");
+}
+
+export async function fetchPersona(
+  baseUrl: string,
+  token: string,
+  personaId: string,
+): Promise<Persona> {
+  if (MOCK_MODE) return mockFetch<Persona>(`/personas/${encodeURIComponent(personaId)}`);
+  return authedFetch<Persona>(baseUrl, token, `/personas/${encodeURIComponent(personaId)}`);
 }
 
 export async function fetchSampleSoul(name: "investor" | "popculture"): Promise<string> {

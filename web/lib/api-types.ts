@@ -163,3 +163,42 @@ export interface ShowListing {
   show: string;
   episodes: ShowEpisode[];
 }
+
+// --- Discovery (chorus/personas.py + chorus/discovery.py, Phase H) ---------
+
+export const CADENCES = ["weekly", "daily", "adhoc"] as const;
+export type Cadence = (typeof CADENCES)[number];
+
+/** Mirrors chorus/personas.py Persona. */
+export interface Persona {
+  persona_id: string;
+  name: string;
+  description: string;
+  soul: string;
+  shows: string[];
+  cadence: Cadence;
+  created_at: string; // ISO 8601
+  soul_version: string;
+  public: boolean;
+}
+
+/** Mirrors chorus/discovery.py NetworkNode. */
+export interface NetworkNode {
+  id: string;
+  kind: "persona" | "show";
+  label: string;
+  size: number;
+}
+
+/** Mirrors chorus/discovery.py NetworkEdge. */
+export interface NetworkEdge {
+  source: string;
+  target: string;
+  kind: "listens_to";
+}
+
+/** Mirrors chorus/discovery.py NetworkGraph (GET /network). */
+export interface NetworkGraph {
+  nodes: NetworkNode[];
+  edges: NetworkEdge[];
+}

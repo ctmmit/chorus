@@ -12,10 +12,16 @@ Blob/Inngest on Vercel), never by anything in this file.
 
 Guards (the service holds paid provider keys server-side, so an open endpoint
 is an open wallet):
-- Bearer auth on every route except /api/inngest, when CHORUS_API_TOKEN is
-  set. /api/inngest is exempt because Inngest signs its own requests (with
+- Bearer auth on every route except /api/inngest and the public discovery
+  surface (docs/DEVELOPMENT_PLAN.md §8 row H, chorus/discovery.py):
+  /.well-known/*, and GET (only) under /personas and /network. /api/inngest
+  is exempt because Inngest signs its own requests (with
   INNGEST_SIGNING_KEY) and is not a browser/agent-facing route; requiring our
   bearer token there as well would just make Inngest's callback fail.
+  Discovery documents and persona listings are exempt because another
+  agent has to be able to find a persona before it can authenticate to
+  anything — but POST/DELETE under /personas still require the token
+  (DISCOVERY_PUBLIC_PREFIXES is method-gated, not just path-gated).
 - Startup refuses to serve real providers without a token (lifespan check).
 - Request bodies over MAX_BODY_BYTES are rejected before JSON parsing; the
   request models bound every field on top of that.
@@ -33,14 +39,14 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from chorus import catalog, config_env
+from chorus import catalog, config_env, discovery
 from chorus.artifacts import LocalArtifactStore
-from chorus.jobs import JobStore
 from chorus.email import EmailSender, get_email_sender
-from chorus.jobs import DEFAULT_DB
+from chorus.jobs import DEFAULT_DB, JobStore
 from chorus.keys import KeyRateLimited, KeyStore, SqliteKeyStore
 from chorus.mcp_server import mount_mcp
 from chorus.models import DigestRequest, Job, KeyRequest, SelectionRequest
+from chorus.personas import PersonaRegistry, SqlitePersonaRegistry
 from chorus.pipeline import Deps
 from chorus.runners import InngestRunner, JobRunner
 
@@ -55,6 +61,11 @@ RESTART_REASON = "interrupted by service restart before completion"
 # Inngest signs its own requests (INNGEST_SIGNING_KEY) and calls this path
 # directly, not through an agent holding CHORUS_API_TOKEN.
 INNGEST_EXEMPT_PATH = "/api/inngest"
+# Discovery documents + persona listing (chorus/discovery.py) must be public:
+# another agent has to be able to find a Chorus persona before it has any
+# credential to authenticate with. Only GET under these prefixes is exempt —
+# POST/DELETE on /personas still require the bearer token (see `guards`).
+DISCOVERY_PUBLIC_PREFIXES = ("/.well-known/", "/personas", "/network")
 
 
 def _provider_keys_present() -> bool:
@@ -78,12 +89,19 @@ def create_app(
     runner: JobRunner | None = None,
     key_store: KeyStore | None = None,
     email_sender: EmailSender | None = None,
+    personas: PersonaRegistry | None = None,
 ) -> FastAPI:
     """`api_token=None` reads CHORUS_API_TOKEN; unset means open access, which
-    the lifespan check allows only when no real provider key is configured."""
+    the lifespan check allows only when no real provider key is configured.
+    `personas=None` defaults to a SqlitePersonaRegistry on the job store's own
+    db path when `store` is SQLite-backed (so persona + job data live in the
+    same file, like chorus.transcript_cache does), else DEFAULT_DB — there is
+    no Postgres PersonaRegistry yet (chorus/personas.py), so a Postgres job
+    store still gets a local SQLite persona table rather than failing."""
     store = store or config_env.select_job_store()
     deps = deps or config_env.build_deps()
     runner = runner or config_env.select_runner(store, deps)
+    personas = personas or SqlitePersonaRegistry(getattr(store, "db_path", DEFAULT_DB))
     token = api_token if api_token is not None else os.environ.get(API_TOKEN_ENV) or None
     owns_key_store = key_store is None
     # Issued keys live next to the jobs when the store is SQLite. A Postgres
@@ -112,8 +130,13 @@ def create_app(
         store.close()
         if owns_key_store and isinstance(key_store, SqliteKeyStore):
             key_store.close()
+        close_personas = getattr(personas, "close", None)
+        if close_personas is not None:
+            close_personas()
 
     app = FastAPI(title="Chorus", version="0.1.0", lifespan=lifespan)
+    app.state.personas = personas
+    app.include_router(discovery.router)
 
     @app.middleware("http")
     async def guards(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
@@ -124,7 +147,12 @@ def create_app(
         # POST /keys is how a caller obtains a token in the first place.
         is_inngest = request.url.path.startswith(INNGEST_EXEMPT_PATH)
         keys_route = request.method == "POST" and request.url.path == "/keys"
-        exempt = is_inngest or keys_route
+        # Discovery documents + persona/network listing are public; only GET
+        # is exempt, so POST/DELETE on /personas still requires the token.
+        is_public_discovery = request.method == "GET" and request.url.path.startswith(
+            DISCOVERY_PUBLIC_PREFIXES
+        )
+        exempt = is_inngest or keys_route or is_public_discovery
         if not exempt and token is not None and not _authorized(request, token, key_store):
             return JSONResponse(
                 {"detail": "missing or invalid bearer token"},
