@@ -15,6 +15,7 @@ from chorus.artifacts import LocalArtifactStore
 from chorus.audio import MockAudioRenderer
 from chorus.jobs import SqliteJobStore
 from chorus.llm import MockLLMClient
+from chorus.models import TWO_HOST_PROFILE
 from chorus.pipeline import Deps
 from chorus.script import MockScriptComposer
 from chorus.transcripts import FixtureTranscriptProvider
@@ -56,6 +57,27 @@ def test_full_lifecycle_reaches_done(client: TestClient) -> None:
     body = client.get(f"/digest/{job_id}").json()
     assert body["status"] == "done"
     assert body["digest"]["episodes"][0]["highlights"]
+    assert body["audio_url"]
+
+
+def test_two_host_profile_lifecycle_reaches_done_with_dialogue_script(client: TestClient) -> None:
+    # §8 row E exit criterion: two-host episode renders; every turn resolves
+    # to a highlight; single-voice (the fixture above) still passes.
+    payload = _payload(ANDREESSEN)
+    payload["profile"] = TWO_HOST_PROFILE.model_dump()
+    job_id = client.post("/digest", json=payload).json()["job_id"]
+    body = client.get(f"/digest/{job_id}").json()
+
+    assert body["status"] == "done"
+    assert body["script"]["format"] == "dialogue"
+    assert body["script"]["turns"], "two-host profile should yield dialogue turns"
+    valid = {
+        (h["episode_id"], round(h["segment_timestamp"]))
+        for ep in body["digest"]["episodes"]
+        for h in ep["highlights"]
+    }
+    for turn in body["script"]["turns"]:
+        assert (turn["episode_id"], round(turn["segment_timestamp"])) in valid
     assert body["audio_url"]
 
 

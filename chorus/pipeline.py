@@ -34,6 +34,7 @@ from chorus.ingest import AllEpisodesFailed, ingest
 from chorus.jobs import JobStore
 from chorus.llm import LLMClient, get_llm_client
 from chorus.models import (
+    MONOLOGUE_PROFILE,
     Digest,
     DigestRequest,
     EpisodeDigest,
@@ -159,8 +160,12 @@ def stage_curate_episode(
 
 def stage_script(digest: Digest, request: DigestRequest, composer: ScriptComposer) -> Script:
     """Compose the opinionated script from the finished digest. Callers treat
-    a raised exception as non-fatal (digest still stands; script degrades)."""
-    return composer.write_script(digest, request.soul, request.context)
+    a raised exception as non-fatal (digest still stands; script degrades).
+    `request.profile` (None -> MONOLOGUE_PROFILE, today's single-voice
+    behavior) picks monologue vs. two-host dialogue (docs/DEVELOPMENT_PLAN.md
+    §4)."""
+    profile = request.profile or MONOLOGUE_PROFILE
+    return composer.write_script(digest, request.soul, request.context, profile)
 
 
 def stage_audio(
