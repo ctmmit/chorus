@@ -96,16 +96,21 @@ in `localStorage`, matching SKILL.md's per-caller auth model.
 - `lib/api-client.ts` — the only place that calls the API or `/api/mock/*`.
 - `lib/timeline.ts` — pure scale/format helpers for the timeline strip
   (unit-tested in `lib/timeline.test.ts`).
-- `lib/storage.ts` — localStorage access (base URL, token, recent jobs),
-  wrapped in try/catch.
+- `lib/storage.ts` — localStorage access (base URL, token, a navigation-only
+  recent-jobs list), wrapped in try/catch.
+- `lib/usage.ts` — pure helpers for Phase C's `usage` telemetry (stage
+  ordering, cache-read share, skipped-episode display labels).
 - `mocks/` — fixture JSON/markdown for mock mode (see above).
 
-## Known API gaps (see final report for detail)
+## Run telemetry (Phase C `usage`)
 
-- The Job/Digest response never reports which requested episodes were
-  skipped (missing transcript, ingest failure, etc.) or why. The viewer can
-  only reconstruct "skipped" by diffing the episode ids it itself
-  submitted (kept in `localStorage`'s recent-jobs list) against
-  `digest.episodes` — so the Skipped section only appears for jobs
-  submitted from this browser, never for a job id opened cold (e.g. from a
-  shared link).
+`Job.usage` (`chorus/models.py` `JobUsage`) is rendered directly — no
+client-side reconstruction needed:
+
+- **Skipped episodes** (`usage.skipped`): shown under the episode timeline
+  strip with the server's own reason, for any job id, including one opened
+  cold from a shared link.
+- **Transcript source** (`usage.transcript_sources`): a small mono label on
+  each timeline row ("fixture", "supadata", "rss:json", "deepgram", ...).
+- **Stage seconds / LLM tokens** (`usage.stage_seconds`, `usage.llm_tokens`):
+  a compact line under the provenance line on `/jobs/[id]`.

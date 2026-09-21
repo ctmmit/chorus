@@ -6,7 +6,6 @@ import {
   overlapPercentage,
   resolveDurationSeconds,
   secondsToClock,
-  skippedEpisodeIds,
   tickHeightForScore,
   xForTime,
   youtubeDeepLink,
@@ -170,19 +169,5 @@ describe("overlapPercentage", () => {
 
   it("treats two empty sets as 0% overlap", () => {
     expect(overlapPercentage([], [])).toBe(0);
-  });
-});
-
-describe("skippedEpisodeIds", () => {
-  it("returns requested ids absent from the digest", () => {
-    const skipped = skippedEpisodeIds(
-      ["a", "b", "c"],
-      [{ episode_id: "a" }, { episode_id: "c" }],
-    );
-    expect(skipped).toEqual(["b"]);
-  });
-
-  it("returns an empty array when nothing was skipped", () => {
-    expect(skippedEpisodeIds(["a"], [{ episode_id: "a" }])).toEqual([]);
   });
 });

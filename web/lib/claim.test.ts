@@ -34,9 +34,9 @@ describe("buildClaimTitle", () => {
     expect(buildClaimTitle(digest)).toBe("2 of 3 episodes cleared the bar; 7 highlights");
   });
 
-  it("uses the requested total when the caller knows about skipped episodes", () => {
+  it("adds usage.skipped.length to the total when episodes were skipped server-side", () => {
     const digest = digestWith([false, false, true], [4, 3, 0]);
-    expect(buildClaimTitle(digest, 5)).toBe("2 of 5 episodes cleared the bar; 7 highlights");
+    expect(buildClaimTitle(digest, 2)).toBe("2 of 5 episodes cleared the bar; 7 highlights");
   });
 
   it("singularizes episode/highlight when the count is exactly one", () => {

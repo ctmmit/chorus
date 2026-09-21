@@ -1,4 +1,4 @@
-import type { EpisodeDigest } from "@/lib/api-types";
+import type { EpisodeDigest, SkippedEpisode } from "@/lib/api-types";
 import {
   highlightTimestamps,
   isHighlightWindow,
@@ -8,6 +8,7 @@ import {
   xForTime,
   youtubeDeepLink,
 } from "@/lib/timeline";
+import { episodeInputLabel } from "@/lib/usage";
 
 const VIEW_WIDTH = 900;
 const VIEW_HEIGHT = 56;
@@ -15,7 +16,13 @@ const BASELINE_Y = 46;
 const MAX_TICK_HEIGHT = 34;
 const MAX_HIGHLIGHT_TICK_HEIGHT = 40;
 
-function EpisodeRow({ episode }: { episode: EpisodeDigest }) {
+function EpisodeRow({
+  episode,
+  transcriptSource,
+}: {
+  episode: EpisodeDigest;
+  transcriptSource?: string;
+}) {
   const title = episode.episode_title ?? episode.episode_id;
   const duration = resolveDurationSeconds(episode);
   const hlTimestamps = highlightTimestamps(episode);
@@ -23,7 +30,12 @@ function EpisodeRow({ episode }: { episode: EpisodeDigest }) {
   return (
     <div className="border-t border-taupe py-3 first:border-t-0">
       <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <span className="font-serif text-sm text-ink">{title}</span>
+        <span className="font-serif text-sm text-ink">
+          {title}
+          {transcriptSource ? (
+            <span className="label-caps ml-2 font-mono normal-case">{transcriptSource}</span>
+          ) : null}
+        </span>
         <span className="label-caps">
           {episode.refused ? (
             <span className="text-silver">Refused</span>
@@ -106,26 +118,40 @@ function EpisodeRow({ episode }: { episode: EpisodeDigest }) {
 
 export function EpisodeTimeline({
   episodes,
-  skippedEpisodeIds,
+  transcriptSources,
+  skipped,
 }: {
   episodes: EpisodeDigest[];
-  skippedEpisodeIds?: string[];
+  /** usage.transcript_sources (Phase C): resolved episode id -> provider
+   * ("fixture", "supadata", "rss:json", "deepgram", ...). */
+  transcriptSources?: Record<string, string>;
+  /** usage.skipped (Phase C): episodes the server could not resolve a
+   * transcript for, with why. */
+  skipped?: SkippedEpisode[];
 }) {
   return (
     <section aria-label="Episode timeline strip">
       <div>
         {episodes.map((ep) => (
-          <EpisodeRow key={ep.episode_id} episode={ep} />
+          <EpisodeRow
+            key={ep.episode_id}
+            episode={ep}
+            transcriptSource={transcriptSources?.[ep.episode_id]}
+          />
         ))}
       </div>
-      {skippedEpisodeIds && skippedEpisodeIds.length > 0 ? (
+      {skipped && skipped.length > 0 ? (
         <div className="mt-3 border-t border-taupe pt-3">
           <p className="label-caps mb-1">Skipped</p>
-          <p className="font-serif text-sm italic text-silver">
-            Requested but absent from the digest (transcript unavailable or ingest failed —
-            Chorus does not report which):{" "}
-            <span className="font-mono not-italic">{skippedEpisodeIds.join(", ")}</span>
-          </p>
+          <ul className="space-y-1">
+            {skipped.map((s, i) => (
+              <li key={i} className="font-serif text-sm italic text-silver">
+                <span className="font-mono not-italic">{episodeInputLabel(s.episode)}</span>
+                {" — "}
+                {s.reason}
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
     </section>

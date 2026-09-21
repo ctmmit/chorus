@@ -1,16 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { EpisodePlayer } from "@/components/EpisodePlayer";
 import { EpisodeTimeline } from "@/components/EpisodeTimeline";
 import { HighlightCard } from "@/components/HighlightCard";
 import { ProvenanceLine } from "@/components/ProvenanceLine";
 import { StatusBadge } from "@/components/StatusBadge";
+import { UsageSummary } from "@/components/UsageSummary";
 import { allHighlights } from "@/lib/api-types";
 import { buildClaimTitle } from "@/lib/claim";
-import { getBaseUrl, getRecentJob, getToken } from "@/lib/storage";
-import { skippedEpisodeIds } from "@/lib/timeline";
+import { getBaseUrl, getToken } from "@/lib/storage";
 import { useJob } from "@/lib/useJob";
 
 export function JobView({ jobId }: { jobId: string }) {
@@ -27,10 +27,6 @@ export function JobView({ jobId }: { jobId: string }) {
     setHydrated(true);
   }, []);
 
-  const recentJob = useMemo(
-    () => (hydrated ? getRecentJob(jobId) : undefined),
-    [jobId, hydrated],
-  );
   const { job, error, loading } = useJob(baseUrl, token, hydrated ? jobId : "");
 
   if (!hydrated || (loading && !job)) {
@@ -50,9 +46,7 @@ export function JobView({ jobId }: { jobId: string }) {
     return <p className="label-caps">Loading…</p>;
   }
 
-  const skipped = recentJob
-    ? skippedEpisodeIds(recentJob.requested_episode_ids, job.digest?.episodes ?? [])
-    : [];
+  const usage = job.usage;
 
   return (
     <div className="space-y-10">
@@ -67,12 +61,13 @@ export function JobView({ jobId }: { jobId: string }) {
         {job.digest ? (
           <>
             <h1 className="font-serif text-2xl text-navy sm:text-[28px]">
-              {buildClaimTitle(job.digest, recentJob?.requested_episode_ids.length)}
+              {buildClaimTitle(job.digest, usage?.skipped.length ?? 0)}
             </h1>
             <ProvenanceLine
               soulVersion={job.digest.soul_version}
               soulOrigin={job.digest.soul_origin}
             />
+            {usage ? <UsageSummary usage={usage} /> : null}
           </>
         ) : (
           <h1 className="font-serif text-2xl text-navy sm:text-[28px]">
@@ -96,7 +91,11 @@ export function JobView({ jobId }: { jobId: string }) {
         <>
           <section className="space-y-3">
             <h2 className="label-caps">Episode timeline</h2>
-            <EpisodeTimeline episodes={job.digest.episodes} skippedEpisodeIds={skipped} />
+            <EpisodeTimeline
+              episodes={job.digest.episodes}
+              transcriptSources={usage?.transcript_sources}
+              skipped={usage?.skipped}
+            />
           </section>
 
           <section className="space-y-1">
