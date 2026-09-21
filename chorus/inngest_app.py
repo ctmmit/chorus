@@ -47,6 +47,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 import inngest
@@ -54,6 +55,7 @@ import inngest.fast_api
 from fastapi import FastAPI
 
 from chorus.curation import soul_version
+from chorus.email import EmailSender
 from chorus.jobs import JobStore
 from chorus.models import (
     Digest,
@@ -74,6 +76,9 @@ from chorus.pipeline import (
     stage_ingest,
     stage_script,
 )
+from chorus.scheduler import TICK_CRON_SCHEDULE, due_subscriptions, run_subscription
+from chorus.subscriptions import Subscription, SubscriptionStore
+from chorus.subscriptions_api import resolve_base_url
 
 log = logging.getLogger("chorus.inngest_app")
 
@@ -81,6 +86,12 @@ log = logging.getLogger("chorus.inngest_app")
 # function is triggered by.
 INNGEST_DIGEST_EVENT = "chorus/digest.requested"
 INNGEST_SERVE_PATH = "/api/inngest"
+# Subscription fan-out (Phase F, docs/DEVELOPMENT_PLAN.md §3/§8 row F): one
+# cron-triggered function id, `chorus/tick`, polled on TICK_CRON_SCHEDULE —
+# covers both "weekly" and "daily" cadences, since due() only compares
+# next_run_at to now (see chorus/scheduler.py's module docstring for why this
+# is one tick rather than a separate weekly + hourly-daily pair).
+INNGEST_TICK_FUNCTION_ID = "chorus-tick"
 
 
 class StepLike(Protocol):
@@ -218,6 +229,36 @@ async def run_digest_body(step: StepLike, event_data: dict[str, Any], store: Job
                 log.exception("job %s: could not persist failed status", job_id)
 
 
+async def run_tick_body(
+    step: StepLike,
+    store: JobStore,
+    deps: Deps,
+    subscription_store: SubscriptionStore,
+    email_sender: EmailSender,
+) -> dict[str, Any]:
+    """The `chorus/tick` function body: one `step.run` per due subscription
+    (so one subscription's failure retries alone, exactly like `_execute`'s
+    per-episode `curate:<episode_id>` steps), each calling
+    chorus.scheduler.run_subscription — the same fan-out
+    `POST /internal/cron/tick` (chorus/subscriptions_api.py) runs inline for
+    deployments without Inngest. Exercised directly with a fake `step` in
+    tests, same pattern as `run_digest_body`."""
+    now = datetime.now(UTC)
+    base_url = resolve_base_url(None)
+    ran: list[dict[str, str]] = []
+    for subscription in due_subscriptions(subscription_store, now):
+
+        async def _run(subscription: Subscription = subscription) -> dict[str, str]:
+            job_id = run_subscription(
+                subscription, store, deps, subscription_store, email_sender, base_url, now
+            )
+            return {"subscription_id": subscription.subscription_id, "job_id": job_id}
+
+        result = await step.run(f"run:{subscription.subscription_id}", _run)
+        ran.append(result)
+    return {"ran": len(ran), "subscriptions": ran}
+
+
 def build_inngest_client() -> inngest.Inngest:
     from chorus.config_env import INNGEST_APP_ID, INNGEST_EVENT_KEY_ENV, INNGEST_SIGNING_KEY_ENV
 
@@ -228,11 +269,19 @@ def build_inngest_client() -> inngest.Inngest:
     )
 
 
-def register(app: FastAPI, client: inngest.Inngest, store: JobStore, deps: Deps) -> None:
-    """Define `run_digest` bound to `store`/`deps` and mount it at
-    `/api/inngest`. Kept as a function (rather than module-level globals) so
-    tests can build a function against fixture/mock deps without touching the
-    real Inngest client."""
+def register(
+    app: FastAPI,
+    client: inngest.Inngest,
+    store: JobStore,
+    deps: Deps,
+    subscription_store: SubscriptionStore | None = None,
+    email_sender: EmailSender | None = None,
+) -> None:
+    """Define `run_digest` (and, when `subscription_store`/`email_sender`
+    are given, the `chorus/tick` cron function) bound to `store`/`deps`, and
+    mount both at `/api/inngest`. Kept as a function (rather than
+    module-level globals) so tests can build a function against
+    fixture/mock deps without touching the real Inngest client."""
 
     @client.create_function(
         fn_id="run-digest",
@@ -242,4 +291,17 @@ def register(app: FastAPI, client: inngest.Inngest, store: JobStore, deps: Deps)
         await run_digest_body(ctx.step, dict(ctx.event.data), store, deps)
         return {"job_id": ctx.event.data.get("job_id")}
 
-    inngest.fast_api.serve(app, client, [run_digest], serve_path=INNGEST_SERVE_PATH)
+    functions = [run_digest]
+
+    if subscription_store is not None and email_sender is not None:
+
+        @client.create_function(
+            fn_id=INNGEST_TICK_FUNCTION_ID,
+            trigger=inngest.TriggerCron(cron=TICK_CRON_SCHEDULE),
+        )
+        async def run_tick(ctx: inngest.Context) -> dict[str, Any]:
+            return await run_tick_body(ctx.step, store, deps, subscription_store, email_sender)
+
+        functions.append(run_tick)
+
+    inngest.fast_api.serve(app, client, functions, serve_path=INNGEST_SERVE_PATH)

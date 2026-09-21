@@ -28,6 +28,11 @@ class KeyStore(Protocol):
 
     def revoke(self, token: str) -> None: ...
 
+    def owner_of(self, token: str) -> str | None:
+        """The email an issued (non-revoked) key was issued to, or None when
+        `token` is unknown or revoked (Phase F: request.state.owner)."""
+        ...
+
 
 def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
@@ -82,6 +87,14 @@ class SqliteKeyStore:
                 "UPDATE api_keys SET revoked = 1 WHERE key_hash = ?", (_hash_token(token),)
             )
             self._conn.commit()
+
+    def owner_of(self, token: str) -> str | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT email FROM api_keys WHERE key_hash = ? AND revoked = 0",
+                (_hash_token(token),),
+            ).fetchone()
+        return row[0] if row else None
 
     def close(self) -> None:
         with self._lock:

@@ -57,8 +57,19 @@ Both `CREATE TABLE IF NOT EXISTS` on first use — no separate migration step.
    *or* set `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` manually (below).
 3. After the first deploy, add the deployment's sync URL
    (`https://<your-app>.vercel.app/api/inngest`) in the Inngest dashboard so
-   it can discover `run_digest`. Every preview deployment needs its own sync
-   (or use the Vercel integration, which does this automatically per branch).
+   it can discover `run_digest` **and `chorus-tick`** (the subscription
+   cron function, chorus/inngest_app.py — Phase F, docs/DEVELOPMENT_PLAN.md
+   §3). Every preview deployment needs its own sync (or use the Vercel
+   integration, which does this automatically per branch). `chorus-tick`
+   polls every 30 minutes (`chorus.scheduler.TICK_CRON_SCHEDULE`) and fans
+   out one `step.run` per due subscription (weekly and daily cadences both
+   go through the same poll — see the module docstring in
+   chorus/scheduler.py for why one schedule, not two).
+
+Without Inngest configured at all, `POST /internal/cron/tick` (step 3 below,
+Vercel Cron) is the fallback trigger for subscriptions — set up one or the
+other, or both (harmless: a subscription only ever advances past `now` once
+it runs, so a duplicate tick around the same moment just finds nothing due).
 
 ### 3. Environment variables (Vercel dashboard -> Settings -> Environment Variables, never commit)
 
@@ -87,6 +98,39 @@ Both `CREATE TABLE IF NOT EXISTS` on first use — no separate migration step.
 - `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY` — from the Inngest app (step 2).
   Without both set the service falls back to `BackgroundTasks`, which cannot
   survive a frozen function — **do not deploy to Vercel without these set.**
+- `RESEND_API_KEY`, `CHORUS_EMAIL_FROM` — required for real email (self-serve
+  key delivery and every subscription digest/failure email). Without both
+  set, `chorus.email.get_email_sender` falls back to `MockEmailSender` and
+  nothing actually sends — fine for previews, not for production. Verify the
+  sending domain in the Resend dashboard before using it for real delivery.
+- `CRON_SECRET` — Phase F (docs/DEVELOPMENT_PLAN.md §3): guards
+  `POST /internal/cron/tick`, the subscription fan-out trigger for
+  deployments without Inngest (or as a second trigger alongside it — see
+  step 2). Vercel Cron (the `crons` entry in `vercel.json`) sets this
+  header itself once `CRON_SECRET` is a project env var; without it set,
+  the route refuses every request with `503` rather than running
+  unguarded. Generate one the same way as `CHORUS_API_TOKEN`.
+- `CHORUS_UNSUBSCRIBE_SECRET` — HMAC key signing unsubscribe links
+  (`GET /subscriptions/{id}/unsubscribe?token=...`). Falls back to
+  `CHORUS_API_TOKEN`, then a per-process random secret (logged loudly;
+  existing links stop verifying after every restart) — **set this
+  explicitly in production** so links in already-delivered emails keep
+  working across deploys.
+- `CHORUS_PUBLIC_URL` — the deployed service's own base URL (e.g.
+  `https://chorus.up.railway.app`), used to build the absolute links a
+  subscription email needs (the rendered audio episode, the unsubscribe
+  link) from a cron-triggered invocation that has no incoming request to
+  infer its own host from. Without it set, those links fall back to
+  `http://localhost:8000` outside of an HTTP request context (the Inngest
+  `chorus-tick` function and its own dev/test paths) — **set this in
+  production**, or every subscription email's links will be wrong.
+
+`vercel.json`'s `crons` entry (`{"path": "/internal/cron/tick", "schedule":
+"*/30 * * * *"}`) needs no separate setup — Vercel reads it from the repo on
+deploy and starts calling it. Vercel Cron always issues a **GET** to that
+path (it cannot be configured to POST), so the route accepts both; it
+injects `Authorization: Bearer $CRON_SECRET` itself once that env var is
+set on the project (step 3 above).
 
 ### 4. Deploy
 

@@ -19,19 +19,38 @@ class SentEmail:
     subject: str
     text: str
     html: str | None = None
+    headers: dict[str, str] | None = None
 
 
 @runtime_checkable
 class EmailSender(Protocol):
-    def send(self, to: str, subject: str, text: str, html: str | None = None) -> None: ...
+    def send(
+        self,
+        to: str,
+        subject: str,
+        text: str,
+        html: str | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        """`headers` (Phase F) carries custom message headers such as
+        `List-Unsubscribe` / `List-Unsubscribe-Post` for bulk-sender
+        compliance (Gmail/Yahoo)."""
+        ...
 
 
 class MockEmailSender:
     def __init__(self) -> None:
         self.sent: list[SentEmail] = []
 
-    def send(self, to: str, subject: str, text: str, html: str | None = None) -> None:
-        self.sent.append(SentEmail(to=to, subject=subject, text=text, html=html))
+    def send(
+        self,
+        to: str,
+        subject: str,
+        text: str,
+        html: str | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        self.sent.append(SentEmail(to=to, subject=subject, text=text, html=html, headers=headers))
 
 
 class ResendEmailSender:
@@ -39,8 +58,18 @@ class ResendEmailSender:
         self._api_key = api_key
         self._from_address = from_address
 
-    def send(self, to: str, subject: str, text: str, html: str | None = None) -> None:
-        payload: dict[str, str | list[str]] = {
+    def send(
+        self,
+        to: str,
+        subject: str,
+        text: str,
+        html: str | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        # Resend's `headers` field (verified 21 Sep 2026 against
+        # resend.com/docs/api-reference/emails/send-email): a flat object of
+        # header name -> value, e.g. {"List-Unsubscribe": "<https://...>"}.
+        payload: dict[str, str | list[str] | dict[str, str]] = {
             "from": self._from_address,
             "to": [to],
             "subject": subject,
@@ -48,6 +77,8 @@ class ResendEmailSender:
         }
         if html is not None:
             payload["html"] = html
+        if headers:
+            payload["headers"] = headers
         response = httpx.post(
             RESEND_API_URL,
             headers={"Authorization": f"Bearer {self._api_key}"},
