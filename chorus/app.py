@@ -29,8 +29,11 @@ from fastapi.staticfiles import StaticFiles
 from chorus import catalog
 from chorus.audio import ARTIFACT_DIR
 from chorus.jobs import JobStore
-from chorus.models import DigestRequest, Job, SelectionRequest
+from chorus.keys import KeyRateLimited, KeyStore, SqliteKeyStore
+from chorus.mcp_server import mount_mcp
+from chorus.models import DigestRequest, Job, KeyRequest, SelectionRequest
 from chorus.pipeline import Deps, default_deps, run_job
+from chorus.email import EmailSender, get_email_sender
 
 log = logging.getLogger("chorus.app")
 
@@ -46,21 +49,31 @@ def _provider_keys_present() -> bool:
     return any(os.environ.get(k) for k in PROVIDER_KEY_ENVS)
 
 
-def _authorized(request: Request, token: str) -> bool:
+def _authorized(request: Request, token: str | None, key_store: KeyStore) -> bool:
     scheme, _, credential = request.headers.get("authorization", "").partition(" ")
-    return scheme.lower() == "bearer" and secrets.compare_digest(credential.strip(), token)
+    if scheme.lower() != "bearer":
+        return False
+    supplied = credential.strip()
+    if token is not None and secrets.compare_digest(supplied, token):
+        return True
+    return bool(supplied) and key_store.is_valid(supplied)
 
 
 def create_app(
     store: JobStore | None = None,
     deps: Deps | None = None,
     api_token: str | None = None,
+    key_store: KeyStore | None = None,
+    email_sender: EmailSender | None = None,
 ) -> FastAPI:
     """`api_token=None` reads CHORUS_API_TOKEN; unset means open access, which
     the lifespan check allows only when no real provider key is configured."""
     store = store or JobStore()
     deps = deps or default_deps()
     token = api_token if api_token is not None else os.environ.get(API_TOKEN_ENV) or None
+    owns_key_store = key_store is None
+    key_store = key_store or SqliteKeyStore(store.db_path)
+    email_sender = email_sender or get_email_sender()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -78,6 +91,8 @@ def create_app(
             log.warning("startup: marked %d in-flight job(s) failed (%s)", swept, RESTART_REASON)
         yield
         store.close()
+        if owns_key_store and isinstance(key_store, SqliteKeyStore):
+            key_store.close()
 
     app = FastAPI(title="Chorus", version="0.1.0", lifespan=lifespan)
 
@@ -86,13 +101,28 @@ def create_app(
         length = request.headers.get("content-length", "")
         if length.isdigit() and int(length) > MAX_BODY_BYTES:
             return JSONResponse({"detail": "request body too large"}, status_code=413)
-        if token is not None and not _authorized(request, token):
+        keys_route = request.method == "POST" and request.url.path == "/keys"
+        if token is not None and not keys_route and not _authorized(request, token, key_store):
             return JSONResponse(
                 {"detail": "missing or invalid bearer token"},
                 status_code=401,
                 headers={"WWW-Authenticate": "Bearer"},
             )
         return await call_next(request)
+
+    @app.post("/keys", status_code=202)
+    def issue_key(request: KeyRequest) -> Response:
+        try:
+            issued_token = key_store.issue(request.email)
+        except KeyRateLimited as err:
+            raise HTTPException(status_code=429, detail=str(err)) from err
+        subject = "Your Chorus API key"
+        text = (
+            "Your Chorus API key is below. Store it securely; it will not be shown again.\n\n"
+            f"{issued_token}\n"
+        )
+        email_sender.send(request.email, subject, text)
+        return Response(status_code=202)
 
     @app.post("/digest")
     def create_digest(request: DigestRequest, background: BackgroundTasks) -> dict[str, str]:
@@ -130,6 +160,9 @@ def create_app(
     # Serve rendered episodes so audio_url ("/artifacts/<name>") is downloadable.
     # The middleware above applies here too, so artifacts need the same token.
     app.mount("/artifacts", StaticFiles(directory=str(ARTIFACT_DIR), check_dir=False), name="artifacts")
+    # MCP mounts at / internally so its own route stays exactly /mcp. Keep last:
+    # Starlette resolves routes in order and this mount is intentionally catch-all.
+    mount_mcp(app, store, deps)
     return app
 
 

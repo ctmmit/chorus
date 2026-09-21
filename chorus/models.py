@@ -28,13 +28,13 @@ class Segment(BaseModel):
     """One transcript line with its start time (seconds). Timestamps are what
     citations resolve against, so they are load-bearing, not decorative."""
 
-    start: float
-    text: str
+    start: float = Field(description="Start time of the transcript segment in seconds.")
+    text: str = Field(description="Verbatim transcript text for this segment.")
 
 
 class Transcript(BaseModel):
-    video_id: str
-    segments: list[Segment]
+    video_id: str = Field(description="YouTube video identifier for the transcript.")
+    segments: list[Segment] = Field(description="Timestamped transcript segments in source order.")
 
     @property
     def word_count(self) -> int:
@@ -44,10 +44,26 @@ class Transcript(BaseModel):
 class EpisodeInput(BaseModel):
     """One episode as supplied by the calling agent (the §6 request shape)."""
 
-    url: str | None = Field(default=None, max_length=MAX_URL_CHARS)
-    video_id: str | None = Field(default=None, max_length=MAX_VIDEO_ID_CHARS)
-    show: str | None = Field(default=None, max_length=MAX_SHOW_CHARS)
-    title: str | None = Field(default=None, max_length=MAX_TITLE_CHARS)
+    url: str | None = Field(
+        default=None,
+        max_length=MAX_URL_CHARS,
+        description="YouTube episode URL; provide this or video_id.",
+    )
+    video_id: str | None = Field(
+        default=None,
+        max_length=MAX_VIDEO_ID_CHARS,
+        description="YouTube video identifier; provide this or url.",
+    )
+    show: str | None = Field(
+        default=None,
+        max_length=MAX_SHOW_CHARS,
+        description="Optional podcast or channel name used in the digest.",
+    )
+    title: str | None = Field(
+        default=None,
+        max_length=MAX_TITLE_CHARS,
+        description="Optional episode title used in the digest.",
+    )
 
     def resolved_id(self) -> str:
         """The YouTube id to fetch a transcript for. Caller may pass either."""
@@ -61,53 +77,106 @@ class EpisodeInput(BaseModel):
 
 
 class ResolvedEpisode(BaseModel):
-    episode: EpisodeInput
-    transcript: Transcript
+    episode: EpisodeInput = Field(description="Caller-supplied episode metadata.")
+    transcript: Transcript = Field(description="Resolved timestamped transcript.")
 
 
 class SkippedEpisode(BaseModel):
-    episode: EpisodeInput
-    reason: str
+    episode: EpisodeInput = Field(description="Episode that could not be ingested.")
+    reason: str = Field(description="Explicit reason the episode was skipped.")
 
 
 class IngestResult(BaseModel):
-    resolved: list[ResolvedEpisode]
-    skipped: list[SkippedEpisode]
+    resolved: list[ResolvedEpisode] = Field(description="Episodes with usable transcripts.")
+    skipped: list[SkippedEpisode] = Field(description="Episodes skipped during transcript ingest.")
 
 
 class DigestRequest(BaseModel):
     """The §6 request body for POST /digest."""
 
     # markdown persona / lens (any bootstrap tier produces this)
-    soul: str = Field(min_length=1, max_length=MAX_SOUL_CHARS)
+    soul: str = Field(
+        min_length=1,
+        max_length=MAX_SOUL_CHARS,
+        description="Markdown persona and curation lens for the principal.",
+    )
     # caller-assembled principal-context blob (may be empty)
-    context: str = Field(max_length=MAX_CONTEXT_CHARS)
-    episodes: list[EpisodeInput] = Field(min_length=1, max_length=MAX_EPISODES)
-    highlight_count: int = Field(default=4, ge=1, le=MAX_HIGHLIGHTS)
-    soul_origin: str = "supplied"  # supplied | derived:<adapter> | interview | seed
+    context: str = Field(
+        max_length=MAX_CONTEXT_CHARS,
+        description="Current projects, reading, and priorities that tune relevance this week.",
+    )
+    episodes: list[EpisodeInput] = Field(
+        min_length=1,
+        max_length=MAX_EPISODES,
+        description="Episodes whose transcripts Chorus should curate.",
+    )
+    highlight_count: int = Field(
+        default=4,
+        ge=1,
+        le=MAX_HIGHLIGHTS,
+        description="Maximum highlights to surface per episode.",
+    )
+    soul_origin: str = Field(
+        default="supplied",
+        description="How the soul was created: supplied, derived:<adapter>, interview, or seed.",
+    )
 
 
 class SelectionRequest(BaseModel):
     """Layer-2 pick-and-choose: select by show name and/or explicit video ids."""
 
-    soul: str = Field(min_length=1, max_length=MAX_SOUL_CHARS)
-    context: str = Field(max_length=MAX_CONTEXT_CHARS)
-    shows: list[str] | None = Field(default=None, max_length=MAX_EPISODES)
-    video_ids: list[str] | None = Field(default=None, max_length=MAX_EPISODES)
-    highlight_count: int = Field(default=4, ge=1, le=MAX_HIGHLIGHTS)
-    soul_origin: str = "supplied"
+    soul: str = Field(
+        min_length=1,
+        max_length=MAX_SOUL_CHARS,
+        description="Markdown persona and curation lens for the principal.",
+    )
+    context: str = Field(
+        max_length=MAX_CONTEXT_CHARS,
+        description="Current projects, reading, and priorities that tune relevance this week.",
+    )
+    shows: list[str] | None = Field(
+        default=None,
+        max_length=MAX_EPISODES,
+        description="Catalog show names whose available episodes should be included.",
+    )
+    video_ids: list[str] | None = Field(
+        default=None,
+        max_length=MAX_EPISODES,
+        description="Specific catalog video identifiers to include.",
+    )
+    highlight_count: int = Field(
+        default=4,
+        ge=1,
+        le=MAX_HIGHLIGHTS,
+        description="Maximum highlights to surface per episode.",
+    )
+    soul_origin: str = Field(
+        default="supplied",
+        description="How the soul was created: supplied, derived:<adapter>, interview, or seed.",
+    )
+
+
+class KeyRequest(BaseModel):
+    """Unauthenticated request for a self-serve API key delivered by email."""
+
+    email: str = Field(
+        min_length=3,
+        max_length=320,
+        pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$",
+        description="Email address that will receive the new Chorus API key.",
+    )
 
 
 class Highlight(BaseModel):
     """One surfaced segment. `segment_timestamp` + `quote` must resolve against
     the source transcript (citation discipline); never fabricated."""
 
-    episode_id: str
-    episode_title: str | None
-    segment_timestamp: float
-    quote: str
-    relevance_score: float
-    why_surface: str
+    episode_id: str = Field(description="Source episode's stable video identifier.")
+    episode_title: str | None = Field(description="Source episode title when available.")
+    segment_timestamp: float = Field(description="Start time in seconds for the cited segment.")
+    quote: str = Field(description="Verbatim source quote at segment_timestamp.")
+    relevance_score: float = Field(description="Lens-conditioned relevance score for the segment.")
+    why_surface: str = Field(description="Reason the segment cleared the principal's relevance bar.")
 
 
 class WindowScore(BaseModel):
@@ -115,24 +184,39 @@ class WindowScore(BaseModel):
     surfaced or not, so a viewer can draw the whole episode and a caller can
     audit what the lens rejected."""
 
-    start: float
-    score: float
+    start: float = Field(description="Start time in seconds for the scored transcript window.")
+    score: float = Field(description="Lens-conditioned relevance score for this window.")
 
 
 class EpisodeDigest(BaseModel):
-    episode_id: str
-    episode_title: str | None
-    highlights: list[Highlight]
-    refused: bool = False
-    refusal_reason: str | None = None
-    duration_seconds: float | None = None  # start of the last transcript segment
-    windows: list[WindowScore] = Field(default_factory=list)
+    episode_id: str = Field(description="Source episode's stable video identifier.")
+    episode_title: str | None = Field(description="Source episode title when available.")
+    highlights: list[Highlight] = Field(description="Grounded highlights that cleared the lens.")
+    refused: bool = Field(
+        default=False,
+        description="True when no transcript segment cleared the relevance bar.",
+    )
+    refusal_reason: str | None = Field(
+        default=None,
+        description="Reason no highlights were returned when refused is true.",
+    )
+    duration_seconds: float | None = Field(
+        default=None,
+        description="Approximate episode duration from the final transcript timestamp.",
+    )
+    windows: list[WindowScore] = Field(
+        default_factory=list,
+        description="Scores for every transcript window, including rejected windows.",
+    )
 
 
 class Digest(BaseModel):
-    soul_version: str  # provenance: which lens produced this (content hash)
-    soul_origin: str = "supplied"  # how the soul was bootstrapped (Q5)
-    episodes: list[EpisodeDigest]
+    soul_version: str = Field(description="Content hash identifying the lens used for curation.")
+    soul_origin: str = Field(
+        default="supplied",
+        description="How the soul was bootstrapped for provenance.",
+    )
+    episodes: list[EpisodeDigest] = Field(description="Per-episode curation results.")
 
     @property
     def highlights(self) -> list[Highlight]:
@@ -146,16 +230,16 @@ TAKE_TYPES = ("idea", "pushback", "connection", "question", "cross_reference")
 class Take(BaseModel):
     """One opinionated beat in the script, traceable to a surfaced highlight."""
 
-    text: str
-    take_type: str
-    episode_id: str
-    segment_timestamp: float
+    text: str = Field(description="Opinionated script beat grounded in a highlight.")
+    take_type: str = Field(description="Annotation category for this take.")
+    episode_id: str = Field(description="Episode identifier supporting this take.")
+    segment_timestamp: float = Field(description="Timestamp of the supporting highlight in seconds.")
 
 
 class Script(BaseModel):
-    soul_version: str
-    takes: list[Take]
-    monologue: str  # the spine-floor single-voice script text
+    soul_version: str = Field(description="Content hash identifying the lens used for this script.")
+    takes: list[Take] = Field(description="Grounded opinionated beats composed into the episode.")
+    monologue: str = Field(description="Complete single-voice audio script.")
 
 
 class JobStatus(str, Enum):
@@ -173,10 +257,25 @@ class Job(BaseModel):
     tell "audio failed" from "audio not attempted".
     """
 
-    job_id: str
-    status: JobStatus
-    digest: Digest | None = None
-    script: Script | None = None
-    audio_url: str | None = None
-    error: str | None = None
-    warnings: list[str] = Field(default_factory=list)
+    job_id: str = Field(description="Opaque identifier used to poll this asynchronous job.")
+    status: JobStatus = Field(description="Current lifecycle state of the digest job.")
+    digest: Digest | None = Field(
+        default=None,
+        description="Text digest, available from digest_ready onward.",
+    )
+    script: Script | None = Field(
+        default=None,
+        description="Audio script when synthesis succeeded.",
+    )
+    audio_url: str | None = Field(
+        default=None,
+        description="Authenticated relative URL for rendered audio when available.",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Terminal failure reason when status is failed.",
+    )
+    warnings: list[str] = Field(
+        default_factory=list,
+        description="Non-fatal script or audio degradation messages.",
+    )
