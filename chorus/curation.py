@@ -87,8 +87,12 @@ def curate_episode(
     duration = transcript.segments[-1].start if transcript.segments else None
     scored: list[tuple[float, str, _Window]] = []
     windows: list[WindowScore] = []
-    for w in window_segments(transcript.segments):
-        score, reason = client.score_segment(w.text, soul, context)
+    spans = window_segments(transcript.segments)
+    # One model call per episode (batched), not one per window.
+    results = client.score_windows([w.text for w in spans], soul, context)
+    if len(results) != len(spans):
+        raise ValueError(f"scorer returned {len(results)} scores for {len(spans)} windows")
+    for w, (score, reason) in zip(spans, results, strict=True):
         windows.append(WindowScore(start=w.start, score=round(score, 3)))
         if score >= threshold:
             scored.append((score, reason, w))

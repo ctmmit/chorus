@@ -76,6 +76,9 @@ class _RaisingLLM:
     def score_segment(self, text: str, soul: str, context: str) -> tuple[float, str]:
         raise RuntimeError("simulated provider outage")
 
+    def score_windows(self, windows: list[str], soul: str, context: str) -> list[tuple[float, str]]:
+        raise RuntimeError("simulated provider outage")
+
 
 class _RaisingComposer:
     def write_script(self, digest, soul, context):  # type: ignore[no-untyped-def]

@@ -13,3 +13,4 @@ artifacts/
 fixtures/transcripts/*.json
 !fixtures/transcripts/sample_*.json
 requirements-dev.lock
+.claude/worktrees/
