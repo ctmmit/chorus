@@ -68,8 +68,16 @@ PROVIDER_NAME = "Chorus"
 AUTH_SCHEME_NAME = "bearer"
 
 
-def public_url() -> str:
-    return os.environ.get(PUBLIC_URL_ENV) or DEFAULT_PUBLIC_URL
+def public_url(request: Request | None = None) -> str:
+    """CHORUS_PUBLIC_URL wins (a deployment behind a proxy knows its own name);
+    otherwise the URL the caller actually reached us on, so a discovery
+    document never points at a localhost default from a real host."""
+    configured = os.environ.get(PUBLIC_URL_ENV)
+    if configured:
+        return configured.rstrip("/")
+    if request is not None:
+        return str(request.base_url).rstrip("/")
+    return DEFAULT_PUBLIC_URL
 
 
 def get_personas(request: Request) -> PersonaRegistry:
@@ -137,11 +145,11 @@ def _security_block() -> tuple[dict[str, object], list[dict[str, list[str]]]]:
 
 @router.get("/.well-known/agent.json")
 @router.get("/.well-known/agent-card.json")
-def service_agent_card() -> dict[str, object]:
+def service_agent_card(request: Request) -> dict[str, object]:
     """The Chorus service itself as an A2A agent. See module docstring for
     the schema source and the v1.0.1-vs-flat-shape note."""
     schemes, security = _security_block()
-    url = public_url()
+    url = public_url(request)
     return {
         "name": PROVIDER_NAME,
         "description": (
@@ -168,16 +176,16 @@ def _persona_publication_line(persona: Persona) -> str:
     return f"{persona.description} {line}" if persona.description else line
 
 
-def _persona_agent_card(persona: Persona) -> dict[str, object]:
+def _persona_agent_card(persona: Persona, base: str) -> dict[str, object]:
     schemes, security = _security_block()
-    url = f"{public_url()}/personas/{persona.persona_id}"
+    url = f"{base}/personas/{persona.persona_id}"
     description = _persona_publication_line(persona)
     return {
         "name": persona.name,
         "description": description,
         "url": url,
         "version": persona.soul_version,
-        "provider": {"organization": PROVIDER_NAME, "url": public_url()},
+        "provider": {"organization": PROVIDER_NAME, "url": base},
         "capabilities": {"streaming": False, "pushNotifications": False},
         "securitySchemes": schemes,
         "security": security,
@@ -200,8 +208,8 @@ def _persona_agent_card(persona: Persona) -> dict[str, object]:
 # --- NANDA AgentFacts --------------------------------------------------------
 
 
-def _service_agent_facts() -> dict[str, object]:
-    url = public_url()
+def _service_agent_facts(base: str) -> dict[str, object]:
+    url = base
     return {
         "id": "chorus:service",
         "agent_name": "urn:agent:chorus:service",
@@ -238,15 +246,15 @@ def _service_agent_facts() -> dict[str, object]:
     }
 
 
-def _persona_agent_facts(persona: Persona) -> dict[str, object]:
-    url = f"{public_url()}/personas/{persona.persona_id}"
+def _persona_agent_facts(persona: Persona, base: str) -> dict[str, object]:
+    url = f"{base}/personas/{persona.persona_id}"
     return {
         "id": f"chorus:persona:{persona.persona_id}",
         "agent_name": f"urn:agent:chorus:persona:{persona.persona_id}",
         "label": persona.name,
         "description": _persona_publication_line(persona),
         "version": persona.soul_version,
-        "provider": {"name": PROVIDER_NAME, "url": public_url()},
+        "provider": {"name": PROVIDER_NAME, "url": base},
         "endpoints": {"static": [url]},
         "capabilities": {
             "modalities": ["text", "audio"],
@@ -267,8 +275,8 @@ def _persona_agent_facts(persona: Persona) -> dict[str, object]:
 
 
 @router.get("/.well-known/agent-facts.json")
-def service_agent_facts() -> dict[str, object]:
-    return _service_agent_facts()
+def service_agent_facts(request: Request) -> dict[str, object]:
+    return _service_agent_facts(public_url(request))
 
 
 # --- Persona registry CRUD ---------------------------------------------------
@@ -324,22 +332,22 @@ def delete_persona(persona_id: str, personas: PersonaRegistry = Depends(get_pers
 
 @router.get("/personas/{persona_id}/agent.json")
 def persona_agent_card(
-    persona_id: str, personas: PersonaRegistry = Depends(get_personas)
+    persona_id: str, request: Request, personas: PersonaRegistry = Depends(get_personas)
 ) -> dict[str, object]:
     persona = personas.get(persona_id)
     if persona is None:
         raise HTTPException(status_code=404, detail="unknown persona_id")
-    return _persona_agent_card(persona)
+    return _persona_agent_card(persona, public_url(request))
 
 
 @router.get("/personas/{persona_id}/agent-facts.json")
 def persona_agent_facts(
-    persona_id: str, personas: PersonaRegistry = Depends(get_personas)
+    persona_id: str, request: Request, personas: PersonaRegistry = Depends(get_personas)
 ) -> dict[str, object]:
     persona = personas.get(persona_id)
     if persona is None:
         raise HTTPException(status_code=404, detail="unknown persona_id")
-    return _persona_agent_facts(persona)
+    return _persona_agent_facts(persona, public_url(request))
 
 
 # --- Network graph -----------------------------------------------------------

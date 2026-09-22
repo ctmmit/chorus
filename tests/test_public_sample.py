@@ -62,3 +62,39 @@ def test_sample_full_lifecycle_via_api(tmp_path: Path) -> None:
     assert body["digest"]["episodes"][0]["highlights"]
     assert body["script"]["takes"]
     assert body["audio_url"]
+
+
+def test_mock_audio_is_flagged_as_placeholder_and_titles_are_enriched(tmp_path: Path) -> None:
+    """Cold-agent dogfood findings (docs/cold-agent-log.md): a dev instance's
+    .txt audio must be announced in `warnings`, and a bare catalog video id
+    must come back titled."""
+    deps = Deps(
+        provider=FixtureTranscriptProvider(),
+        llm=MockLLMClient(),
+        composer=MockScriptComposer(),
+        renderer=MockAudioRenderer(out_dir=tmp_path / "artifacts"),
+        artifacts=LocalArtifactStore(tmp_path / "artifacts"),
+    )
+    client = TestClient(create_app(SqliteJobStore(tmp_path / "jobs.db"), deps))
+    catalog_id = "c4tvVKDhpiY"
+    if not (FIX / "transcripts" / f"{catalog_id}.json").exists():
+        catalog_id = SAMPLE  # private fixtures absent: title enrichment not exercised
+    payload = {"soul": _soul("soul_investor.md"), "context": "", "episodes": [{"video_id": catalog_id}]}
+    job_id = client.post("/digest", json=payload).json()["job_id"]
+    body = client.get(f"/digest/{job_id}").json()
+    assert body["status"] == "done"
+    assert body["audio_url"].endswith(".txt")
+    assert any("placeholder" in w for w in body["warnings"])
+    if catalog_id != SAMPLE:
+        assert body["digest"]["episodes"][0]["episode_title"]
+
+
+def test_agent_card_url_follows_the_request_host(tmp_path: Path, monkeypatch: object) -> None:
+    import pytest
+
+    assert isinstance(monkeypatch, pytest.MonkeyPatch)
+    monkeypatch.delenv("CHORUS_PUBLIC_URL", raising=False)
+    app = create_app(SqliteJobStore(tmp_path / "jobs.db"))
+    client = TestClient(app, base_url="http://chorus.example:8765")
+    card = client.get("/.well-known/agent.json").json()
+    assert card["url"] == "http://chorus.example:8765"

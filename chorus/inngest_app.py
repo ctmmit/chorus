@@ -69,7 +69,9 @@ from chorus.models import (
     Script,
 )
 from chorus.pipeline import (
+    PLACEHOLDER_AUDIO_WARNING,
     AllEpisodesFailed,
+    AudioResult,
     Deps,
     stage_audio,
     stage_curate_episode,
@@ -190,10 +192,16 @@ async def _execute(step: StepLike, event_data: dict[str, Any], store: JobStore, 
         try:
             script = job.script
 
-            async def _audio(script: Script = script) -> str:
-                return stage_audio(script, request, job.job_id, deps.renderer, deps.artifacts)
+            async def _audio(script: Script = script) -> dict[str, object]:
+                # Step outputs must be JSON; AudioResult round-trips through model_dump.
+                return stage_audio(
+                    script, request, job.job_id, deps.renderer, deps.artifacts
+                ).model_dump()
 
-            job.audio_url = await step.run("audio", _audio)
+            audio = AudioResult.model_validate(await step.run("audio", _audio))
+            job.audio_url = audio.url
+            if audio.placeholder:
+                job.warnings.append(PLACEHOLDER_AUDIO_WARNING)
         except Exception as err:  # noqa: BLE001 - audio failure is non-fatal
             job.audio_url = None
             job.warnings.append(f"audio render failed: {type(err).__name__}: {err}")

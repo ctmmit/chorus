@@ -85,6 +85,10 @@ class RenderedAudio(BaseModel):
     data: bytes
     media_type: str
     extension: str
+    # True when this is not real audio (the offline mock renders the script
+    # text). The pipeline surfaces it as a job warning so a caller can tell a
+    # dev instance's placeholder from a rendered episode.
+    placeholder: bool = False
 
 
 @runtime_checkable
@@ -111,7 +115,7 @@ class MockAudioRenderer:
         log.info(
             "audio(mock): rendered %d bytes for job %s (format=%s)", len(data), job_id, script.format
         )
-        return RenderedAudio(data=data, media_type="text/plain", extension="txt")
+        return RenderedAudio(data=data, media_type="text/plain", extension="txt", placeholder=True)
 
 
 class ElevenLabsRenderer:

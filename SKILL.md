@@ -35,6 +35,20 @@ Out-of-range fields return `422`; an oversized body returns `413`.
 ## Contract
 
 The job is async (audio takes minutes). One submit, then poll one endpoint.
+The full route table is at `GET /openapi.json` (bearer token required, like
+every route except the discovery documents).
+
+### 0. Find episodes (optional)
+
+If you don't already have this week's episodes, the instance has a catalog:
+
+`GET /shows` → `[{ "show": "20VC with Harry Stebbings", "episodes": [{ "video_id": "c4tvVKDhpiY", "title": "..." }] }, ...]`
+
+You can submit straight from it with `POST /digest/select`, which takes the
+same body as `POST /digest` below but with `"shows": ["<show name>", ...]`
+and/or `"video_ids": ["<id>", ...]` in place of `episodes`. Episodes you submit
+by bare `video_id` that are in the catalog get their `show` and `title` filled
+in automatically.
 
 ### 1. Submit
 
@@ -134,7 +148,9 @@ never stays `queued` or `digest_ready` indefinitely. The digest is usable at
 - `audio_url` is downloadable from the base URL (send the bearer token). It is
   unique per job. It may be `null` if audio rendering failed; `script` may
   likewise be `null` if script synthesis failed. In both cases the digest is
-  still valid and `warnings` says what degraded (degrade gracefully).
+  still valid and `warnings` says what degraded (degrade gracefully). On a dev
+  instance with no TTS key, `audio_url` points at a `.txt` placeholder holding
+  the script text and `warnings` says so.
 
 ## Errors
 
@@ -247,10 +263,23 @@ standard public documents — no credential required to read them:
 - `GET /network` — the persona/show graph as data (nodes + edges), the
   DEVELOPMENT_PLAN.md §6 "infrastructure level" viewer's data source.
 
-Registering, updating, or deleting a persona (`POST`/`DELETE /personas`)
-still needs the bearer token. See `docs/DISCOVERY.md` for the full picture:
-what's published where, how to register a persona, and the manual NANDA
-index registration runbook.
+Registering or deleting a persona needs the bearer token:
+
+```json
+POST /personas
+{
+  "name": "Fundamental investor lens",
+  "description": "Weekly digest of markets and AI shows for an investor principal.",
+  "soul": "<markdown: the same soul you send to /digest>",
+  "shows": ["20VC with Harry Stebbings", "Sohn Conference Foundation"],
+  "cadence": "weekly",
+  "public": true
+}
+```
+
+→ `{ "persona_id": "...", ... }`; `DELETE /personas/{id}` removes it. See
+`docs/DISCOVERY.md` for what's published where and the manual NANDA index
+registration runbook.
 
 ## Minimal example
 

@@ -64,9 +64,10 @@ def test_stage_audio_renders_and_stores_returns_url(tmp_path: Path) -> None:
     digest = Digest(soul_version="deadbeef", episodes=[episode_digest])
     script = stage_script(digest, request, MockScriptComposer())
 
-    url = stage_audio(
+    result = stage_audio(
         script, request, "job-abc123", MockAudioRenderer(), LocalArtifactStore(tmp_path)
     )
 
-    assert url == "/artifacts/episode_job-abc123.txt"
+    assert result.url == "/artifacts/episode_job-abc123.txt"
+    assert result.placeholder is True  # the mock renders text, and says so
     assert (tmp_path / "episode_job-abc123.txt").read_text(encoding="utf-8") == script.monologue

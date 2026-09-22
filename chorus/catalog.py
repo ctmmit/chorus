@@ -32,6 +32,28 @@ def list_shows() -> list[dict]:
     return [{"show": show, "episodes": eps} for show, eps in by_show.items()]
 
 
+def enrich(episodes: list[EpisodeInput]) -> list[EpisodeInput]:
+    """Fill a missing `show`/`title` from the catalog when the episode's id is
+    in it, so a caller that submits bare video ids still gets titled digests.
+    Episodes outside the catalog are returned unchanged."""
+    by_id = {e["video_id"]: e for e in _load()}
+    out: list[EpisodeInput] = []
+    for ep in episodes:
+        try:
+            match = by_id.get(ep.resolved_id())
+        except ValueError:
+            match = None
+        if match is None or (ep.show and ep.title):
+            out.append(ep)
+            continue
+        out.append(
+            ep.model_copy(
+                update={"show": ep.show or match.get("show"), "title": ep.title or match.get("title")}
+            )
+        )
+    return out
+
+
 def resolve(
     shows: list[str] | None = None, video_ids: list[str] | None = None
 ) -> list[EpisodeInput]:

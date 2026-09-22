@@ -27,6 +27,9 @@ import os
 import time
 from dataclasses import dataclass, field
 
+from pydantic import BaseModel
+
+from chorus import catalog
 from chorus.artifacts import ArtifactStore, LocalArtifactStore, artifact_stem
 from chorus.audio import AudioRenderer, get_audio_renderer
 from chorus.curation import curate_episode, soul_version
@@ -145,8 +148,9 @@ def _token_delta(before: LLMTokens | None, after: LLMTokens | None) -> LLMTokens
 
 def stage_ingest(request: DigestRequest, provider: TranscriptProvider) -> IngestResult:
     """Resolve every requested episode to a transcript. Raises
-    AllEpisodesFailed if none resolved (never an empty digest)."""
-    return ingest(request.episodes, provider)
+    AllEpisodesFailed if none resolved (never an empty digest). Bare ids that
+    are in the catalog pick up their show/title first."""
+    return ingest(catalog.enrich(request.episodes), provider)
 
 
 def stage_curate_episode(
@@ -168,19 +172,33 @@ def stage_script(digest: Digest, request: DigestRequest, composer: ScriptCompose
     return composer.write_script(digest, request.soul, request.context, profile)
 
 
+PLACEHOLDER_AUDIO_WARNING = (
+    "audio is a text placeholder (no TTS key configured); audio_url holds the script text"
+)
+
+
+class AudioResult(BaseModel):
+    """What stage_audio hands back: where the artifact lives, and whether it
+    is real audio or the offline mock's text placeholder."""
+
+    url: str
+    placeholder: bool = False
+
+
 def stage_audio(
     script: Script,
     request: DigestRequest,
     job_id: str,
     renderer: AudioRenderer,
     artifacts: ArtifactStore,
-) -> str:
+) -> AudioResult:
     """Render the script to audio and hand the bytes to the artifact store.
-    Returns the downloadable URL. Callers treat a raised exception as
-    non-fatal (audio_url stays None, digest/script still stand)."""
+    Returns the downloadable URL (+ placeholder flag). Callers treat a raised
+    exception as non-fatal (audio_url stays None, digest/script still stand)."""
     rendered = renderer.render(script, request.soul, job_id)
     name = f"{artifact_stem(job_id)}.{rendered.extension}"
-    return artifacts.put(name, rendered.data, rendered.media_type)
+    url = artifacts.put(name, rendered.data, rendered.media_type)
+    return AudioResult(url=url, placeholder=rendered.placeholder)
 
 
 # --- In-process orchestrator (BackgroundRunner) ----------------------------
@@ -250,7 +268,10 @@ def _run(job: Job, request: DigestRequest, store: JobStore, deps: Deps) -> None:
     if job.script is not None:
         t0 = time.perf_counter()
         try:
-            job.audio_url = stage_audio(job.script, request, job.job_id, deps.renderer, deps.artifacts)
+            audio = stage_audio(job.script, request, job.job_id, deps.renderer, deps.artifacts)
+            job.audio_url = audio.url
+            if audio.placeholder:
+                job.warnings.append(PLACEHOLDER_AUDIO_WARNING)
         except Exception as err:  # noqa: BLE001 - audio failure is non-fatal (failure-mode table)
             job.audio_url = None
             job.warnings.append(f"audio render failed: {type(err).__name__}: {err}")
