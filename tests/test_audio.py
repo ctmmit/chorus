@@ -19,6 +19,7 @@ from chorus.audio import (
     MockAudioRenderer,
     ProfileAwareRenderer,
     RenderedAudio,
+    _chunk_turns,
     get_audio_renderer,
 )
 from chorus.models import Script, Take, Turn
@@ -68,6 +69,46 @@ def test_elevenlabs_renderer_posts_and_returns_audio_bytes(monkeypatch: pytest.M
     assert "text-to-speech/voice123" in captured["url"]
     assert captured["json"]["text"] == "A take."  # type: ignore[index]
     assert captured["params"]["output_format"].startswith("mp3")  # type: ignore[index]
+
+
+def test_elevenlabs_renderer_prefers_script_voice_over_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # R18: script.voices["host"] (from the request's profile) must win over
+    # the renderer's construction-time voice_id.
+    captured: dict = {}
+
+    def fake_post(url: str, **kw: object) -> _FakeResp:
+        captured["url"] = url
+        return _FakeResp()
+
+    monkeypatch.setattr("chorus.audio.httpx.post", fake_post)
+    script = Script(
+        soul_version="x",
+        takes=[],
+        monologue="A take.",
+        voices={"host": "requested-voice"},
+    )
+    ElevenLabsRenderer("key", voice_id="renderer-default-voice").render(
+        script, soul="x", job_id="job1"
+    )
+    assert "text-to-speech/requested-voice" in captured["url"]
+
+
+def test_elevenlabs_renderer_falls_back_when_script_has_no_voice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict = {}
+
+    def fake_post(url: str, **kw: object) -> _FakeResp:
+        captured["url"] = url
+        return _FakeResp()
+
+    monkeypatch.setattr("chorus.audio.httpx.post", fake_post)
+    ElevenLabsRenderer("key", voice_id="renderer-default-voice").render(
+        _script(), soul="x", job_id="job1"
+    )
+    assert "text-to-speech/renderer-default-voice" in captured["url"]
 
 
 def test_get_audio_renderer_selects_elevenlabs_with_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -163,6 +204,50 @@ def test_elevenlabs_dialogue_renderer_posts_expected_request_shape(
     assert captured["params"]["output_format"].startswith("mp3")  # type: ignore[index]
 
 
+def test_elevenlabs_dialogue_renderer_prefers_script_voices_per_speaker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # R18: each speaker's turn must be sent with ITS OWN voice id from
+    # script.voices, not the renderer's env/default voice ids.
+    captured: dict = {}
+
+    def fake_post(url: str, **kw: object) -> _FakeResp:
+        captured["json"] = kw.get("json")
+        return _FakeResp()
+
+    monkeypatch.setattr("chorus.audio.httpx.post", fake_post)
+    script = _dialogue_script()
+    script.voices = {"host": "requested-host-voice", "cohost": "requested-cohost-voice"}
+    ElevenLabsDialogueRenderer(
+        "key", host_voice_id="renderer-host-default", cohost_voice_id="renderer-cohost-default"
+    ).render(script, soul="x", job_id="job1")
+
+    assert captured["json"]["inputs"] == [
+        {"text": "Margins are expanding.", "voice_id": "requested-host-voice"},
+        {"text": "Where's the number?", "voice_id": "requested-cohost-voice"},
+    ]
+
+
+def test_elevenlabs_dialogue_renderer_falls_back_when_script_has_no_voices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict = {}
+
+    def fake_post(url: str, **kw: object) -> _FakeResp:
+        captured["json"] = kw.get("json")
+        return _FakeResp()
+
+    monkeypatch.setattr("chorus.audio.httpx.post", fake_post)
+    ElevenLabsDialogueRenderer(
+        "key", host_voice_id="renderer-host-default", cohost_voice_id="renderer-cohost-default"
+    ).render(_dialogue_script(), soul="x", job_id="job1")
+
+    assert captured["json"]["inputs"] == [
+        {"text": "Margins are expanding.", "voice_id": "renderer-host-default"},
+        {"text": "Where's the number?", "voice_id": "renderer-cohost-default"},
+    ]
+
+
 def test_elevenlabs_dialogue_renderer_rejects_empty_turns() -> None:
     empty = Script(soul_version="x", takes=[], monologue="", turns=[], format="dialogue")
     with pytest.raises(ValueError):
@@ -195,6 +280,58 @@ def test_elevenlabs_dialogue_renderer_chunks_at_documented_limit(
     assert requests[1]["inputs"][0]["text"] == "one more line"
     # mp3 bytes concatenated across chunks (see module docstring).
     assert rendered.data == _FakeResp.content + _FakeResp.content
+
+
+# --- R19: oversized dialogue turns are split, never sent oversized --------
+
+
+def test_chunk_turns_splits_oversized_turn_on_sentence_boundaries() -> None:
+    sentence = "This is one sentence with several words in it. "
+    long_text = sentence * (DIALOGUE_MAX_CHARS // len(sentence) + 3)  # well over the limit
+    turns = [Turn(speaker="host", text=long_text, episode_id="abc", segment_timestamp=1.0)]
+
+    chunks = _chunk_turns(turns, DIALOGUE_MAX_CHARS)
+
+    all_turns = [t for chunk in chunks for t in chunk]
+    assert len(all_turns) > 1  # the one long turn was split into several
+    for t in all_turns:
+        assert len(t.text) <= DIALOGUE_MAX_CHARS
+        assert t.speaker == "host"  # speaker preserved across every split piece
+        assert t.episode_id == "abc" and t.segment_timestamp == 1.0  # grounding preserved
+    # No content lost: the split pieces' words, concatenated, match the
+    # original text's words (whitespace normalized).
+    assert " ".join(t.text for t in all_turns).split() == long_text.split()
+    for chunk in chunks:
+        assert sum(len(t.text) for t in chunk) <= DIALOGUE_MAX_CHARS
+
+
+def test_chunk_turns_hard_truncates_a_single_oversized_sentence(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # No punctuation at all: one giant "sentence" that alone exceeds the
+    # limit must be hard-truncated at a word boundary, not sent oversized.
+    words = ["word"] * (DIALOGUE_MAX_CHARS // 4)
+    huge_sentence = " ".join(words)
+    assert len(huge_sentence) > DIALOGUE_MAX_CHARS
+    turns = [Turn(speaker="cohost", text=huge_sentence, episode_id="abc", segment_timestamp=2.0)]
+
+    with caplog.at_level("WARNING"):
+        chunks = _chunk_turns(turns, DIALOGUE_MAX_CHARS)
+
+    all_turns = [t for chunk in chunks for t in chunk]
+    assert all(len(t.text) <= DIALOGUE_MAX_CHARS for t in all_turns)
+    assert any("hard-truncated" in r.message for r in caplog.records)
+
+
+def test_chunk_turns_every_chunk_within_max_chars_with_mixed_sizes() -> None:
+    turns = [
+        Turn(speaker="host", text="short line", episode_id="abc", segment_timestamp=0.0),
+        Turn(speaker="cohost", text="x" * (DIALOGUE_MAX_CHARS - 10), episode_id="abc", segment_timestamp=1.0),
+        Turn(speaker="host", text="y" * (DIALOGUE_MAX_CHARS + 500), episode_id="abc", segment_timestamp=2.0),
+    ]
+    chunks = _chunk_turns(turns, DIALOGUE_MAX_CHARS)
+    for chunk in chunks:
+        assert sum(len(t.text) for t in chunk) <= DIALOGUE_MAX_CHARS
 
 
 # --- ArtifactStore: what actually writes the rendered bytes now -----------
