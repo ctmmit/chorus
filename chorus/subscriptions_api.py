@@ -35,6 +35,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from chorus.email import EmailSender
 from chorus.jobs import JobStore
 from chorus.pipeline import Deps
+from chorus.quotas import QuotaExceeded, enforce_job_quota
 from chorus.scheduler import due_subscriptions, next_run, run_subscription
 from chorus.subscriptions import (
     MASTER_OWNER,
@@ -144,6 +145,13 @@ def build_subscriptions_router(
     @router.post("/subscriptions/{subscription_id}/run")
     def run_subscription_now(subscription_id: str, request: Request) -> dict[str, str]:
         sub = _get_owned_or_404(subscription_store, subscription_id, _owner(request))
+        try:
+            # R3: quota is the SUBSCRIPTION's owner's, not necessarily the
+            # caller's — the master token may run-now someone else's
+            # subscription, and it is that owner's budget being spent.
+            enforce_job_quota(store, sub.owner)
+        except QuotaExceeded as err:
+            raise HTTPException(status_code=429, detail=str(err)) from err
         base_url = resolve_base_url(request)
         job_id = run_subscription(
             sub, store, deps, subscription_store, email_sender, base_url, datetime.now(UTC)

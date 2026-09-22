@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
 from dataclasses import dataclass
@@ -65,7 +66,14 @@ class LLMError(Exception):
 class LLMClient(Protocol):
     def score_segment(self, text: str, soul: str, context: str) -> Scored: ...
 
-    def score_windows(self, windows: list[str], soul: str, context: str) -> list[Scored]: ...
+    def score_windows(
+        self, windows: list[str], soul: str, context: str, meter: TokenUsage | None = None
+    ) -> list[Scored]:
+        """`meter`, when given, accumulates this call's token spend (R14) —
+        callers that need PER-JOB usage (chorus.pipeline.stage_curate_episode)
+        pass a fresh TokenUsage() per episode rather than reading a
+        client-level counter shared across concurrent jobs."""
+        ...
 
 
 @dataclass
@@ -115,7 +123,11 @@ class MockLLMClient:
         reason = f"{hits} attention-trigger match(es)" + (f"; {anti} ignore-signal" if anti else "")
         return score, reason
 
-    def score_windows(self, windows: list[str], soul: str, context: str) -> list[Scored]:
+    def score_windows(
+        self, windows: list[str], soul: str, context: str, meter: TokenUsage | None = None
+    ) -> list[Scored]:
+        # The mock makes no real model calls, so there is nothing to meter;
+        # `meter` is accepted (and left untouched) purely for Protocol parity.
         return [self.score_segment(w, soul, context) for w in windows]
 
 
@@ -159,14 +171,23 @@ class AnthropicLLMClient:
         )
         return [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]
 
-    def _create(self, system: list[dict[str, Any]], user: str, max_tokens: int) -> str:
+    def _create(
+        self, system: list[dict[str, Any]], user: str, max_tokens: int, meter: TokenUsage | None = None
+    ) -> str:
         msg = self._client.messages.create(
             model=self.MODEL,
             max_tokens=max_tokens,
             system=system,
             messages=[{"role": "user", "content": user}],
         )
-        self.usage.add(getattr(msg, "usage", None))
+        usage = getattr(msg, "usage", None)
+        # Client-level self.usage is kept for backward compatibility (existing
+        # callers/tests read it); `meter`, when given, gets the SAME call's
+        # usage added so a caller can isolate one job's spend (R14) instead of
+        # snapshotting/deltaing this shared, cross-job counter.
+        self.usage.add(usage)
+        if meter is not None:
+            meter.add(usage)
         return "".join(block.text for block in msg.content if block.type == "text")
 
     # -- single window (kept for callers that score one span) ----------------
@@ -185,15 +206,19 @@ class AnthropicLLMClient:
 
     # -- batch: one call per ~40 windows ------------------------------------
 
-    def score_windows(self, windows: list[str], soul: str, context: str) -> list[Scored]:
+    def score_windows(
+        self, windows: list[str], soul: str, context: str, meter: TokenUsage | None = None
+    ) -> list[Scored]:
         system = self._system(soul, context)
         out: list[Scored] = []
         for start in range(0, len(windows), BATCH_WINDOWS):
             chunk = windows[start : start + BATCH_WINDOWS]
-            out.extend(self._score_batch(system, chunk))
+            out.extend(self._score_batch(system, chunk, meter))
         return out
 
-    def _score_batch(self, system: list[dict[str, Any]], chunk: list[str]) -> list[Scored]:
+    def _score_batch(
+        self, system: list[dict[str, Any]], chunk: list[str], meter: TokenUsage | None = None
+    ) -> list[Scored]:
         listing = "\n\n".join(f"[{i}]\n{text}" for i, text in enumerate(chunk))
         user = (
             f"Score each of the {len(chunk)} windows below. Reply with ONLY a JSON array, one "
@@ -201,13 +226,21 @@ class AnthropicLLMClient:
             '"<one line>"}, ...]. Include every index exactly once.\n\n'
             f"WINDOWS:\n{listing}"
         )
-        body = self._create(system, user, BATCH_MAX_TOKENS)
+        body = self._create(system, user, BATCH_MAX_TOKENS, meter)
         try:
             return _parse_batch(body, len(chunk))
         except LLMError as first:
             log.warning("llm: unparseable batch reply, retrying once (%s)", first)
-            body = self._create(system, user, BATCH_MAX_TOKENS)
+            body = self._create(system, user, BATCH_MAX_TOKENS, meter)
             return _parse_batch(body, len(chunk))
+
+
+def _reject_non_finite_constant(token: str) -> float:
+    """`json.loads`'s `parse_constant` hook (R25): Python's decoder otherwise
+    happily accepts the non-standard `NaN`/`Infinity`/`-Infinity` tokens and
+    hands back a non-finite float, which a naive min/max clamp can then
+    promote to a boundary score (0.0 or 1.0) instead of rejecting."""
+    raise ValueError(f"non-finite JSON constant in model reply: {token}")
 
 
 def _parse_batch(body: str, n: int) -> list[Scored]:
@@ -215,8 +248,8 @@ def _parse_batch(body: str, n: int) -> list[Scored]:
     if not match:
         raise LLMError("no JSON array in model reply")
     try:
-        items = json.loads(match.group(0))
-    except json.JSONDecodeError as err:
+        items = json.loads(match.group(0), parse_constant=_reject_non_finite_constant)
+    except (json.JSONDecodeError, ValueError) as err:
         raise LLMError(f"invalid JSON in model reply: {err}") from err
     if not isinstance(items, list):
         raise LLMError("model reply JSON is not an array")
@@ -229,6 +262,13 @@ def _parse_batch(body: str, n: int) -> list[Scored]:
             i = int(item["i"])
             score = float(item["score"])
         except (KeyError, TypeError, ValueError):
+            continue
+        # A JSON number literal (not the special NaN/Infinity constants
+        # parse_constant already rejects above) can still overflow float()
+        # to +/-inf (e.g. "1e400"). Treated exactly like any other malformed
+        # item: skipped here, folded into the "missing" count below, and
+        # subject to the same retry-once path as any other parse failure.
+        if not math.isfinite(score):
             continue
         if 0 <= i < n and scored[i] is None:
             reason = str(item.get("reason") or "no reason").strip()

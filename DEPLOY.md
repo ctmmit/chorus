@@ -73,11 +73,16 @@ it runs, so a duplicate tick around the same moment just finds nothing due).
 
 ### 3. Environment variables (Vercel dashboard -> Settings -> Environment Variables, never commit)
 
-- `CHORUS_API_TOKEN` — **required whenever a provider key is set.** Every
-  route except `/api/inngest` (Inngest signs its own requests) demands
-  `Authorization: Bearer <token>`. The service refuses to start with real
-  keys and no token. Generate one with
+- `CHORUS_API_TOKEN` — **required whenever a provider key is set, or
+  `CHORUS_ENV=production`.** Every route except `/api/inngest` (Inngest
+  signs its own requests) demands `Authorization: Bearer <token>`. The
+  service refuses to start with real keys (or a declared production
+  deployment) and no token. Generate one with
   `python -c "import secrets; print(secrets.token_urlsafe(32))"`.
+- `CHORUS_ENV=production` — optional, belt-and-suspenders: refuses startup
+  with no `CHORUS_API_TOKEN` even if no provider key above happens to be
+  configured yet. Set this on a real deployment from day one, before you've
+  necessarily added every provider key.
 - `ANTHROPIC_API_KEY` — required (curation + script). Without it the service
   runs the deterministic mock and returns mock digests.
 - `ELEVENLABS_API_KEY` — required for real audio. Without it `audio_url` is
@@ -98,11 +103,33 @@ it runs, so a duplicate tick around the same moment just finds nothing due).
 - `DATABASE_URL` — Neon's pooled Postgres DSN. Set automatically by the
   Marketplace integration (step 1); without it the service falls back to
   SQLite, which does not survive on Vercel — **do not deploy to Vercel
-  without this set.**
+  without this set.** Selects the Postgres job/key/subscription/persona
+  store AND transcript cache together — `chorus/config_env.py` never
+  constructs a SQLite backend at all when this is set (docs/REVIEW_WAVE1.md
+  #1; a stray repository-root SQLite connection attempt on Vercel's
+  read-only filesystem could otherwise crash startup before serving a
+  request).
+- `CHORUS_STALE_JOB_SECONDS` — Postgres mode only. A shared deployment can
+  have more than one live instance; the startup sweep only marks a job
+  failed once it has sat untouched for this long, so a cold start never
+  stomps another instance's actively-running job (docs/REVIEW_WAVE1.md #6).
+  Default `1800` (30 minutes). SQLite mode always sweeps every in-flight job
+  immediately — it is inherently single-process.
+- `CHORUS_DB_PATH` — local-only. Overrides the repository-root default
+  SQLite path; irrelevant once `DATABASE_URL` is set (no SQLite store is
+  constructed in that mode).
 - `BLOB_READ_WRITE_TOKEN` — Vercel Blob token. Set automatically by the
   Marketplace integration; without it artifacts fall back to local disk,
   which does not survive on Vercel — **do not deploy to Vercel without this
-  set.**
+  set.** Uploaded with `x-vercel-blob-access: private` — audio is never a
+  public URL (docs/REVIEW_WAVE1.md #5); `Job.audio_url` is always the
+  relative, owner-checked `/artifacts/<name>` route, which fetches the bytes
+  server-side.
+- `BLOB_STORE_ID` — set automatically by Vercel on any project a Blob store
+  is connected to. Lets `VercelBlobStore.get()` reconstruct a private blob's
+  download URL on a cold instance that didn't itself upload the file.
+  Without it, `GET /artifacts/{name}` 404s for audio this exact process
+  instance never rendered (fails closed, never falls back to a public URL).
 - `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY` — from the Inngest app (step 2).
   Without both set the service falls back to `BackgroundTasks`, which cannot
   survive a frozen function — **do not deploy to Vercel without these set.**
@@ -132,6 +159,27 @@ it runs, so a duplicate tick around the same moment just finds nothing due).
   `http://localhost:8000` outside of an HTTP request context (the Inngest
   `chorus-tick` function and its own dev/test paths) — **set this in
   production**, or every subscription email's links will be wrong.
+- `CHORUS_CORS_ORIGINS` — comma-separated allowlist of browser origins
+  (e.g. `https://chorus-viewer.vercel.app`) allowed to call this API
+  cross-origin (docs/REVIEW_WAVE1.md #13). **Required for the viewer (web/)
+  deployed to a different origin than the API** — without it, no CORS
+  headers are added at all and the browser blocks every cross-origin
+  request, preflight included. Unset is fine for a same-origin deployment
+  (the viewer proxied through the API's own origin) or non-browser callers.
+- `CHORUS_MAX_JOBS_PER_DAY` / `CHORUS_MAX_INFLIGHT_JOBS` — per-owner spend
+  quotas (docs/REVIEW_WAVE1.md #3), enforced before every job creation
+  (`POST /digest`, `/digest/select`, `/subscriptions/{id}/run`, MCP submit
+  tools). Defaults `20` / `3`. The master token is exempt. Exceeding either
+  returns `429`.
+- `CHORUS_KEY_ISSUE_PER_IP_PER_HOUR` — per-client-IP token bucket on
+  `POST /keys`, alongside the existing per-email-per-hour limit. Default
+  `3`. **In-process only** — a serverless deployment with more than one live
+  instance gets one independent budget per instance, not a shared one; the
+  per-email limit (storage-backed) is the layer that IS shared.
+- `CHORUS_KEY_ALLOWED_EMAIL_DOMAINS` — comma-separated allowlist of email
+  domains permitted to self-serve a key (e.g. `mycompany.com`). Unset means
+  any domain, matching today's open self-serve behavior — set this if
+  self-serve issuance should be invite-only by domain.
 
 `vercel.json`'s `crons` entry (`{"path": "/internal/cron/tick", "schedule":
 "*/30 * * * *"}`) needs no separate setup — Vercel reads it from the repo on

@@ -29,7 +29,7 @@ from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from chorus.jobs import DEFAULT_DB
+from chorus.jobs import DEFAULT_DB, MASTER_OWNER
 from chorus.models import (
     MAX_CONTEXT_CHARS,
     MAX_EPISODES,
@@ -48,8 +48,22 @@ log = logging.getLogger("chorus.subscriptions")
 UNSUBSCRIBE_SECRET_ENV = "CHORUS_UNSUBSCRIBE_SECRET"
 API_TOKEN_FALLBACK_ENV = "CHORUS_API_TOKEN"
 
-MASTER_OWNER = "master"
 CADENCES = ("weekly", "daily")
+# MASTER_OWNER re-exported from chorus.jobs (the canonical definition, needed
+# there too for JobStore.create's default) — kept importable from this module
+# since chorus.app/chorus.subscriptions_api/tests already do `from
+# chorus.subscriptions import MASTER_OWNER`.
+__all__ = [
+    "MASTER_OWNER",
+    "Subscription",
+    "SubscriptionCreate",
+    "SubscriptionUpdate",
+    "SubscriptionList",
+    "SubscriptionStore",
+    "SqliteSubscriptionStore",
+    "unsubscribe_token",
+    "verify_unsubscribe_token",
+]
 
 _random_secret: str | None = None
 

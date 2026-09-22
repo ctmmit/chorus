@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 
-from chorus.llm import LLMClient
+from chorus.llm import LLMClient, TokenUsage
 from chorus.models import (
     Digest,
     EpisodeDigest,
@@ -78,6 +78,7 @@ def curate_episode(
     client: LLMClient,
     threshold: float = RELEVANCE_THRESHOLD,
     max_highlights: int = 4,
+    meter: TokenUsage | None = None,
 ) -> EpisodeDigest:
     if max_highlights < 1:
         # A negative slice would silently drop the TOP-scored highlights.
@@ -88,8 +89,10 @@ def curate_episode(
     scored: list[tuple[float, str, _Window]] = []
     windows: list[WindowScore] = []
     spans = window_segments(transcript.segments)
-    # One model call per episode (batched), not one per window.
-    results = client.score_windows([w.text for w in spans], soul, context)
+    # One model call per episode (batched), not one per window. `meter`
+    # (R14), when given, isolates this episode's token spend instead of
+    # reading a client-level counter shared across concurrent jobs.
+    results = client.score_windows([w.text for w in spans], soul, context, meter=meter)
     if len(results) != len(spans):
         raise ValueError(f"scorer returned {len(results)} scores for {len(spans)} windows")
     for w, (score, reason) in zip(spans, results, strict=True):

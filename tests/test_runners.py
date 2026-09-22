@@ -1,11 +1,12 @@
-"""chorus/runners.py: BackgroundRunner (in-process, unchanged behavior) and
+"""chorus/runners.py: BackgroundRunner (in-process, unchanged behavior with a
+BackgroundTasks instance; a daemon thread without one — R9) and
 InngestRunner.submit (records the event on a fake client — no dev server, no
 network)."""
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
-import pytest
 from fastapi import BackgroundTasks
 
 from chorus.artifacts import LocalArtifactStore
@@ -31,7 +32,10 @@ def _request() -> DigestRequest:
     )
 
 
-def test_background_runner_requires_background_tasks(tmp_path: Path) -> None:
+def test_background_runner_with_no_background_tasks_runs_on_daemon_thread(tmp_path: Path) -> None:
+    # R9: chorus.mcp_server has no per-request BackgroundTasks to hand off
+    # to, so BackgroundRunner.submit(background=None) must still start the
+    # job running (on a daemon thread) rather than raising.
     store = SqliteJobStore(tmp_path / "jobs.db")
     deps = Deps(
         FixtureTranscriptProvider(),
@@ -42,8 +46,16 @@ def test_background_runner_requires_background_tasks(tmp_path: Path) -> None:
     )
     runner = BackgroundRunner(store, deps)
     job_id = store.create()
-    with pytest.raises(RuntimeError, match="BackgroundTasks"):
-        runner.submit(job_id, _request())
+
+    runner.submit(job_id, _request())  # background=None
+
+    deadline = time.monotonic() + 5.0
+    job = store.get(job_id)
+    while job is not None and job.status == JobStatus.queued and time.monotonic() < deadline:
+        time.sleep(0.02)
+        job = store.get(job_id)
+    assert job is not None
+    assert job.status == JobStatus.done
 
 
 def test_background_runner_runs_job_via_background_tasks(tmp_path: Path) -> None:

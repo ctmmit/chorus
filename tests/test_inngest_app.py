@@ -10,11 +10,17 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from chorus.artifacts import LocalArtifactStore
 from chorus.audio import MockAudioRenderer
-from chorus.inngest_app import run_digest_body
+from chorus.inngest_app import (
+    _job_id_from_failure_event_data,
+    finalize_after_exhausted_retries,
+    run_digest_body,
+)
 from chorus.jobs import SqliteJobStore
-from chorus.llm import MockLLMClient
+from chorus.llm import LLMError, MockLLMClient
 from chorus.models import DigestRequest, EpisodeInput, JobStatus
 from chorus.pipeline import Deps
 from chorus.script import MockScriptComposer
@@ -92,3 +98,108 @@ def test_run_digest_body_unknown_job_id_logs_and_returns(tmp_path: Path) -> None
     # Must not raise: there's no job to mark failed, so it just returns.
     asyncio.run(run_digest_body(_FakeStep(), event_data, store, _deps(tmp_path)))
     assert store.get("never-created") is None
+
+
+# --- R7: retryable vs terminal classification -------------------------
+
+
+class _RetryableLLM:
+    """LLMError is classified retryable (chorus.errors.is_retryable)."""
+
+    def score_segment(self, text: str, soul: str, context: str) -> tuple[float, str]:
+        raise LLMError("simulated transient LLM outage")
+
+    def score_windows(self, windows, soul, context, meter=None):  # type: ignore[no-untyped-def]
+        raise LLMError("simulated transient LLM outage")
+
+
+class _TerminalLLM:
+    """A plain ValueError is classified terminal."""
+
+    def score_segment(self, text: str, soul: str, context: str) -> tuple[float, str]:
+        raise ValueError("malformed request")
+
+    def score_windows(self, windows, soul, context, meter=None):  # type: ignore[no-untyped-def]
+        raise ValueError("malformed request")
+
+
+def test_run_digest_body_reraises_retryable_failures_with_a_diagnostic(tmp_path: Path) -> None:
+    store = SqliteJobStore(tmp_path / "jobs.db")
+    job_id = store.create()
+    request = _request(SAMPLE)
+    event_data = {"job_id": job_id, "request": request.model_dump(mode="json")}
+    deps = _deps(tmp_path)
+    deps.llm = _RetryableLLM()
+
+    with pytest.raises(LLMError):
+        asyncio.run(run_digest_body(_FakeStep(), event_data, store, deps))
+
+    job = store.get(job_id)
+    assert job is not None
+    # Left in flight (never marked failed) so Inngest's retry of the whole
+    # function can pick the job back up.
+    assert job.status == JobStatus.queued
+    assert job.error is None
+    assert any("retryable failure" in w for w in job.warnings)
+
+
+def test_run_digest_body_terminal_failure_marks_failed_without_reraising(tmp_path: Path) -> None:
+    store = SqliteJobStore(tmp_path / "jobs.db")
+    job_id = store.create()
+    request = _request(SAMPLE)
+    event_data = {"job_id": job_id, "request": request.model_dump(mode="json")}
+    deps = _deps(tmp_path)
+    deps.llm = _TerminalLLM()
+
+    # Must NOT raise: Inngest acknowledges (no retry) a deterministic failure.
+    asyncio.run(run_digest_body(_FakeStep(), event_data, store, deps))
+
+    job = store.get(job_id)
+    assert job is not None
+    assert job.status == JobStatus.failed
+    assert "malformed request" in job.error
+
+
+def test_finalize_after_exhausted_retries_marks_in_flight_job_failed(tmp_path: Path) -> None:
+    store = SqliteJobStore(tmp_path / "jobs.db")
+    job_id = store.create()
+
+    finalize_after_exhausted_retries(store, job_id)
+
+    job = store.get(job_id)
+    assert job is not None
+    assert job.status == JobStatus.failed
+    assert "exhausted retries" in job.error
+
+
+def test_finalize_after_exhausted_retries_is_a_noop_for_an_already_terminal_job(tmp_path: Path) -> None:
+    store = SqliteJobStore(tmp_path / "jobs.db")
+    job_id = store.create()
+    job = store.get(job_id)
+    assert job is not None
+    job.status = JobStatus.done
+    store.save(job)
+
+    finalize_after_exhausted_retries(store, job_id)
+
+    job = store.get(job_id)
+    assert job is not None
+    assert job.status == JobStatus.done
+
+
+def test_finalize_after_exhausted_retries_handles_missing_job_id() -> None:
+    # Never raises even when the failure event's job_id can't be resolved.
+    finalize_after_exhausted_retries(SqliteJobStore(":memory:"), None)
+
+
+def test_job_id_from_failure_event_data_nested_shape() -> None:
+    data = {"event": {"data": {"job_id": "abc123"}}, "error": {"message": "boom"}}
+    assert _job_id_from_failure_event_data(data) == "abc123"
+
+
+def test_job_id_from_failure_event_data_flat_fallback_shape() -> None:
+    assert _job_id_from_failure_event_data({"job_id": "flat123"}) == "flat123"
+
+
+def test_job_id_from_failure_event_data_unresolvable_shape_returns_none() -> None:
+    assert _job_id_from_failure_event_data({"unexpected": True}) is None

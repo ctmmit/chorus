@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,7 @@ from chorus.audio import MockAudioRenderer
 from chorus.jobs import SqliteJobStore
 from chorus.llm import MockLLMClient
 from chorus.mcp_server import ChorusTools
-from chorus.models import EpisodeInput
+from chorus.models import EpisodeInput, Job, JobStatus
 from chorus.pipeline import Deps
 from chorus.script import MockScriptComposer
 from chorus.transcripts import FixtureTranscriptProvider
@@ -28,6 +29,18 @@ def _deps(tmp_path: Path) -> Deps:
     )
 
 
+def _await_terminal(tools: ChorusTools, job_id: str, timeout: float = 5.0) -> Job:
+    # R9: BackgroundRunner.submit(background=None) runs on a daemon thread,
+    # so submission returns before the job is done — poll like a real caller
+    # (chorus/mcp_server.py's docstring: "poll the returned job id").
+    deadline = time.monotonic() + timeout
+    job = tools.get_digest(job_id)
+    while job.status in (JobStatus.queued, JobStatus.digest_ready) and time.monotonic() < deadline:
+        time.sleep(0.02)
+        job = tools.get_digest(job_id)
+    return job
+
+
 def test_submit_digest_tool_reaches_done(tmp_path: Path) -> None:
     store = SqliteJobStore(tmp_path / "jobs.db")
     tools = ChorusTools(store, _deps(tmp_path))
@@ -36,8 +49,9 @@ def test_submit_digest_tool_reaches_done(tmp_path: Path) -> None:
         context=(FIX / "context.md").read_text(encoding="utf-8"),
         episodes=[EpisodeInput(video_id=ANDREESSEN)],
     )
+    assert submitted.keys() == {"job_id"}  # R9: returns immediately, no digest yet
 
-    job = tools.get_digest(submitted["job_id"])
+    job = _await_terminal(tools, submitted["job_id"])
 
     assert job.status == "done"
     assert job.digest is not None
@@ -69,7 +83,7 @@ def test_list_shows_and_submit_selection(tmp_path: Path) -> None:
     )
 
     assert shows
-    assert tools.get_digest(submitted["job_id"]).status == "done"
+    assert _await_terminal(tools, submitted["job_id"]).status == "done"
 
 
 def test_build_soul_from_interview_uses_expected_sections(

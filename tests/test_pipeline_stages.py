@@ -39,17 +39,19 @@ def test_stage_ingest_resolves_fixture_transcript() -> None:
 def test_stage_curate_episode_returns_episode_digest() -> None:
     request = _request(SAMPLE)
     ingested = stage_ingest(request, FixtureTranscriptProvider())
-    digest = stage_curate_episode(ingested.resolved[0], request, MockLLMClient())
-    assert digest.episode_id == SAMPLE
+    result = stage_curate_episode(ingested.resolved[0], request, MockLLMClient())
+    assert result.digest.episode_id == SAMPLE
     # soul_investor's mock scorer should surface at least one highlight for
     # the sample transcript (used across the existing public-sample tests).
-    assert digest.highlights or digest.refused
+    assert result.digest.highlights or result.digest.refused
+    # MockLLMClient makes no real model calls, so nothing was metered (R14).
+    assert result.tokens.calls == 0
 
 
 def test_stage_script_produces_grounded_takes() -> None:
     request = _request(SAMPLE)
     ingested = stage_ingest(request, FixtureTranscriptProvider())
-    episode_digest = stage_curate_episode(ingested.resolved[0], request, MockLLMClient())
+    episode_digest = stage_curate_episode(ingested.resolved[0], request, MockLLMClient()).digest
     digest = Digest(soul_version="deadbeef", episodes=[episode_digest])
     script = stage_script(digest, request, MockScriptComposer())
     valid_refs = {(h.episode_id, round(h.segment_timestamp)) for h in digest.highlights}
@@ -60,7 +62,7 @@ def test_stage_script_produces_grounded_takes() -> None:
 def test_stage_audio_renders_and_stores_returns_url(tmp_path: Path) -> None:
     request = _request(SAMPLE)
     ingested = stage_ingest(request, FixtureTranscriptProvider())
-    episode_digest = stage_curate_episode(ingested.resolved[0], request, MockLLMClient())
+    episode_digest = stage_curate_episode(ingested.resolved[0], request, MockLLMClient()).digest
     digest = Digest(soul_version="deadbeef", episodes=[episode_digest])
     script = stage_script(digest, request, MockScriptComposer())
 

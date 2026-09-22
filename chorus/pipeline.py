@@ -33,14 +33,15 @@ from chorus import catalog
 from chorus.artifacts import ArtifactStore, LocalArtifactStore, artifact_stem
 from chorus.audio import AudioRenderer, get_audio_renderer
 from chorus.curation import curate_episode, soul_version
+from chorus.errors import is_retryable
 from chorus.ingest import AllEpisodesFailed, ingest
 from chorus.jobs import JobStore
-from chorus.llm import LLMClient, get_llm_client
+from chorus.llm import LLMClient, TokenUsage, get_llm_client
 from chorus.models import (
     MONOLOGUE_PROFILE,
+    CurateResult,
     Digest,
     DigestRequest,
-    EpisodeDigest,
     IngestResult,
     Job,
     JobStatus,
@@ -73,6 +74,35 @@ class Deps:
     composer: ScriptComposer
     renderer: AudioRenderer
     artifacts: ArtifactStore = field(default_factory=LocalArtifactStore)
+
+    def close(self) -> None:
+        """R24 (docs/REVIEW_WAVE1.md #24): close every owned provider/cache/
+        store that exposes a `close()` — most importantly `provider.cache`
+        (chorus.transcript_cache.CachingTranscriptProvider's wrapped
+        TranscriptCache), which in Postgres mode is
+        chorus.stores.postgres.PostgresTranscriptCache and owns its own
+        connection pool. Previously nothing in chorus.app's lifespan ever
+        called this, so repeated local lifespan cycles (or graceful worker
+        recycling) leaked pool connections until process teardown. Anything
+        without a `close` attribute (MockLLMClient, LocalArtifactStore, ...)
+        is silently skipped — this is deliberately duck-typed rather than a
+        fixed list, so a future Deps field with its own `close()` is picked
+        up automatically."""
+        seen: set[int] = set()
+        for candidate in (
+            self.provider,
+            getattr(self.provider, "cache", None),
+            self.llm,
+            self.composer,
+            self.renderer,
+            self.artifacts,
+        ):
+            if candidate is None or id(candidate) in seen:
+                continue
+            seen.add(id(candidate))
+            close = getattr(candidate, "close", None)
+            if callable(close):
+                close()
 
 
 def default_deps() -> Deps:
@@ -117,25 +147,20 @@ def default_deps() -> Deps:
     )
 
 
-def _token_snapshot(llm: LLMClient) -> LLMTokens | None:
-    """Clients that meter tokens expose a `usage` accumulator (AnthropicLLMClient).
-    It is shared across jobs, so per-job numbers are a delta of two snapshots."""
-    meter = getattr(llm, "usage", None)
-    if meter is None:
+def sum_llm_tokens(tokens: list[LLMTokens]) -> LLMTokens | None:
+    """R14: each `CurateResult.tokens` is already isolated to one episode's
+    calls (a fresh TokenUsage() per stage_curate_episode call, not a
+    snapshot/delta of a client-level counter shared across concurrent jobs —
+    those helpers are gone). Summing them here is a plain per-job total, safe
+    under concurrency. None (not an all-zero LLMTokens) when nothing made any
+    metered calls, matching a mock/unmetered client's previous behavior."""
+    if not tokens or all(t.calls == 0 for t in tokens):
         return None
-    return LLMTokens(
-        calls=meter.calls,
-        input_tokens=meter.input_tokens,
-        output_tokens=meter.output_tokens,
-        cache_read_tokens=meter.cache_read_tokens,
-        cache_write_tokens=meter.cache_write_tokens,
-    )
-
-
-def _token_delta(before: LLMTokens | None, after: LLMTokens | None) -> LLMTokens | None:
-    if before is None or after is None:
-        return None
-    return LLMTokens(**{k: getattr(after, k) - getattr(before, k) for k in LLMTokens.model_fields})
+    total = dict.fromkeys(LLMTokens.model_fields, 0)
+    for t in tokens:
+        for key in total:
+            total[key] += getattr(t, key)
+    return LLMTokens(**total)
 
 
 # --- Stage functions ------------------------------------------------------
@@ -155,11 +180,32 @@ def stage_ingest(request: DigestRequest, provider: TranscriptProvider) -> Ingest
 
 def stage_curate_episode(
     resolved: ResolvedEpisode, request: DigestRequest, llm: LLMClient
-) -> EpisodeDigest:
+) -> CurateResult:
     """Score one resolved episode against the soul/context and surface its
     highlights (or an honest refusal). One Inngest step per episode
-    (`curate:<episode_id>`) so a single episode's failure retries alone."""
-    return curate_episode(resolved, request.soul, request.context, llm, max_highlights=request.highlight_count)
+    (`curate:<episode_id>`) so a single episode's failure retries alone.
+
+    Returns the digest AND this call's isolated token spend (R14: a fresh
+    TokenUsage() meter per episode, not a snapshot/delta of a client-level
+    counter that concurrent jobs would otherwise corrupt each other's numbers
+    through)."""
+    meter = TokenUsage()
+    digest = curate_episode(
+        resolved,
+        request.soul,
+        request.context,
+        llm,
+        max_highlights=request.highlight_count,
+        meter=meter,
+    )
+    tokens = LLMTokens(
+        calls=meter.calls,
+        input_tokens=meter.input_tokens,
+        output_tokens=meter.output_tokens,
+        cache_read_tokens=meter.cache_read_tokens,
+        cache_write_tokens=meter.cache_write_tokens,
+    )
+    return CurateResult(digest=digest, tokens=tokens)
 
 
 def stage_script(digest: Digest, request: DigestRequest, composer: ScriptComposer) -> Script:
@@ -213,9 +259,16 @@ def run_job(job_id: str, request: DigestRequest, store: JobStore, deps: Deps) ->
     try:
         _run(job, request, store, deps)
     except Exception as err:  # noqa: BLE001 - last line of defense: terminal state, never stuck
-        log.exception("job %s failed", job_id)
+        # R7: BackgroundRunner has no retry mechanism to re-raise into (unlike
+        # chorus.inngest_app.run_digest_body), so this stays a terminal
+        # `failed` either way — but the classification is still recorded in
+        # the error string as a diagnostic, so a human reading Job.error can
+        # tell "this would have been retried on Inngest" from "never would
+        # have been".
+        retryable = is_retryable(err)
+        log.exception("job %s failed (retryable=%s)", job_id, retryable)
         job.status = JobStatus.failed
-        job.error = f"{type(err).__name__}: {err}"
+        job.error = f"{type(err).__name__}: {err} (retryable={retryable})"
         try:
             store.save(job)
         except Exception:  # noqa: BLE001 - store itself is broken; nothing more to do
@@ -243,15 +296,14 @@ def _run(job: Job, request: DigestRequest, store: JobStore, deps: Deps) -> None:
 
     # Any exception here propagates to run_job's handler -> failed with reason.
     t0 = time.perf_counter()
-    tokens_before = _token_snapshot(deps.llm)
-    episodes = [stage_curate_episode(r, request, deps.llm) for r in ingested.resolved]
+    curated = [stage_curate_episode(r, request, deps.llm) for r in ingested.resolved]
     job.digest = Digest(
         soul_version=soul_version(request.soul),
         soul_origin=request.soul_origin,
-        episodes=episodes,
+        episodes=[c.digest for c in curated],
     )
     usage.stage_seconds["curate"] = time.perf_counter() - t0
-    usage.llm_tokens = _token_delta(tokens_before, _token_snapshot(deps.llm))
+    usage.llm_tokens = sum_llm_tokens([c.tokens for c in curated])
     job.status = JobStatus.digest_ready
     store.save(job)
 
