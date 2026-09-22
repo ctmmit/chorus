@@ -18,7 +18,17 @@ threading a profile through `render` itself — `Deps`/`get_audio_renderer()`
 are built once at process/app startup (chorus.pipeline.default_deps,
 chorus.config_env), before any per-job `DigestRequest.profile` exists, so
 per-job voice selection has to live on the script/env, not on the renderer's
-construction-time wiring.
+construction-time wiring. R18 (docs/REVIEW_WAVE1.md #18): this is exactly
+why per-job voice selection travels on `Script.voices` (chorus/script.py) —
+`script.voices[role]` wins over the renderer's construction-time env/default
+voice id whenever the request set one.
+
+R19 (docs/REVIEW_WAVE1.md #19): `_chunk_turns` first splits any turn whose
+text exceeds `DIALOGUE_MAX_CHARS` on sentence boundaries (same speaker, same
+grounding) before chunking, and hard-truncates at a word boundary (logged)
+the rare single "sentence" that alone exceeds the limit — so no outbound
+request can ever carry more than the provider's documented per-request
+character budget.
 
 ElevenLabs Text-to-Dialogue, verified 21 Sep 2026 against
 https://elevenlabs.io/docs/api-reference/text-to-dialogue/convert :
@@ -44,6 +54,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -136,8 +147,11 @@ class ElevenLabsRenderer:
 
     def render(self, script: Script, soul: str, job_id: str) -> RenderedAudio:
         artifact_stem(job_id)  # validate job_id is filename-safe, as before
+        # R18: script.voices["host"] (from the request's profile) wins over
+        # this renderer's construction-time env/default voice id.
+        voice_id = script.voices.get("host") or self.voice_id
         resp = httpx.post(
-            ELEVEN_TTS_URL.format(voice_id=self.voice_id),
+            ELEVEN_TTS_URL.format(voice_id=voice_id),
             headers={
                 "xi-api-key": self.api_key,
                 "accept": "audio/mpeg",
@@ -156,14 +170,77 @@ class ElevenLabsRenderer:
         return RenderedAudio(data=resp.content, media_type="audio/mpeg", extension="mp3")
 
 
+# Sentence boundary: end punctuation followed by whitespace. Deliberately
+# simple (no abbreviation handling) — a slightly-early split is harmless
+# (still a valid, groundable fragment of the same turn); an oversized
+# request to the provider is not.
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def _split_long_turn(turn: Turn, max_chars: int) -> list[Turn]:
+    """R19: split `turn.text` on sentence boundaries into pieces at or under
+    `max_chars`, each carrying the same speaker/episode_id/segment_timestamp
+    (grounding is per-turn, so a split piece must stay traceable to the same
+    highlight as the turn it came from). A single "sentence" that alone
+    exceeds `max_chars` is hard-truncated at a word boundary — logged, never
+    silently dropped or sent oversized."""
+    text = turn.text
+    if len(text) <= max_chars:
+        return [turn]
+
+    pieces: list[str] = []
+    current = ""
+    for sentence in _SENTENCE_SPLIT_RE.split(text):
+        if not sentence:
+            continue
+        if len(sentence) > max_chars:
+            if current:
+                pieces.append(current)
+                current = ""
+            truncated = sentence[:max_chars].rsplit(" ", 1)[0] or sentence[:max_chars]
+            log.warning(
+                "audio: turn sentence (%d chars) exceeds max_chars=%d; hard-truncated to %d chars",
+                len(sentence),
+                max_chars,
+                len(truncated),
+            )
+            pieces.append(truncated)
+            continue
+        candidate = f"{current} {sentence}" if current else sentence
+        if len(candidate) > max_chars:
+            pieces.append(current)
+            current = sentence
+        else:
+            current = candidate
+    if current:
+        pieces.append(current)
+
+    return [
+        Turn(
+            speaker=turn.speaker,
+            text=piece,
+            episode_id=turn.episode_id,
+            segment_timestamp=turn.segment_timestamp,
+        )
+        for piece in pieces
+        if piece
+    ]
+
+
 def _chunk_turns(turns: list[Turn], max_chars: int) -> list[list[Turn]]:
-    """Group turns into chunks whose summed `text` length stays at or under
-    `max_chars`, preserving order. A single turn longer than max_chars still
-    gets its own chunk (never dropped or truncated silently)."""
+    """Split any turn longer than `max_chars` (R19: `_split_long_turn`), then
+    group the resulting turns into chunks whose summed `text` length stays at
+    or under `max_chars`, preserving order. Every chunk this returns is
+    asserted to be within the limit — no outbound request can ever exceed
+    the provider's documented per-request character budget."""
+    expanded: list[Turn] = []
+    for turn in turns:
+        expanded.extend(_split_long_turn(turn, max_chars))
+
     chunks: list[list[Turn]] = []
     current: list[Turn] = []
     current_chars = 0
-    for turn in turns:
+    for turn in expanded:
         n = len(turn.text)
         if current and current_chars + n > max_chars:
             chunks.append(current)
@@ -173,6 +250,10 @@ def _chunk_turns(turns: list[Turn], max_chars: int) -> list[list[Turn]]:
         current_chars += n
     if current:
         chunks.append(current)
+
+    for chunk in chunks:
+        total = sum(len(t.text) for t in chunk)
+        assert total <= max_chars, f"audio: chunk of {total} chars exceeds max_chars={max_chars}"
     return chunks
 
 
@@ -212,7 +293,12 @@ class ElevenLabsDialogueRenderer:
             # None, digest/script still stand) — see chorus/pipeline.py.
             raise ValueError(f"job {job_id}: dialogue script has no turns to render")
 
-        voice_for = {"host": self.host_voice_id, "cohost": self.cohost_voice_id}
+        # R18: script.voices[role] (from the request's profile) wins over
+        # this renderer's construction-time env/default voice ids.
+        voice_for = {
+            "host": script.voices.get("host") or self.host_voice_id,
+            "cohost": script.voices.get("cohost") or self.cohost_voice_id,
+        }
         chunks = _chunk_turns(script.turns, DIALOGUE_MAX_CHARS)
         parts: list[bytes] = []
         for chunk in chunks:

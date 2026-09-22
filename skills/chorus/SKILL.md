@@ -67,13 +67,23 @@ in automatically.
 }
 ```
 
-Each episode is one of:
+Each episode is exactly **one identity family** — never mix a YouTube field
+(`video_id`/`url`) with an RSS field (`feed_url`/`guid`/`audio_url`) in the
+same episode; the service rejects that with `422` rather than guessing which
+one you meant:
 
 - `{ "video_id": "..." }` or `{ "url": "..." }` — a YouTube episode.
 - `{ "feed_url": "...", "guid": "..." }` (optionally `"audio_url"` too) — a
   podcast RSS episode, identified the way Podcasting 2.0 identifies it: the
-  feed plus the `<guid>` of the `<item>`. Use `audio_url` instead of `guid`
-  if that's all you have (the service matches on `<enclosure url>`).
+  feed plus the `<guid>` of the `<item>`. Use `{ "feed_url": "...",
+  "audio_url": "..." }` instead of `guid` if that's all you have (the
+  service matches on `<enclosure url>`).
+- `{ "audio_url": "..." }` alone (no `feed_url`) — a direct audio file with
+  no feed to match against.
+
+An RSS episode's cache/identity key is derived from the feed URL *and* the
+guid/audio_url together, so the same guid in two different feeds is always
+two different episodes — never a cache collision.
 
 The service resolves a transcript through a provider ladder (managed YouTube
 captions, the episode's own RSS `podcast:transcript` tag, then speech-to-text
@@ -142,7 +152,11 @@ never stays `queued` or `digest_ready` indefinitely. The digest is usable at
   its transcript ("fixture", "supadata", "rss:json"/"rss:vtt"/"rss:srt", or
   "deepgram"); `skipped` lists episodes that never resolved and why (the same
   information a skipped episode's absence from `digest.episodes` otherwise
-  throws away).
+  throws away). A `reason` prefixed `"transient: "` means the source may well
+  have had a transcript — a provider call failed (timeout, auth, malformed
+  response) rather than genuinely having nothing; retrying the same episode
+  later can succeed. A reason with no prefix means the source itself had
+  nothing (no captions, no matching feed item) and retrying won't change that.
 - An episode with nothing relevant comes back `refused: true` with
   `refusal_reason: "nothing cleared the relevance bar"` — never an invented reason.
 - `audio_url` is downloadable from the base URL (send the bearer token). It is
@@ -159,7 +173,10 @@ never stays `queued` or `digest_ready` indefinitely. The digest is usable at
 - `413` / `422` — body too large / a field outside the limits above.
 - `status: "failed"` with `error` — e.g. none of the episodes had a retrievable
   transcript, a provider call failed before the digest existed, or the service
-  restarted mid-job. Surface the error; do not retry blindly.
+  restarted mid-job. Surface the error; do not retry blindly — unless every
+  episode's skip reason was `"transient: "`-prefixed, in which case the
+  failure is itself transient and re-submitting the same request later is
+  reasonable.
 - A single episode with no transcript is **skipped**, not fatal — the digest
   completes on the rest.
 

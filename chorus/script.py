@@ -13,6 +13,17 @@ how (personas, tone, engagement techniques), never an auto-writer. Grounding
 is per-turn: a turn that does not resolve to a surfaced highlight is dropped,
 exactly as an ungrounded take is dropped today. Single-voice (no profile, or
 `profile.format == "monologue"`) is unchanged from before this phase.
+
+R18 (docs/REVIEW_WAVE1.md #18): every `Script` this module returns carries
+`voices` — role -> `SpeakerProfile.voice_id` for the profile that produced
+it — so `chorus.audio` renderers can honor a request's per-speaker voice
+instead of falling back to the renderer's env/default voice id.
+
+R20 (docs/REVIEW_WAVE1.md #20): `AnthropicScriptComposer` raises `ScriptError`
+when the digest had highlights but the model's reply yielded zero grounded
+takes — a model-format or grounding failure, not an honest "nothing cleared
+the bar" editorial conclusion. The empty "Nothing cleared the bar." response
+is reserved for when the digest itself has no highlights to begin with.
 """
 from __future__ import annotations
 
@@ -21,6 +32,7 @@ import os
 import re
 from typing import Any, Literal, Protocol, runtime_checkable
 
+from chorus.errors import TerminalError
 from chorus.models import (
     HOST_PERSONA_IS_SOUL,
     TAKE_TYPES,
@@ -35,6 +47,16 @@ from chorus.models import (
 )
 
 log = logging.getLogger("chorus.script")
+
+
+class ScriptError(TerminalError):
+    """Script synthesis produced nothing usable despite grounded material
+    being available (digest had highlights, zero takes survived parsing) —
+    a model-format/grounding failure, not an honest empty digest. Terminal:
+    re-running the same digest through the same broken parse won't change
+    the outcome; the caller's degrade path (chorus/pipeline.py) records it
+    as "script synthesis failed" rather than silently rendering an empty
+    episode."""
 
 # Turn cap sizing (spec: ~150 spoken words/minute, ~35 words/turn) so a long
 # target_minutes can't make pass 2 write an unbounded dialogue.
@@ -73,6 +95,12 @@ def _style_block(style: ConversationStyle) -> str:
     )
 
 
+def _voices_for(profile: EpisodeProfile) -> dict[str, str | None]:
+    """Role -> voice_id map (R18) so a renderer can look up each speaker's
+    requested voice without threading the whole profile through render()."""
+    return {s.role: s.voice_id for s in profile.speakers}
+
+
 def _turns_transcript(turns: list[Turn]) -> str:
     """The readable transcript for a dialogue script — what `monologue` holds
     in dialogue format (spec: "HOST: ...\\n\\nCOHOST: ...")."""
@@ -100,6 +128,7 @@ class MockScriptComposer:
         profile = profile or MONOLOGUE_PROFILE
         takes = self._takes(digest)
         monologue_text = self._monologue(takes)
+        voices = _voices_for(profile)
 
         if profile.format != "dialogue":
             return Script(
@@ -107,6 +136,7 @@ class MockScriptComposer:
                 takes=takes,
                 monologue=monologue_text,
                 format=profile.format,
+                voices=voices,
             )
 
         turns = self._turns(takes)
@@ -116,6 +146,7 @@ class MockScriptComposer:
             monologue=_turns_transcript(turns),
             turns=turns,
             format="dialogue",
+            voices=voices,
         )
 
     @staticmethod
@@ -190,7 +221,16 @@ class AnthropicScriptComposer:
     ) -> Script:
         profile = profile or MONOLOGUE_PROFILE
         takes = self._write_takes(digest, soul, context)
+        if digest.highlights and not takes:
+            # R20: the digest had grounded material; zero takes surviving
+            # parsing means the model's reply was empty, ungrounded, or
+            # malformed — not an honest editorial "nothing cleared the bar".
+            raise ScriptError(
+                f"script: {len(digest.highlights)} highlight(s) available but zero grounded "
+                "takes survived parsing"
+            )
         monologue_text = "\n\n".join(t.text for t in takes) if takes else "Nothing cleared the bar."
+        voices = _voices_for(profile)
 
         if profile.format != "dialogue":
             return Script(
@@ -198,6 +238,7 @@ class AnthropicScriptComposer:
                 takes=takes,
                 monologue=monologue_text,
                 format=profile.format,
+                voices=voices,
             )
 
         turns = self._write_turns(digest, soul, context, profile, takes)
@@ -207,6 +248,7 @@ class AnthropicScriptComposer:
             monologue=_turns_transcript(turns),
             turns=turns,
             format="dialogue",
+            voices=voices,
         )
 
     # -- pass 1: beats (unchanged from single-voice) ------------------------

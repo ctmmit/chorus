@@ -21,7 +21,10 @@ from chorus.models import (
     SpeakerProfile,
     TWO_HOST_PROFILE,
 )
-from chorus.script import AnthropicScriptComposer, _max_turns
+import pytest
+
+from chorus.errors import TerminalError
+from chorus.script import AnthropicScriptComposer, ScriptError, _max_turns
 
 
 @dataclass
@@ -197,6 +200,25 @@ def test_turn_cap_enforced() -> None:
     script = AnthropicScriptComposer(client=fake).write_script(digest, "SOUL", "CTX", profile)
 
     assert len(script.turns) == cap
+
+
+# --- R20: zero grounded takes with highlights present is an error ---------
+
+
+def test_zero_grounded_takes_with_highlights_raises_script_error() -> None:
+    # The digest HAS grounded material (HL), but the model's reply is empty/
+    # unparseable/ungrounded -> zero takes survive. That must be an explicit
+    # failure (ScriptError), not a false "Nothing cleared the bar." digest.
+    digest = _digest(HL)
+    fake = _FakeClient(["the model said something that doesn't match the TAKE format at all"])
+    composer = AnthropicScriptComposer(client=fake)
+
+    with pytest.raises(ScriptError):
+        composer.write_script(digest, "SOUL", "CTX", MONOLOGUE_PROFILE)
+
+
+def test_script_error_is_terminal() -> None:
+    assert issubclass(ScriptError, TerminalError)
 
 
 def test_pass_two_never_runs_when_pass_one_yields_no_takes() -> None:
