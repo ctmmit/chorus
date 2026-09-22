@@ -8,16 +8,63 @@ import { HighlightCard } from "@/components/HighlightCard";
 import { ProvenanceLine } from "@/components/ProvenanceLine";
 import { StatusBadge } from "@/components/StatusBadge";
 import { allHighlights, type Digest, type EpisodeDigest, type Job } from "@/lib/api-types";
+import { MAX_ELAPSED_MS } from "@/lib/polling";
 import { getBaseUrl, getToken } from "@/lib/storage";
 import { highlightTimestamps, overlapPercentage } from "@/lib/timeline";
 import { useJob } from "@/lib/useJob";
 
-function CompareSide({ label, job, error }: { label: string; job: Job | null; error: string | null }) {
-  if (error) return <p className="font-mono text-sm text-red">{error}</p>;
+const MAX_ELAPSED_MINUTES = Math.round(MAX_ELAPSED_MS / 60_000);
+
+function CompareSide({
+  label,
+  job,
+  error,
+  paused,
+  onRetry,
+}: {
+  label: string;
+  job: Job | null;
+  error: string | null;
+  paused: boolean;
+  onRetry: () => void;
+}) {
+  if (error) {
+    return (
+      <div className="space-y-2">
+        <p className="font-mono text-sm text-red">{error}</p>
+        {paused ? (
+          <div className="flex items-center gap-3">
+            <p className="label-caps text-silver">Paused after {MAX_ELAPSED_MINUTES} min.</p>
+            <button
+              type="button"
+              onClick={onRetry}
+              className="border border-navy px-3 py-1.5 font-sans text-xs uppercase tracking-wide text-navy"
+            >
+              Retry
+            </button>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
   if (!job) return <p className="label-caps">Loading {label}…</p>;
 
   return (
     <div className="space-y-4">
+      {paused ? (
+        <div className="flex items-center justify-between gap-3 border border-taupe bg-surface px-3 py-2">
+          <p className="font-mono text-xs text-silver">
+            Paused after {MAX_ELAPSED_MINUTES} min without a result.
+          </p>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="bg-navy px-3 py-1 font-sans text-xs uppercase tracking-wide text-ivory"
+          >
+            Retry
+          </button>
+        </div>
+      ) : null}
       <div className="flex items-baseline justify-between gap-3">
         <p className="label-caps">
           {label} <span className="font-mono normal-case text-ink">{job.job_id}</span>
@@ -73,8 +120,18 @@ export function CompareView({ jobIdA, jobIdB }: { jobIdA: string | null; jobIdB:
     setToken(getToken());
   }, []);
 
-  const { job: jobA, error: errorA } = useJob(baseUrl, token, jobIdA ?? "");
-  const { job: jobB, error: errorB } = useJob(baseUrl, token, jobIdB ?? "");
+  const {
+    job: jobA,
+    error: errorA,
+    paused: pausedA,
+    retry: retryA,
+  } = useJob(baseUrl, token, jobIdA ?? "");
+  const {
+    job: jobB,
+    error: errorB,
+    paused: pausedB,
+    retry: retryB,
+  } = useJob(baseUrl, token, jobIdB ?? "");
 
   const overlapRows = useMemo(() => {
     if (!jobA?.digest || !jobB?.digest) return [];
@@ -157,8 +214,8 @@ export function CompareView({ jobIdA, jobIdB }: { jobIdA: string | null; jobIdB:
           ) : null}
 
           <div className="grid gap-8 border-t border-taupe pt-6 md:grid-cols-2">
-            <CompareSide label="Job A" job={jobA} error={errorA} />
-            <CompareSide label="Job B" job={jobB} error={errorB} />
+            <CompareSide label="Job A" job={jobA} error={errorA} paused={pausedA} onRetry={retryA} />
+            <CompareSide label="Job B" job={jobB} error={errorB} paused={pausedB} onRetry={retryB} />
           </div>
         </>
       ) : (

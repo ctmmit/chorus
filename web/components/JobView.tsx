@@ -10,8 +10,23 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { UsageSummary } from "@/components/UsageSummary";
 import { allHighlights } from "@/lib/api-types";
 import { buildClaimTitle } from "@/lib/claim";
+import { MAX_ELAPSED_MS } from "@/lib/polling";
 import { getBaseUrl, getToken } from "@/lib/storage";
 import { useJob } from "@/lib/useJob";
+
+const MAX_ELAPSED_MINUTES = Math.round(MAX_ELAPSED_MS / 60_000);
+
+function RetryButton({ onRetry }: { onRetry: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onRetry}
+      className="border border-navy px-3 py-1.5 font-sans text-xs uppercase tracking-wide text-navy"
+    >
+      Retry
+    </button>
+  );
+}
 
 export function JobView({ jobId }: { jobId: string }) {
   const [baseUrl, setBaseUrl] = useState("");
@@ -27,7 +42,7 @@ export function JobView({ jobId }: { jobId: string }) {
     setHydrated(true);
   }, []);
 
-  const { job, error, loading } = useJob(baseUrl, token, hydrated ? jobId : "");
+  const { job, error, loading, paused, retry } = useJob(baseUrl, token, hydrated ? jobId : "");
 
   if (!hydrated || (loading && !job)) {
     return <p className="label-caps">Loading…</p>;
@@ -38,6 +53,14 @@ export function JobView({ jobId }: { jobId: string }) {
       <div className="space-y-2">
         <p className="font-serif text-lg text-ink">Could not reach the Chorus API.</p>
         <p className="font-mono text-sm text-red">{error}</p>
+        {paused ? (
+          <div className="flex items-center gap-3">
+            <p className="label-caps text-silver">
+              Paused after {MAX_ELAPSED_MINUTES} min of retries.
+            </p>
+            <RetryButton onRetry={retry} />
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -50,6 +73,15 @@ export function JobView({ jobId }: { jobId: string }) {
 
   return (
     <div className="space-y-10">
+      {paused ? (
+        <div className="flex items-center justify-between gap-3 border border-taupe bg-surface px-4 py-3">
+          <p className="font-mono text-sm text-silver">
+            Paused after {MAX_ELAPSED_MINUTES} min without a result.
+          </p>
+          <RetryButton onRetry={retry} />
+        </div>
+      ) : null}
+
       <header className="space-y-2">
         <div className="flex items-baseline justify-between gap-3">
           <p className="label-caps">
