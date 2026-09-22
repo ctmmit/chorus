@@ -440,6 +440,37 @@ def test_r4_two_principal_job_isolation(tmp_path: Path) -> None:
     assert master.status_code == 200
 
 
+def test_r4_subscription_run_now_job_is_owned_by_the_subscription_not_the_caller(
+    tmp_path: Path,
+) -> None:
+    # The master token may run-now someone else's subscription; the
+    # resulting job must still belong to the SUBSCRIPTION's owner, not to
+    # master — so only that owner (or master) can read it afterward.
+    client, headers_a, headers_b = _two_principal_app(tmp_path)
+
+    created = client.post(
+        "/subscriptions",
+        json={
+            "email": "alice@example.com",
+            "soul": "# s",
+            "context": "",
+            "episodes": [{"video_id": ANDREESSEN}],
+        },
+        headers=headers_a,
+    )
+    assert created.status_code == 200
+    sub_id = created.json()["subscription_id"]
+
+    ran = client.post(
+        f"/subscriptions/{sub_id}/run", headers={"Authorization": "Bearer master-token"}
+    )
+    assert ran.status_code == 200
+    job_id = ran.json()["job_id"]
+
+    assert client.get(f"/digest/{job_id}", headers=headers_a).status_code == 200
+    assert client.get(f"/digest/{job_id}", headers=headers_b).status_code == 404
+
+
 def test_r4_job_owner_field_defaults_to_master_for_old_rows() -> None:
     from chorus.models import Job
 
