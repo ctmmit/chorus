@@ -19,6 +19,14 @@ This is a thought partner with a point of view, not a generic summary.
   A missing or wrong token returns `401`. (A dev instance running only mock
   providers may have auth disabled; a deployed one with real keys never does.)
 - The service holds its own provider keys server-side; you never send them.
+- Every job (and its artifact) is owned by whichever token created it — the
+  master token, or the email an issued key was issued to. You can only read
+  your own jobs (the master token can read every job); a job id that exists
+  but isn't yours 404s exactly like one that doesn't exist.
+- A browser-based caller on a different origin than the API needs the
+  deployment to set `CHORUS_CORS_ORIGINS` to your origin, or every
+  cross-origin request (including the preflight) is blocked by the browser
+  regardless of a valid token.
 
 ## Limits
 
@@ -145,7 +153,10 @@ never stays `queued` or `digest_ready` indefinitely. The digest is usable at
   throws away).
 - An episode with nothing relevant comes back `refused: true` with
   `refusal_reason: "nothing cleared the relevance bar"` — never an invented reason.
-- `audio_url` is downloadable from the base URL (send the bearer token). It is
+- `audio_url` is always a RELATIVE path (`/artifacts/<name>`) under the base
+  URL — never a bare public URL from whatever backs storage server-side —
+  and downloading it requires the same bearer token as everything else, and
+  is only permitted to the job's own owner (or the master token). It is
   unique per job. It may be `null` if audio rendering failed; `script` may
   likewise be `null` if script synthesis failed. In both cases the digest is
   still valid and `warnings` says what degraded (degrade gracefully). On a dev
@@ -155,8 +166,27 @@ never stays `queued` or `digest_ready` indefinitely. The digest is usable at
 ## Errors
 
 - `401` — missing or invalid bearer token.
-- `404` on `GET /digest/{job_id}` — unknown `job_id`.
+- `404` on `GET /digest/{job_id}` — unknown `job_id`, **or a job that belongs
+  to a different principal**: every job is owned by whichever token created
+  it (the master token, or the email an issued key was issued to), and a
+  foreign job looks exactly like an unknown one — no way to tell "not yours"
+  from "doesn't exist" by probing ids. The master token can read every job.
 - `413` / `422` — body too large / a field outside the limits above.
+- `429` on `POST /digest`, `POST /digest/select`, or
+  `POST /subscriptions/{id}/run` — you've hit a spend quota: at most 20 new
+  jobs per rolling 24h, or 3 jobs in flight at once (both per issued key; the
+  master token is exempt). Wait for an in-flight job to finish, or for the
+  24h window to roll forward, before retrying. `429` on `POST /keys` means
+  either the per-email-per-hour issuance limit or a per-IP throttle — wait
+  and retry.
+- `503` on `POST /digest` / `POST /digest/select` — the job was created but
+  the backend that runs it (Inngest, or the in-process runner) could not be
+  reached; the response body still carries `{"job_id", "status": "failed",
+  "error"}`, so the job itself is not lost — the digest cannot be produced,
+  full stop, so re-submit rather than poll.
+- `502` on `POST /keys` — a key was minted but the delivery email failed to
+  send; the key has already been revoked server-side (it will never work),
+  so retry the request rather than trying to use it.
 - `status: "failed"` with `error` — e.g. none of the episodes had a retrievable
   transcript, a provider call failed before the digest existed, or the service
   restarted mid-job. Surface the error; do not retry blindly.
