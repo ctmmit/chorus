@@ -100,7 +100,9 @@ class _RaisingLLM:
     def score_segment(self, text: str, soul: str, context: str) -> tuple[float, str]:
         raise RuntimeError("simulated provider outage")
 
-    def score_windows(self, windows: list[str], soul: str, context: str) -> list[tuple[float, str]]:
+    def score_windows(
+        self, windows: list[str], soul: str, context: str, meter: object | None = None
+    ) -> list[tuple[float, str]]:
         raise RuntimeError("simulated provider outage")
 
 

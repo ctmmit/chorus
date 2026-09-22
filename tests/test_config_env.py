@@ -84,26 +84,37 @@ def test_select_runner_uses_inngest_when_keys_set(
 # --- create_app wiring ------------------------------------------------------
 
 
-def test_local_artifacts_mounts_static_files(tmp_path: Path) -> None:
+def test_get_artifacts_route_serves_owned_local_artifact(tmp_path: Path) -> None:
+    # R5: no more StaticFiles mount — GET /artifacts/{name} resolves the
+    # owning job from the name and serves through the artifact store.
     store = SqliteJobStore(tmp_path / "jobs.db")
     deps = _deps(tmp_path)
-    (tmp_path / "artifacts").mkdir()
-    (tmp_path / "artifacts" / "hello.txt").write_text("hi", encoding="utf-8")
+    job_id = store.create()
+    name = f"episode_{job_id}.txt"
+    deps.artifacts.put(name, b"hi", "text/plain")
     app = create_app(store, deps, runner=BackgroundRunner(store, deps))
     client = TestClient(app)
-    assert client.get("/artifacts/hello.txt").text == "hi"
+    assert client.get(f"/artifacts/{name}").text == "hi"
 
 
 class _NotLocal:
-    """A non-LocalArtifactStore ArtifactStore stand-in: create_app must NOT
-    mount /artifacts when this is the active store (there's nothing local to
-    serve — Vercel Blob URLs are already absolute)."""
+    """A non-LocalArtifactStore ArtifactStore stand-in that implements `get`
+    too — nothing local to serve (Vercel Blob content is fetched server-side
+    through this same `.get()` contract instead)."""
+
+    def __init__(self) -> None:
+        self.stored: dict[str, bytes] = {}
 
     def put(self, name: str, data: bytes, content_type: str) -> str:
-        return f"https://example.blob.vercel-storage.com/{name}"
+        self.stored[name] = data
+        return f"/artifacts/{name}"
+
+    def get(self, name: str) -> tuple[bytes, str] | None:
+        data = self.stored.get(name)
+        return (data, "text/plain") if data is not None else None
 
 
-def test_non_local_artifacts_does_not_mount_static_files(tmp_path: Path) -> None:
+def test_artifacts_route_404s_for_unknown_name(tmp_path: Path) -> None:
     store = SqliteJobStore(tmp_path / "jobs.db")
     deps = _deps(tmp_path, artifacts=_NotLocal())
     app = create_app(store, deps, runner=BackgroundRunner(store, deps))

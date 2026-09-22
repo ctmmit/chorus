@@ -56,11 +56,12 @@ from fastapi import FastAPI
 
 from chorus.curation import soul_version
 from chorus.email import EmailSender
-from chorus.jobs import JobStore
+from chorus.errors import is_retryable
+from chorus.jobs import IN_FLIGHT_STATUSES, JobStore
 from chorus.models import (
+    CurateResult,
     Digest,
     DigestRequest,
-    EpisodeDigest,
     IngestResult,
     Job,
     JobStatus,
@@ -77,6 +78,7 @@ from chorus.pipeline import (
     stage_curate_episode,
     stage_ingest,
     stage_script,
+    sum_llm_tokens,
 )
 from chorus.scheduler import TICK_CRON_SCHEDULE, due_subscriptions, run_subscription
 from chorus.subscriptions import Subscription, SubscriptionStore
@@ -94,6 +96,11 @@ INNGEST_SERVE_PATH = "/api/inngest"
 # next_run_at to now (see chorus/scheduler.py's module docstring for why this
 # is one tick rather than a separate weekly + hourly-daily pair).
 INNGEST_TICK_FUNCTION_ID = "chorus-tick"
+# R7: up to 3 retries for a run_digest_body invocation that raised a
+# retryable failure (chorus.errors.is_retryable). Verified 21 Sep 2026
+# against inngest-py's `create_function(retries=...)` (an int 0-20; Inngest's
+# own default is also 3 when unset, made explicit here for clarity).
+RUN_DIGEST_RETRIES = 3
 
 
 class StepLike(Protocol):
@@ -149,7 +156,7 @@ async def _execute(step: StepLike, event_data: dict[str, Any], store: JobStore, 
     }
 
     t0 = time.perf_counter()
-    episode_digests: list[EpisodeDigest] = []
+    curated: list[CurateResult] = []
     for resolved in ingested.resolved:
         episode_id = resolved.episode.resolved_id()
 
@@ -157,14 +164,19 @@ async def _execute(step: StepLike, event_data: dict[str, Any], store: JobStore, 
             return stage_curate_episode(resolved, request, deps.llm).model_dump(mode="json")
 
         data = await step.run(f"curate:{episode_id}", _curate)
-        episode_digests.append(EpisodeDigest.model_validate(data))
+        curated.append(CurateResult.model_validate(data))
 
     job.digest = Digest(
         soul_version=soul_version(request.soul),
         soul_origin=request.soul_origin,
-        episodes=episode_digests,
+        episodes=[c.digest for c in curated],
     )
     usage.stage_seconds["curate"] = time.perf_counter() - t0
+    # R14: the Inngest path previously recorded no LLM usage at all (each
+    # `step.run` result is durable/memoized independently, so there was no
+    # shared client-level counter to even snapshot from here). Summing each
+    # step's own isolated CurateResult.tokens fixes that.
+    usage.llm_tokens = sum_llm_tokens([c.tokens for c in curated])
     job.status = JobStatus.digest_ready
 
     async def _save_digest_ready() -> dict[str, str]:
@@ -217,24 +229,94 @@ async def _execute(step: StepLike, event_data: dict[str, Any], store: JobStore, 
 
 
 async def run_digest_body(step: StepLike, event_data: dict[str, Any], store: JobStore, deps: Deps) -> None:
-    """Terminal-state guarantee, mirroring chorus.pipeline.run_job: any
-    unexpected exception ends the job `failed` with a reason rather than
-    leaving it stuck, and does NOT re-raise — Inngest would otherwise retry
-    the whole function, which cannot help with a non-transient failure (a
-    coding error, a malformed request) and would just burn retries."""
+    """Terminal-state guarantee, mirroring chorus.pipeline.run_job, but
+    retry-aware (docs/REVIEW_WAVE1.md #7): an exception escaping `_execute`
+    is classified with `chorus.errors.is_retryable`.
+
+    - Retryable (an LLM/transcript-provider/database/transport failure that
+      might succeed on a later attempt): persist a diagnostic on the job
+      (`warnings`, status left unchanged — the conditional `save` in
+      chorus.jobs never regresses a row, so this is safe to call from a
+      retried attempt too) and RE-RAISE, so Inngest retries the whole
+      function per its `retries=3` configuration (see `register` below).
+    - Terminal (deterministic: bad input, every provider genuinely and
+      permanently failed, a coding error): mark the job `failed` and return
+      normally — Inngest acknowledges the run, no retry, exactly as before.
+      Retrying a deterministic failure cannot help and would just burn
+      retries.
+
+    `run_digest_on_failure` (registered as `run_digest`'s `on_failure`
+    handler) is the last line of defense once every retry is exhausted for a
+    genuinely retryable failure.
+    """
     job_id = event_data.get("job_id", "<unknown>")
     try:
         await _execute(step, event_data, store, deps)
-    except Exception as err:  # noqa: BLE001 - last line of defense: terminal state, never stuck
-        log.exception("inngest run_digest %s failed", job_id)
+    except Exception as err:  # noqa: BLE001 - classify, then decide: retry or acknowledge
+        retryable = is_retryable(err)
+        reason = f"{type(err).__name__}: {err}"
+        log.exception("inngest run_digest %s failed (retryable=%s)", job_id, retryable)
         job = store.get(job_id)
         if job is not None:
-            job.status = JobStatus.failed
-            job.error = f"{type(err).__name__}: {err}"
+            if retryable:
+                job.warnings.append(f"retryable failure (Inngest will retry): {reason}")
+            else:
+                job.status = JobStatus.failed
+                job.error = reason
             try:
                 store.save(job)
             except Exception:  # noqa: BLE001 - store itself is broken; nothing more to do
-                log.exception("job %s: could not persist failed status", job_id)
+                log.exception(
+                    "job %s: could not persist %s diagnostic",
+                    job_id,
+                    "retry" if retryable else "failed",
+                )
+        if retryable:
+            raise
+
+
+def _job_id_from_failure_event_data(data: dict[str, Any]) -> str | None:
+    """Best-effort extraction of the original `job_id` from an Inngest
+    `inngest/function.failed` event's data. Verified 21 Sep 2026 against
+    inngest-py's failure-event shape (`{"event": {...original event...},
+    "function_id": ..., "error": {...}}`); defensive about both that shape
+    and a flatter one, since it is an SDK internal rather than a stable,
+    separately-versioned contract."""
+    original_event = data.get("event")
+    if isinstance(original_event, dict):
+        original_data = original_event.get("data")
+        if isinstance(original_data, dict):
+            job_id = original_data.get("job_id")
+            if isinstance(job_id, str):
+                return job_id
+    job_id = data.get("job_id")
+    return job_id if isinstance(job_id, str) else None
+
+
+def finalize_after_exhausted_retries(store: JobStore, job_id: str | None) -> None:
+    """The `run_digest` `on_failure` handler's core logic, factored out so it
+    is directly testable without a real `inngest.Context`. Called once
+    Inngest has exhausted every retry for a genuinely retryable failure (or
+    immediately, for a failure raised outside `run_digest_body`'s own
+    classification — e.g. a crash in Inngest's own step machinery).
+    Finalizes the job `failed` so it never polls forever even after retries
+    are spent. Idempotent via the same conditional `save` as everywhere else
+    — a no-op if the job already reached a terminal state through another
+    path (e.g. `run_digest_body` already marked it failed once retryable
+    turned out false on a later attempt). Never raises: an exception here
+    would just be Inngest's own problem to retry-loop on, with no useful
+    recovery available."""
+    if job_id is None:
+        log.error("run_digest on_failure: no job_id in the failure event")
+        return
+    try:
+        job = store.get(job_id)
+        if job is not None and job.status in IN_FLIGHT_STATUSES:
+            job.status = JobStatus.failed
+            job.error = "exhausted retries (see warnings for the last retryable failure)"
+            store.save(job)
+    except Exception:  # noqa: BLE001 - last line of defense; nothing more to do
+        log.exception("run_digest on_failure: could not finalize job %s", job_id)
 
 
 async def run_tick_body(
@@ -291,9 +373,16 @@ def register(
     module-level globals) so tests can build a function against
     fixture/mock deps without touching the real Inngest client."""
 
+    async def run_digest_on_failure(ctx: inngest.Context) -> None:
+        finalize_after_exhausted_retries(
+            store, _job_id_from_failure_event_data(dict(ctx.event.data or {}))
+        )
+
     @client.create_function(
         fn_id="run-digest",
         trigger=inngest.TriggerEvent(event=INNGEST_DIGEST_EVENT),
+        retries=RUN_DIGEST_RETRIES,
+        on_failure=run_digest_on_failure,
     )
     async def run_digest(ctx: inngest.Context) -> dict[str, Any]:
         await run_digest_body(ctx.step, dict(ctx.event.data), store, deps)

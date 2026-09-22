@@ -122,7 +122,11 @@ def run_subscription(
     last_job_id/last_run_at, and advance next_run_at — unconditionally, even
     when the job or the email failed, so a subscription is never left due
     forever. Returns the job_id."""
-    job_id = store.create()
+    # R4: the job belongs to the subscription's owner, not necessarily
+    # whoever triggered this run (the master token can run-now someone
+    # else's subscription; the resulting job must still only be readable by
+    # that subscription's own owner, or master).
+    job_id = store.create(owner=subscription.owner)
     try:
         request = _build_request(subscription)
         run_job(job_id, request, store, deps)

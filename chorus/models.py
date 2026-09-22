@@ -30,6 +30,12 @@ MAX_GUID_CHARS = 500
 # a resolved id is stored/logged).
 RSS_ID_HASH_CHARS = 16
 
+# Owner recorded on a Job/Subscription created before ownership existed, and
+# on every job/subscription created by the master CHORUS_API_TOKEN (never an
+# issued key's email — chorus.jobs.MASTER_OWNER is the same literal value;
+# duplicated here rather than imported to avoid a models->jobs->models cycle).
+DEFAULT_OWNER = "master"
+
 
 class Segment(BaseModel):
     """One transcript line with its start time (seconds). Timestamps are what
@@ -487,6 +493,14 @@ class Job(BaseModel):
 
     job_id: str = Field(description="Opaque identifier used to poll this asynchronous job.")
     status: JobStatus = Field(description="Current lifecycle state of the digest job.")
+    owner: str = Field(
+        default=DEFAULT_OWNER,
+        description=(
+            '"master" (the master CHORUS_API_TOKEN) or the email an issued key was '
+            'issued to. Defaults to "master" for jobs created before ownership existed. '
+            "Only the owner (or master) may read this job or its artifact."
+        ),
+    )
     digest: Digest | None = Field(
         default=None,
         description="Text digest, available from digest_ready onward.",
@@ -499,6 +513,14 @@ class Job(BaseModel):
         default=None,
         description="Authenticated relative URL for rendered audio when available.",
     )
+    artifact_token: str | None = Field(
+        default=None,
+        description=(
+            "Random unguessable token minted when this job's audio is uploaded to a "
+            "non-private object store (chorus.artifacts.VercelBlobStore); folded into "
+            "the stored object's name so the URL alone cannot be guessed from job_id."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description="Terminal failure reason when status is failed.",
@@ -510,4 +532,16 @@ class Job(BaseModel):
     usage: JobUsage | None = Field(
         default=None,
         description="Run telemetry: stage seconds, transcript sources, skipped episodes, tokens.",
+    )
+
+
+class CurateResult(BaseModel):
+    """What `chorus.pipeline.stage_curate_episode` hands back: the digest plus
+    the token spend that produced it (R14) — a per-call return instead of a
+    shared client-level counter, so concurrent jobs never attribute each
+    other's usage."""
+
+    digest: EpisodeDigest = Field(description="Curation result for one resolved episode.")
+    tokens: LLMTokens = Field(
+        description="Model tokens spent scoring this episode's windows, isolated to this call."
     )
