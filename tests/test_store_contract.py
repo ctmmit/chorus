@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import Callable, Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -132,6 +133,109 @@ def test_fail_in_flight_sweeps_only_in_flight_jobs(job_store: JobStore) -> None:
     assert still_done is not None
     assert still_done.status == JobStatus.done
     assert still_done.error is None
+
+
+# --- R6: windowed sweep + conditional save --------------------------------
+
+
+def test_fail_in_flight_respects_older_than_seconds_window(job_store: JobStore) -> None:
+    """A shared-store (Postgres) deployment only sweeps rows older than
+    CHORUS_STALE_JOB_SECONDS — a fresh cold start must not stomp another
+    live instance's actively-running job (docs/REVIEW_WAVE1.md #6)."""
+    fresh_id = job_store.create()
+
+    swept = job_store.fail_in_flight("should not apply", older_than_seconds=3600)
+
+    assert swept == 0
+    job = job_store.get(fresh_id)
+    assert job is not None
+    assert job.status == JobStatus.queued
+    assert job.error is None
+
+
+def test_fail_in_flight_sweeps_rows_older_than_the_window(job_store: JobStore) -> None:
+    stale_id = job_store.create()
+
+    swept = job_store.fail_in_flight("stale", older_than_seconds=0)
+
+    assert swept == 1
+    job = job_store.get(stale_id)
+    assert job is not None
+    assert job.status == JobStatus.failed
+    assert job.error == "stale"
+
+
+def test_save_refuses_to_regress_a_terminal_job_to_a_different_status(job_store: JobStore) -> None:
+    """R6: `save` is a conditional write — a stale writer (e.g. a retried
+    Inngest step still holding an old in-memory Job) must never be able to
+    overwrite a row another writer already finished."""
+    job_id = job_store.create()
+    finished = job_store.get(job_id)
+    assert finished is not None
+    finished.status = JobStatus.done
+    finished.audio_url = "/artifacts/episode_x.mp3"
+    job_store.save(finished)
+
+    stale_writer_view = job_store.get(job_id)
+    assert stale_writer_view is not None
+    stale_writer_view.status = JobStatus.failed
+    stale_writer_view.error = "a stale writer's regression attempt"
+    job_store.save(stale_writer_view)
+
+    reloaded = job_store.get(job_id)
+    assert reloaded is not None
+    assert reloaded.status == JobStatus.done
+    assert reloaded.error is None
+    assert reloaded.audio_url == "/artifacts/episode_x.mp3"
+
+
+def test_save_allows_resaving_the_same_terminal_status(job_store: JobStore) -> None:
+    """Idempotent finalization (e.g. an Inngest on_failure handler racing a
+    successful finish) must still be able to re-save the SAME terminal
+    status — only a status CHANGE away from terminal is refused."""
+    job_id = job_store.create()
+    job = job_store.get(job_id)
+    assert job is not None
+    job.status = JobStatus.done
+    job_store.save(job)
+
+    job.warnings.append("re-finalized")
+    job_store.save(job)
+
+    reloaded = job_store.get(job_id)
+    assert reloaded is not None
+    assert reloaded.status == JobStatus.done
+    assert reloaded.warnings == ["re-finalized"]
+
+
+# --- R3: per-owner counts, used by chorus.quotas.enforce_job_quota -------
+
+
+def test_count_for_owner_and_count_in_flight(job_store: JobStore) -> None:
+    alice_1 = job_store.create(owner="alice")
+    job_store.create(owner="alice")
+    job_store.create(owner="bob")
+
+    since = datetime.now(UTC) - timedelta(hours=1)
+    assert job_store.count_for_owner("alice", since) == 2
+    assert job_store.count_for_owner("bob", since) == 1
+    assert job_store.count_for_owner("carol", since) == 0
+    assert job_store.count_in_flight("alice") == 2
+
+    finishing = job_store.get(alice_1)
+    assert finishing is not None
+    finishing.status = JobStatus.done
+    job_store.save(finishing)
+
+    assert job_store.count_in_flight("alice") == 1
+    # count_for_owner counts by creation, regardless of current status.
+    assert job_store.count_for_owner("alice", since) == 2
+
+
+def test_count_for_owner_excludes_jobs_created_before_since(job_store: JobStore) -> None:
+    job_store.create(owner="alice")
+    future_since = datetime.now(UTC) + timedelta(hours=1)
+    assert job_store.count_for_owner("alice", future_since) == 0
 
 
 # --- TranscriptCache contract -------------------------------------------

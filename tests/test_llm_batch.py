@@ -109,6 +109,40 @@ def test_mostly_unscored_batch_raises() -> None:
         _parse_batch(body, 4)
 
 
+# --- R25: reject non-finite scores instead of clamping them -----------
+
+
+def test_non_standard_json_constant_score_is_rejected_not_clamped() -> None:
+    # json.dumps can't emit NaN/Infinity itself (they aren't valid JSON), but
+    # Python's decoder accepts the literal tokens by default — exactly what
+    # chorus.llm._reject_non_finite_constant must refuse.
+    body = '[{"i": 0, "score": NaN, "reason": "bad"}]'
+    with pytest.raises(LLMError):
+        _parse_batch(body, 1)
+
+
+def test_overflowing_json_number_score_is_treated_as_unscored_not_clamped_to_one() -> None:
+    # "1e400" is a syntactically ordinary JSON number that float() overflows
+    # to +inf — math.isfinite must still catch it even though
+    # parse_constant never sees it as a special token. n=3 with one bad item
+    # stays under the "mostly unscored" retry threshold (see
+    # test_missing_few_indices_are_zero_scored), isolating this assertion to
+    # the finite-score check rather than the missing-count one.
+    body = (
+        '[{"i": 0, "score": 1e400, "reason": "huge"}, '
+        '{"i": 1, "score": 0.5, "reason": "b"}, {"i": 2, "score": 0.5, "reason": "c"}]'
+    )
+    assert _parse_batch(body, 3) == [(0.0, UNSCORED_REASON), (0.5, "b"), (0.5, "c")]
+
+
+def test_negative_infinity_score_is_treated_as_unscored() -> None:
+    body = (
+        '[{"i": 0, "score": -1e400, "reason": "huge"}, '
+        '{"i": 1, "score": 0.5, "reason": "b"}, {"i": 2, "score": 0.5, "reason": "c"}]'
+    )
+    assert _parse_batch(body, 3) == [(0.0, UNSCORED_REASON), (0.5, "b"), (0.5, "c")]
+
+
 def test_single_segment_path_still_parses() -> None:
     fake = _FakeClient(["SCORE: 0.85\nREASON: names a mechanism"])
     assert AnthropicLLMClient(client=fake).score_segment("t", "s", "c") == (0.85, "names a mechanism")
