@@ -87,6 +87,14 @@ it runs, so a duplicate tick around the same moment just finds nothing due).
   without it the live chain skips straight to the RSS/Deepgram providers.
 - `DEEPGRAM_API_KEY` — Deepgram STT, the last-resort transcript fallback
   (transcribes the episode audio directly). Optional.
+- `CHORUS_ALLOW_HTTP` — set to `1` to let the RSS/Deepgram SSRF guard
+  (chorus/netguard.py) accept plain `http://` URLs alongside `https://`.
+  Leave unset in every real deployment; it exists only so tests and local
+  dev can point at an `http://` fixture server without touching TLS. Every
+  outbound URL a caller can influence (a request's `feed_url`/`audio_url`, or
+  a transcript/enclosure URL a feed advertises) is still resolved and
+  checked against loopback/private/link-local/reserved ranges regardless of
+  this setting.
 - `DATABASE_URL` — Neon's pooled Postgres DSN. Set automatically by the
   Marketplace integration (step 1); without it the service falls back to
   SQLite, which does not survive on Vercel — **do not deploy to Vercel
