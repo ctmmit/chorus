@@ -4,8 +4,8 @@
  * (pages/components) goes through this module so mock vs. live is a single
  * switch (MOCK_MODE), not scattered branches.
  */
-import { MOCK_MODE } from "./config";
-import { absoluteUrl, trimTrailingSlash } from "./url";
+import { CHORUS_PROXY_BASE_PATH, CHORUS_PROXY_ENABLED, MOCK_MODE } from "./config";
+import { absoluteUrl, isSameOriginOrRelative, trimTrailingSlash } from "./url";
 import type {
   DigestRequest,
   Job,
@@ -35,13 +35,20 @@ async function errorDetail(res: Response): Promise<string> {
   return res.statusText || `request failed with status ${res.status}`;
 }
 
+/** The base URL a request actually goes to: the same-origin proxy path
+ * when `NEXT_PUBLIC_CHORUS_PROXY=1` (see next.config.ts's rewrite), the
+ * caller-supplied/configured base URL otherwise. */
+function effectiveBaseUrl(baseUrl: string): string {
+  return CHORUS_PROXY_ENABLED ? CHORUS_PROXY_BASE_PATH : baseUrl;
+}
+
 async function authedFetch<T>(
   baseUrl: string,
   token: string,
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
-  const url = `${trimTrailingSlash(baseUrl)}${path}`;
+  const url = `${trimTrailingSlash(effectiveBaseUrl(baseUrl))}${path}`;
   const headers = new Headers(init.headers);
   if (token) headers.set("Authorization", `Bearer ${token}`);
   if (init.body != null && !headers.has("Content-Type")) {
@@ -83,9 +90,14 @@ export async function submitDigestSelect(
   return authedFetch<{ job_id: string }>(baseUrl, token, "/digest/select", init);
 }
 
-export async function fetchJob(baseUrl: string, token: string, jobId: string): Promise<Job> {
-  if (MOCK_MODE) return mockFetch<Job>(`/digest/${encodeURIComponent(jobId)}`);
-  return authedFetch<Job>(baseUrl, token, `/digest/${encodeURIComponent(jobId)}`);
+export async function fetchJob(
+  baseUrl: string,
+  token: string,
+  jobId: string,
+  signal?: AbortSignal,
+): Promise<Job> {
+  if (MOCK_MODE) return mockFetch<Job>(`/digest/${encodeURIComponent(jobId)}`, { signal });
+  return authedFetch<Job>(baseUrl, token, `/digest/${encodeURIComponent(jobId)}`, { signal });
 }
 
 // --- Discovery (chorus/discovery.py, Phase H) -------------------------------
@@ -127,6 +139,15 @@ export async function fetchSampleSoul(name: "investor" | "popculture"): Promise<
  * artifact as a blob with the bearer token and hand back an object URL.
  * Not available in mock mode — there is no artifact server behind
  * `/api/mock`, only canned JSON (see web/README.md "API gaps").
+ *
+ * The Chorus bearer token is only ever attached when `audioPath` is
+ * relative (it resolves onto the configured API origin) or is an absolute
+ * URL whose origin exactly matches that API origin. `Job.audio_url` can
+ * currently be an absolute third-party URL (e.g. Vercel Blob) — the
+ * backend is moving to always-relative artifact URLs served through an
+ * owner-checked route, but until every deployment has migrated, a
+ * malformed or attacker-influenced absolute URL must never receive the
+ * credential (see docs/REVIEW_WAVE1.md #12).
  */
 export async function fetchAudioObjectUrl(
   baseUrl: string,
@@ -136,9 +157,12 @@ export async function fetchAudioObjectUrl(
   if (MOCK_MODE) {
     throw new ApiError(0, "Audio playback is not available in mock mode.");
   }
-  const url = absoluteUrl(baseUrl, audioPath);
+  const effective = effectiveBaseUrl(baseUrl);
+  const url = absoluteUrl(effective, audioPath);
   const headers = new Headers();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (token && isSameOriginOrRelative(audioPath, effective)) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
   const res = await fetch(url, { headers });
   if (!res.ok) throw new ApiError(res.status, await errorDetail(res));
   const blob = await res.blob();

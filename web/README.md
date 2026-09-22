@@ -57,10 +57,53 @@ and a real `CHORUS_API_TOKEN` entered in the Connect panel.
 | Variable | Default | Meaning |
 |---|---|---|
 | `NEXT_PUBLIC_CHORUS_MOCK` | `1` (via committed `.env`) | `1` serves `/api/mock/*` fixtures instead of a real API. Set to `0` for any real deployment. |
-| `NEXT_PUBLIC_CHORUS_API_URL` | unset | Default base URL shown on `/`'s Connect panel (only relevant when mock mode is off). The user can still override it per-browser. |
+| `NEXT_PUBLIC_CHORUS_API_URL` | unset | Default base URL shown on `/`'s Connect panel (only relevant when mock mode is off). The user can still override it per-browser. Also the proxy destination when `NEXT_PUBLIC_CHORUS_PROXY=1` (see below). |
+| `NEXT_PUBLIC_CHORUS_PROXY` | unset (`0`) | `1` routes every API call through this app's own origin at `/api/chorus/*`, which `next.config.ts` rewrites server-side to `NEXT_PUBLIC_CHORUS_API_URL`, instead of the browser calling that URL directly. See "Deploying same-origin (no CORS)" below. |
 
 The bearer token is never an env var — it's entered in the UI and kept only
 in `localStorage`, matching SKILL.md's per-caller auth model.
+
+## CORS: two ways to run the viewer on a different origin from the API
+
+The viewer and the Chorus API are two separate deployments by default (the
+viewer's origin, e.g. `chorus-viewer.vercel.app`, calling the API's origin,
+e.g. `chorus-api.vercel.app`), which is a cross-origin request. The browser
+sends a preflight `OPTIONS` request and then enforces the API's CORS
+response headers before handing the real response to the page. Pick one:
+
+### Option A — allowlist the viewer's origin on the API (`CHORUS_CORS_ORIGINS`)
+
+Set the Chorus API's `CHORUS_CORS_ORIGINS` env var to a comma-separated list
+that includes this viewer's exact deployed origin (scheme + host, no
+trailing slash — e.g. `https://chorus-viewer.vercel.app`). Do this for
+every environment the viewer runs in (production, each preview deployment
+origin, and local dev's `http://localhost:3000` if you run the API
+remotely). This is the right choice when the viewer and API are deployed
+and scaled independently.
+
+### Option B — deploy same-origin behind a Next.js rewrite (no CORS needed)
+
+Set both:
+
+```bash
+NEXT_PUBLIC_CHORUS_PROXY=1
+NEXT_PUBLIC_CHORUS_API_URL=https://your-chorus-api.example.com
+```
+
+`next.config.ts`'s `rewrites()` then proxies `/api/chorus/*` on the
+viewer's own origin to `NEXT_PUBLIC_CHORUS_API_URL`, and `lib/api-client.ts`
+sends every API call (including the audio artifact fetch) to that
+same-origin path instead of the configured base URL directly. The browser
+never makes a cross-origin request, so there's no preflight and nothing to
+allowlist on the API. This is the right choice when the viewer is the only
+caller of that Chorus API deployment — trade-off: the viewer's server now
+sits in the request path for every API call, including the audio download.
+
+Either way, the artifact-audio fetch only attaches the Chorus bearer token
+to requests that are relative or share the configured API's exact origin
+(see `lib/url.ts`'s `isSameOriginOrRelative` — docs/REVIEW_WAVE1.md #12), so
+a third-party absolute `audio_url` (e.g. a Vercel Blob host) never receives
+it either way.
 
 ## Deploying on Vercel
 
@@ -72,6 +115,9 @@ in `localStorage`, matching SKILL.md's per-caller auth model.
      `.env` defaults this to `1` for local dev, and a platform env var only
      overrides a `.env` value if it's actually set — an unset var in Vercel
      does not "unset" the committed default.
+   - `NEXT_PUBLIC_CHORUS_PROXY` — optionally set to `1` for Option B above
+     (same-origin, no CORS). Leave unset for Option A (cross-origin, API
+     lists this viewer's origin in `CHORUS_CORS_ORIGINS`).
 3. Deploy. `/api/mock/*` and `/api/samples/souls/*` ship as ordinary
    serverless functions either way; only the first is unreachable-by-design
    once the UI stops calling it (mock mode off).
@@ -94,6 +140,12 @@ in `localStorage`, matching SKILL.md's per-caller auth model.
 - `lib/api-types.ts` — TypeScript mirror of `chorus/models.py`; field names
   are kept identical on purpose.
 - `lib/api-client.ts` — the only place that calls the API or `/api/mock/*`.
+- `lib/url.ts` — pure URL helpers: resolving a returned path against the
+  base URL, and `isSameOriginOrRelative` (the R12 same-origin check that
+  gates attaching the Chorus bearer token).
+- `lib/polling.ts` — pure helpers behind `useJob`'s bounded polling:
+  the exponential-backoff-with-jitter schedule, the max-elapsed-time
+  ceiling, and abort-error detection (unit-tested in `lib/polling.test.ts`).
 - `lib/timeline.ts` — pure scale/format helpers for the timeline strip
   (unit-tested in `lib/timeline.test.ts`).
 - `lib/storage.ts` — localStorage access (base URL, token, a navigation-only
