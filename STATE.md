@@ -28,11 +28,12 @@ A-H all merged into master (Vercel port, live transcript ladder, distribution
 via skills/MCP/self-serve keys, two-host episodes, weekly email subscriptions,
 Next.js viewer, agent discovery). See §10 of the plan for what remains for
 the human: push to GitHub, rotate keys, provision Vercel/Neon/Blob/Inngest/
-Resend, run the golden path against a preview URL.
+Resend, run the golden path against a preview URL. Codex review (docs/
+REVIEW_WAVE1.md) fully remediated 22 Sep 2026.
 
 ## Health
 
-- Passing tests: 223 Python + 47 web (last iteration: 47)
+- Passing tests: 339 Python + 78 web (last iteration: 223 + 47)
 - `path_test.ps1`/.sh: GREEN through Goal 6 (6 assertions incl. divergence + selection)
 - Last verified-green commit: goal 6 layer-2 (see git log)
 - Build/typecheck/lint: ruff + mypy + pytest green; path_test green

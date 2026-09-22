@@ -255,7 +255,26 @@ subagents in isolated worktrees, Phase D by Codex. Every branch merged into
 | H. Discovery | A2A agent card, NANDA AgentFacts, persona registry, `/network`, force-directed graph page | 19 tests; schemas checked against a2aproject/A2A v1.0.1 and projnanda/agentfacts-format |
 | Batch curation | one cached Haiku call per ~40 windows instead of one per window; token telemetry | 10 parser/request-shape tests |
 
-Totals: 223 Python tests, 47 web tests, ruff and mypy clean, golden path green.
+Totals after the review pass (22 Sep 2026): 339 Python tests, 78 web tests,
+ruff and mypy clean, golden path green.
+
+### Cross-model review (docs/REVIEW_WAVE1.md)
+
+Codex reviewed master after the eight phases merged: 13 must-fix, 12 should-fix.
+All 25 were remediated the same day on three branches (backend auth/lifecycle/
+stores, transcript and content safety, viewer), each merged with the gate green.
+Highlights: jobs now have owners (foreign job ids 404), per-owner quotas gate
+job creation, audio is never a public blob URL (owner-checked `/artifacts`
+route), no repository-root SQLite is touched in Postgres mode, the startup
+sweep is conditional and age-gated, Inngest re-raises retryable failures and
+marks the job failed only on final attempt, RSS/Deepgram fetches go through an
+SSRF guard with byte ceilings, episode identity is one family per input with a
+feed-scoped cache key, the viewer only sends the bearer token same-origin and
+bounds its polling, and CORS is an explicit allowlist.
+
+Cold-agent dogfood (docs/cold-agent-log.md): one Claude run against a local
+instance completed the full loop from README + SKILL.md; its four friction
+points were fixed the same day.
 
 ### Not done in this pass (needs the human or a live account)
 
