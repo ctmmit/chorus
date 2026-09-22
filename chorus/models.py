@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 from enum import Enum
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -29,6 +30,18 @@ MAX_GUID_CHARS = 500
 # (video_id-shaped, short enough to stay under MAX_VIDEO_ID_CHARS everywhere
 # a resolved id is stored/logged).
 RSS_ID_HASH_CHARS = 16
+
+
+def _canonical_feed_url(feed_url: str) -> str:
+    """Canonical form used as the RSS identity's cache-key namespace (R11):
+    scheme + host lowercased, path kept as-is, query kept as-is, fragment
+    dropped. Two feed URLs that only differ in fragment or host casing must
+    hash to the same identity; two different hosts must not collide."""
+    parts = urlsplit(feed_url)
+    host = (parts.hostname or "").lower()
+    port = f":{parts.port}" if parts.port is not None else ""
+    query = f"?{parts.query}" if parts.query else ""
+    return f"{parts.scheme.lower()}://{host}{port}{parts.path}{query}"
 
 
 class Segment(BaseModel):
@@ -99,24 +112,58 @@ class EpisodeInput(BaseModel):
         description="Direct audio URL (enclosure); used to match the item or to transcribe.",
     )
 
+    @model_validator(mode="after")
+    def _one_identity_family(self) -> EpisodeInput:
+        """R11 (docs/REVIEW_WAVE1.md #11): exactly one source identity family,
+        never mixed. Mixing a YouTube id with attacker-controlled RSS fields
+        is exactly the cross-feed poisoning shape the review describes (a
+        victim video_id paired with an attacker feed_url/guid) — refusing the
+        combination at construction closes it before any provider ever runs."""
+        has_youtube = bool(self.video_id or self.url)
+        has_rss = bool(self.feed_url or self.guid or self.audio_url)
+        if has_youtube and has_rss:
+            raise ValueError(
+                "EpisodeInput must not mix YouTube fields (video_id/url) with "
+                "RSS fields (feed_url/guid/audio_url)"
+            )
+        if not has_youtube and not has_rss:
+            raise ValueError(
+                "EpisodeInput requires one of: video_id, url, or "
+                "(feed_url+guid | feed_url+audio_url | audio_url)"
+            )
+        if has_rss and not (self.audio_url or (self.feed_url and self.guid)):
+            # feed_url alone (no guid, no audio_url) cannot identify an item.
+            raise ValueError(
+                "EpisodeInput feed_url requires guid or audio_url to identify an episode"
+            )
+        return self
+
     def resolved_id(self) -> str:
         """A stable id to fetch/cache a transcript for. YouTube episodes use
-        the video id; RSS episodes (no YouTube id) get a deterministic id
-        derived from guid (falling back to audio_url) so the same episode
-        always resolves to the same cache key."""
+        the video id. RSS episodes get a deterministic id derived from the
+        *canonical feed URL* plus guid (falling back to audio_url) so the
+        same episode always resolves to the same cache key and, critically,
+        so an identical guid in two different feeds never collides (R11):
+        without the feed URL in the hash, `guid="ep-1"` in feed A and feed B
+        would hash to the same id and share a cache entry."""
         if self.video_id:
             return self.video_id
         if self.url:
             from chorus.transcripts import extract_video_id
 
             return extract_video_id(self.url)
-        if self.guid or self.audio_url:
+        if self.feed_url and (self.guid or self.audio_url):
             key = self.guid or self.audio_url
             assert key is not None  # narrows for mypy; guarded by the `or` above
-            digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:RSS_ID_HASH_CHARS]
-            return f"rss-{digest}"
+            canonical = _canonical_feed_url(self.feed_url)
+            digest = hashlib.sha1(f"{canonical}\n{key}".encode("utf-8")).hexdigest()
+            return f"rss-{digest[:RSS_ID_HASH_CHARS]}"
+        if self.audio_url:
+            digest = hashlib.sha1(self.audio_url.encode("utf-8")).hexdigest()
+            return f"rss-{digest[:RSS_ID_HASH_CHARS]}"
         raise ValueError(
-            "EpisodeInput requires one of: video_id, url, or (guid/audio_url)"
+            "EpisodeInput requires one of: video_id, url, or "
+            "(feed_url+guid | feed_url+audio_url | audio_url)"
         )
 
 
@@ -433,6 +480,14 @@ class Script(BaseModel):
     )
     format: Literal["monologue", "dialogue"] = Field(
         default="monologue", description="Episode format the audio renderer dispatches on."
+    )
+    voices: dict[str, str | None] = Field(
+        default_factory=dict,
+        description=(
+            "Speaker role -> ElevenLabs voice id (e.g. profile.speakers[*].voice_id), so "
+            "rendering honors a per-speaker voice the request asked for instead of the "
+            "renderer's env/default voice."
+        ),
     )
 
 
