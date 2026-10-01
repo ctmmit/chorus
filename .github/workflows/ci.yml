@@ -41,5 +41,8 @@ jobs:
       - name: Tests
         run: pytest -q
 
+      # The golden path drives the five real show transcripts, so it only runs
+      # when the private fixtures were fetched above.
       - name: Golden path
+        if: ${{ secrets.PRIVATE_FIXTURES_TOKEN != '' }}
         run: python scripts/golden_path.py
