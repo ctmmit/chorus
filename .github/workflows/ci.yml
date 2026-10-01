@@ -8,6 +8,9 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      # The secrets context is not usable in a step `if`; expose it as env.
+      PRIVATE_FIXTURES_TOKEN: ${{ secrets.PRIVATE_FIXTURES_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -25,9 +28,9 @@ jobs:
       # fixtures/README.md). Without them the real-fixture tests skip and
       # the public synthetic sample still exercises the whole spine.
       - name: Fetch private fixtures (optional)
-        if: ${{ secrets.PRIVATE_FIXTURES_TOKEN != '' }}
+        if: ${{ env.PRIVATE_FIXTURES_TOKEN != '' }}
         env:
-          GH_TOKEN: ${{ secrets.PRIVATE_FIXTURES_TOKEN }}
+          GH_TOKEN: ${{ env.PRIVATE_FIXTURES_TOKEN }}
         run: |
           gh repo clone ctmmit/chorus-private /tmp/chorus-private -- --depth 1
           cp /tmp/chorus-private/fixtures/transcripts/*.json fixtures/transcripts/
@@ -44,5 +47,5 @@ jobs:
       # The golden path drives the five real show transcripts, so it only runs
       # when the private fixtures were fetched above.
       - name: Golden path
-        if: ${{ secrets.PRIVATE_FIXTURES_TOKEN != '' }}
+        if: ${{ env.PRIVATE_FIXTURES_TOKEN != '' }}
         run: python scripts/golden_path.py
