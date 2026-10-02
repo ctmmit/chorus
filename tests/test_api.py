@@ -185,9 +185,11 @@ def test_startup_refuses_real_keys_without_token(tmp_path: Path, monkeypatch: py
     deps = Deps(FixtureTranscriptProvider(), MockLLMClient(), MockScriptComposer(),
                 MockAudioRenderer(out_dir=tmp_path / "artifacts"),
                 LocalArtifactStore(tmp_path / "artifacts"))
-    with pytest.raises(RuntimeError, match="CHORUS_API_TOKEN"):
-        with TestClient(create_app(SqliteJobStore(tmp_path / "jobs.db"), deps)):
-            pass
+    with (
+        pytest.raises(RuntimeError, match="CHORUS_API_TOKEN"),
+        TestClient(create_app(SqliteJobStore(tmp_path / "jobs.db"), deps)),
+    ):
+        pass
 
 
 @pytest.fixture

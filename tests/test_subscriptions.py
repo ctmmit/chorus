@@ -234,7 +234,7 @@ def test_next_run_daily_same_day_when_before_hour() -> None:
 
 def test_next_run_requires_tz_aware() -> None:
     with pytest.raises(ValueError, match="timezone-aware"):
-        next_run("weekly", datetime(2026, 9, 21, 10, 0))
+        next_run("weekly", datetime(2026, 9, 21, 10, 0))  # noqa: DTZ001 - naive on purpose
 
 
 def test_next_run_unknown_cadence_raises() -> None:

@@ -253,9 +253,11 @@ def test_r2_any_provider_key_without_token_refuses_startup(
 ) -> None:
     monkeypatch.setenv(key_env, "some-secret-value")
     store = SqliteJobStore(tmp_path / "jobs.db")
-    with pytest.raises(RuntimeError, match=r"CHORUS_API_TOKEN"):
-        with TestClient(create_app(store, _deps(tmp_path))):
-            pass
+    with (
+        pytest.raises(RuntimeError, match=r"CHORUS_API_TOKEN"),
+        TestClient(create_app(store, _deps(tmp_path))),
+    ):
+        pass
 
 
 def test_r2_production_env_refuses_startup_with_no_provider_keys(
@@ -263,9 +265,11 @@ def test_r2_production_env_refuses_startup_with_no_provider_keys(
 ) -> None:
     monkeypatch.setenv("CHORUS_ENV", "production")
     store = SqliteJobStore(tmp_path / "jobs.db")
-    with pytest.raises(RuntimeError, match=r"CHORUS_API_TOKEN"):
-        with TestClient(create_app(store, _deps(tmp_path))):
-            pass
+    with (
+        pytest.raises(RuntimeError, match=r"CHORUS_API_TOKEN"),
+        TestClient(create_app(store, _deps(tmp_path))),
+    ):
+        pass
 
 
 def test_r2_production_env_with_token_starts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
