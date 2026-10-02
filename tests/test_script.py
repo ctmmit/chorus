@@ -6,7 +6,7 @@ from pathlib import Path
 from chorus.curation import build_digest
 from chorus.ingest import ingest
 from chorus.llm import MockLLMClient
-from chorus.models import TAKE_TYPES, EpisodeInput, MONOLOGUE_PROFILE, TWO_HOST_PROFILE
+from chorus.models import MONOLOGUE_PROFILE, TAKE_TYPES, TWO_HOST_PROFILE, EpisodeInput
 from chorus.script import MockScriptComposer
 from chorus.transcripts import FixtureTranscriptProvider
 

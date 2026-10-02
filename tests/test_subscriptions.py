@@ -20,6 +20,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
+from chorus import subscriptions as subscriptions_module
 from chorus.app import create_app
 from chorus.artifacts import LocalArtifactStore
 from chorus.audio import MockAudioRenderer
@@ -32,11 +33,10 @@ from chorus.models import EpisodeInput, JobStatus
 from chorus.pipeline import Deps
 from chorus.scheduler import due_subscriptions, next_run, run_subscription
 from chorus.script import MockScriptComposer
-from chorus import subscriptions as subscriptions_module
 from chorus.subscriptions import (
     MASTER_OWNER,
-    Subscription,
     SqliteSubscriptionStore,
+    Subscription,
     SubscriptionStore,
     unsubscribe_token,
     verify_unsubscribe_token,
@@ -69,19 +69,19 @@ def _deps(tmp_path: Path) -> Deps:
 
 def _subscription(**overrides: object) -> Subscription:
     now = datetime.now(UTC)
-    fields: dict[str, object] = dict(
-        subscription_id=uuid.uuid4().hex,
-        owner=MASTER_OWNER,
-        email="principal@example.com",
-        soul=SOUL,
-        context="",
-        episodes=[EpisodeInput(video_id=SAMPLE)],
-        highlight_count=4,
-        cadence="weekly",
-        next_run_at=now,
-        active=True,
-        created_at=now,
-    )
+    fields: dict[str, object] = {
+        "subscription_id": uuid.uuid4().hex,
+        "owner": MASTER_OWNER,
+        "email": "principal@example.com",
+        "soul": SOUL,
+        "context": "",
+        "episodes": [EpisodeInput(video_id=SAMPLE)],
+        "highlight_count": 4,
+        "cadence": "weekly",
+        "next_run_at": now,
+        "active": True,
+        "created_at": now,
+    }
     fields.update(overrides)
     return Subscription.model_validate(fields)
 

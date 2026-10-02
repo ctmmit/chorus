@@ -131,7 +131,7 @@ def build_subscriptions_router(
         merged.update(updates)
         try:
             updated = Subscription.model_validate(merged)
-        except Exception as err:  # noqa: BLE001 - surfaced as a 422, same as any request-body error
+        except Exception as err:
             raise HTTPException(status_code=422, detail=str(err)) from err
         subscription_store.save(updated)
         return updated

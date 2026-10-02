@@ -12,7 +12,7 @@ from __future__ import annotations
 import sqlite3
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Protocol, runtime_checkable
 
@@ -86,7 +86,7 @@ def build_persona(
         soul=soul,
         shows=shows or [],
         cadence=cadence,
-        created_at=datetime.now(timezone.utc).isoformat(),
+        created_at=datetime.now(UTC).isoformat(),
         soul_version=compute_soul_version(soul),
         public=public,
     )

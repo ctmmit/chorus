@@ -258,7 +258,7 @@ def run_job(job_id: str, request: DigestRequest, store: JobStore, deps: Deps) ->
 
     try:
         _run(job, request, store, deps)
-    except Exception as err:  # noqa: BLE001 - last line of defense: terminal state, never stuck
+    except Exception as err:
         # R7: BackgroundRunner has no retry mechanism to re-raise into (unlike
         # chorus.inngest_app.run_digest_body), so this stays a terminal
         # `failed` either way — but the classification is still recorded in
@@ -271,7 +271,7 @@ def run_job(job_id: str, request: DigestRequest, store: JobStore, deps: Deps) ->
         job.error = f"{type(err).__name__}: {err} (retryable={retryable})"
         try:
             store.save(job)
-        except Exception:  # noqa: BLE001 - store itself is broken; nothing more to do
+        except Exception:
             log.exception("job %s: could not persist failed status", job_id)
 
 

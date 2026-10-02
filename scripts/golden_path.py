@@ -22,18 +22,18 @@ from pathlib import Path
 # Make `chorus` importable when run as a standalone script (not via pytest).
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from fastapi.testclient import TestClient  # noqa: E402
+from fastapi.testclient import TestClient
 
-from chorus.app import create_app  # noqa: E402
-from chorus.artifacts import LocalArtifactStore  # noqa: E402
-from chorus.audio import MockAudioRenderer  # noqa: E402
-from chorus.curation import REFUSAL, citation_resolves  # noqa: E402
-from chorus.jobs import SqliteJobStore  # noqa: E402
-from chorus.llm import MockLLMClient  # noqa: E402
-from chorus.models import EpisodeInput, Job  # noqa: E402
-from chorus.pipeline import Deps  # noqa: E402
-from chorus.script import MockScriptComposer  # noqa: E402
-from chorus.transcripts import FixtureTranscriptProvider  # noqa: E402
+from chorus.app import create_app
+from chorus.artifacts import LocalArtifactStore
+from chorus.audio import MockAudioRenderer
+from chorus.curation import REFUSAL, citation_resolves
+from chorus.jobs import SqliteJobStore
+from chorus.llm import MockLLMClient
+from chorus.models import EpisodeInput, Job
+from chorus.pipeline import Deps
+from chorus.script import MockScriptComposer
+from chorus.transcripts import FixtureTranscriptProvider
 
 ROOT = Path(__file__).resolve().parent.parent
 FIX = ROOT / "fixtures"

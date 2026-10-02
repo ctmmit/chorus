@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Self
 
 import httpx
 import pytest
@@ -414,7 +415,7 @@ class _FakeStreamResponse:
         self._body = body
         self.headers = headers or {}
 
-    def __enter__(self) -> "_FakeStreamResponse":
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *exc: object) -> bool:

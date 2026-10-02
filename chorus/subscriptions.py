@@ -55,12 +55,12 @@ CADENCES = ("weekly", "daily")
 # chorus.subscriptions import MASTER_OWNER`.
 __all__ = [
     "MASTER_OWNER",
+    "SqliteSubscriptionStore",
     "Subscription",
     "SubscriptionCreate",
-    "SubscriptionUpdate",
     "SubscriptionList",
     "SubscriptionStore",
-    "SqliteSubscriptionStore",
+    "SubscriptionUpdate",
     "unsubscribe_token",
     "verify_unsubscribe_token",
 ]

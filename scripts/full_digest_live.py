@@ -14,16 +14,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-from chorus.config import load_env  # noqa: E402
+from chorus.config import load_env
 
 load_env()
 
-from fastapi.testclient import TestClient  # noqa: E402
+from fastapi.testclient import TestClient
 
-from chorus.app import create_app  # noqa: E402
-from chorus.audio import ARTIFACT_DIR  # noqa: E402
-from chorus.jobs import SqliteJobStore  # noqa: E402
-from chorus.pipeline import default_deps  # noqa: E402
+from chorus.app import create_app
+from chorus.audio import ARTIFACT_DIR
+from chorus.jobs import SqliteJobStore
+from chorus.pipeline import default_deps
 
 FIX = Path(__file__).resolve().parent.parent / "fixtures"
 CLEAN = ["gs39QFYIbBY", "c4tvVKDhpiY", "wAnDWfEIwoE", "xKZ_8ULR91Y", "2Ryr95iiYNk"]

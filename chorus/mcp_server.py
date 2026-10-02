@@ -27,8 +27,15 @@ from mcp.server.fastmcp import Context, FastMCP  # type: ignore[import-not-found
 
 from chorus import catalog
 from chorus.bootstrap import get_soul_builder
-from chorus.jobs import JobStore, MASTER_OWNER, SqliteJobStore
-from chorus.models import DigestRequest, EpisodeInput, EpisodeProfile, Job, JobStatus, SelectionRequest
+from chorus.jobs import MASTER_OWNER, JobStore, SqliteJobStore
+from chorus.models import (
+    DigestRequest,
+    EpisodeInput,
+    EpisodeProfile,
+    Job,
+    JobStatus,
+    SelectionRequest,
+)
 from chorus.pipeline import Deps, default_deps
 from chorus.quotas import QuotaExceeded, enforce_job_quota
 from chorus.runners import BackgroundRunner, JobRunner
@@ -167,7 +174,7 @@ class ChorusTools:
         job_id = self._store.create(owner=owner)
         try:
             self._runner.submit(job_id, request, background=None)
-        except Exception as err:  # noqa: BLE001 - R8: never strand a queued job
+        except Exception as err:
             job = self._store.get(job_id)
             if job is not None:
                 job.status = JobStatus.failed
@@ -206,9 +213,8 @@ def mount_mcp(app: FastAPI, store: JobStore, deps: Deps, runner: JobRunner | Non
 
     @asynccontextmanager
     async def lifespan(host_app: FastAPI) -> AsyncIterator[None]:
-        async with parent_lifespan(host_app):
-            async with server.session_manager.run():
-                yield
+        async with parent_lifespan(host_app), server.session_manager.run():
+            yield
 
     app.router.lifespan_context = lifespan
     # Keep FastMCP's internal /mcp route. Mounting at / avoids a /mcp/ redirect;

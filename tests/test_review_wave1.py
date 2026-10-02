@@ -62,12 +62,12 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _deps(tmp_path: Path, **overrides: object) -> Deps:
-    kw: dict = dict(
-        provider=FixtureTranscriptProvider(),
-        llm=MockLLMClient(),
-        composer=MockScriptComposer(),
-        renderer=MockAudioRenderer(out_dir=tmp_path / "artifacts"),
-    )
+    kw: dict = {
+        "provider": FixtureTranscriptProvider(),
+        "llm": MockLLMClient(),
+        "composer": MockScriptComposer(),
+        "renderer": MockAudioRenderer(out_dir=tmp_path / "artifacts"),
+    }
     kw.update(overrides)
     return Deps(**kw)
 

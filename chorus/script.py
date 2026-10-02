@@ -35,11 +35,11 @@ from typing import Any, Literal, Protocol, runtime_checkable
 from chorus.errors import TerminalError
 from chorus.models import (
     HOST_PERSONA_IS_SOUL,
+    MONOLOGUE_PROFILE,
     TAKE_TYPES,
     ConversationStyle,
     Digest,
     EpisodeProfile,
-    MONOLOGUE_PROFILE,
     Script,
     SpeakerProfile,
     Take,

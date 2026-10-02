@@ -63,7 +63,7 @@ def _highlight_link(highlight: Highlight, episode_lookup: dict[str, EpisodeInput
 def _absolute(base_url: str, url: str | None) -> str | None:
     if not url:
         return None
-    if url.startswith("http://") or url.startswith("https://"):
+    if url.startswith(("http://", "https://")):
         return url
     return urljoin(base_url, url)
 
@@ -131,7 +131,7 @@ def render_digest_email(
     skipped = job.usage.skipped if job.usage else []
     if skipped:
         text_lines.append("Skipped episodes:")
-        skipped_html = ['<h2 style="color:%s; font-size:16px;">Skipped episodes</h2>' % NAVY, "<ul>"]
+        skipped_html = [f'<h2 style="color:{NAVY}; font-size:16px;">Skipped episodes</h2>', "<ul>"]
         for s in skipped:
             label = _episode_label(s.episode)
             text_lines.append(f"- {label}: {s.reason}")

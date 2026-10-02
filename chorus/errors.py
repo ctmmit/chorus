@@ -92,9 +92,7 @@ def is_retryable(err: BaseException) -> bool:
         return err.response.status_code >= 500
     if isinstance(err, (httpx.TimeoutException, httpx.TransportError)):
         return True
-    if _is_psycopg_operational_error(err):
-        return True
-    return False
+    return bool(_is_psycopg_operational_error(err))
 
 
 __all__ = ["RetryableError", "TerminalError", "is_retryable"]

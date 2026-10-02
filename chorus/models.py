@@ -8,7 +8,7 @@ Data flow (Goal 1 portion):
 from __future__ import annotations
 
 import hashlib
-from enum import Enum
+from enum import StrEnum
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -162,7 +162,7 @@ class EpisodeInput(BaseModel):
             key = self.guid or self.audio_url
             assert key is not None  # narrows for mypy; guarded by the `or` above
             canonical = _canonical_feed_url(self.feed_url)
-            digest = hashlib.sha1(f"{canonical}\n{key}".encode("utf-8")).hexdigest()
+            digest = hashlib.sha1(f"{canonical}\n{key}".encode()).hexdigest()
             return f"rss-{digest[:RSS_ID_HASH_CHARS]}"
         if self.audio_url:
             digest = hashlib.sha1(self.audio_url.encode("utf-8")).hexdigest()
@@ -497,7 +497,7 @@ class Script(BaseModel):
     )
 
 
-class JobStatus(str, Enum):
+class JobStatus(StrEnum):
     queued = "queued"
     digest_ready = "digest_ready"
     done = "done"

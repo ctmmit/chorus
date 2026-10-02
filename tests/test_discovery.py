@@ -115,7 +115,7 @@ def test_service_agent_card_shape(client: TestClient) -> None:
     assert body["securitySchemes"]["bearer"] == {"type": "http", "scheme": "bearer"}
     assert body["security"] == [{"bearer": []}]
     skill_ids = {s["id"] for s in body["skills"]}
-    assert A2A_REQUIRED_SKILL_IDS <= skill_ids
+    assert skill_ids >= A2A_REQUIRED_SKILL_IDS
     for skill in body["skills"]:
         assert skill["id"] and skill["name"] and skill["description"]
         assert isinstance(skill["tags"], list)
@@ -143,7 +143,7 @@ def test_agent_card_url_honors_public_url_env(monkeypatch: pytest.MonkeyPatch, c
 
 def test_service_agent_facts_shape(client: TestClient) -> None:
     body = client.get("/.well-known/agent-facts.json").json()
-    assert AGENTFACTS_REQUIRED_FIELDS <= set(body.keys())
+    assert set(body.keys()) >= AGENTFACTS_REQUIRED_FIELDS
     assert body["provider"]["name"]
     assert body["provider"]["url"]
     assert body["endpoints"]["static"]
@@ -237,7 +237,7 @@ def test_per_persona_agent_card_and_facts(client: TestClient) -> None:
     assert card["skills"][0]["id"] == "episode-feed"
 
     facts = client.get(f"/personas/{persona_id}/agent-facts.json").json()
-    assert AGENTFACTS_REQUIRED_FIELDS <= set(facts.keys())
+    assert set(facts.keys()) >= AGENTFACTS_REQUIRED_FIELDS
     assert facts["label"] == "Value Investor"
     assert facts["signature"] is None
 

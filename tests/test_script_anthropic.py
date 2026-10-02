@@ -11,19 +11,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+import pytest
+
+from chorus.errors import TerminalError
 from chorus.models import (
+    MONOLOGUE_PROFILE,
+    TWO_HOST_PROFILE,
     ConversationStyle,
     Digest,
     EpisodeDigest,
     EpisodeProfile,
     Highlight,
-    MONOLOGUE_PROFILE,
     SpeakerProfile,
-    TWO_HOST_PROFILE,
 )
-import pytest
-
-from chorus.errors import TerminalError
 from chorus.script import AnthropicScriptComposer, ScriptError, _max_turns
 
 
@@ -111,20 +111,8 @@ def test_no_profile_defaults_to_monologue_like_before() -> None:
 
 def test_dialogue_turn_parsing() -> None:
     digest = _digest(HL, HL2)
-    take_reply = "\n".join(
-        [
-            "TAKE|idea|ep1|120|Margins are expanding.",
-            "TAKE|pushback|ep1|300|The moat is real.",
-        ]
-    )
-    turn_reply = "\n".join(
-        [
-            "TURN|host|ep1|120|Margins are expanding, and that's the whole thesis.",
-            "TURN|cohost|ep1|120|Sure, but where's the number?",
-            "TURN|host|ep1|300|The moat is real too.",
-            "TURN|cohost|ep1|300|Fine, I'll grant that one.",
-        ]
-    )
+    take_reply = "TAKE|idea|ep1|120|Margins are expanding.\nTAKE|pushback|ep1|300|The moat is real."
+    turn_reply = "TURN|host|ep1|120|Margins are expanding, and that's the whole thesis.\nTURN|cohost|ep1|120|Sure, but where's the number?\nTURN|host|ep1|300|The moat is real too.\nTURN|cohost|ep1|300|Fine, I'll grant that one."
     fake = _FakeClient([take_reply, turn_reply])
     composer = AnthropicScriptComposer(client=fake)
 
@@ -147,13 +135,7 @@ def test_dialogue_turn_parsing() -> None:
 def test_ungrounded_turns_are_dropped() -> None:
     digest = _digest(HL)  # only one real highlight
     take_reply = "TAKE|idea|ep1|120|Margins are expanding."
-    turn_reply = "\n".join(
-        [
-            "TURN|host|ep1|120|Margins are expanding.",
-            "TURN|cohost|ep1|999|This timestamp does not exist as a highlight.",
-            "TURN|host|other-episode|120|Wrong episode id entirely.",
-        ]
-    )
+    turn_reply = "TURN|host|ep1|120|Margins are expanding.\nTURN|cohost|ep1|999|This timestamp does not exist as a highlight.\nTURN|host|other-episode|120|Wrong episode id entirely."
     fake = _FakeClient([take_reply, turn_reply])
     script = AnthropicScriptComposer(client=fake).write_script(digest, "SOUL", "CTX", TWO_HOST_PROFILE)
 
@@ -164,12 +146,7 @@ def test_ungrounded_turns_are_dropped() -> None:
 def test_malformed_timestamp_is_skipped_not_raised() -> None:
     digest = _digest(HL)
     take_reply = "TAKE|idea|ep1|120|Margins are expanding."
-    turn_reply = "\n".join(
-        [
-            "TURN|host|ep1|not-a-number|This line has a bad timestamp.",
-            "TURN|cohost|ep1|120|But this one is fine.",
-        ]
-    )
+    turn_reply = "TURN|host|ep1|not-a-number|This line has a bad timestamp.\nTURN|cohost|ep1|120|But this one is fine."
     fake = _FakeClient([take_reply, turn_reply])
 
     script = AnthropicScriptComposer(client=fake).write_script(digest, "SOUL", "CTX", TWO_HOST_PROFILE)

@@ -28,11 +28,7 @@ log = logging.getLogger("chorus.llm")
 _WORD_RE = re.compile(r"[a-z][a-z'\-]{2,}")
 _HEADER_RE = re.compile(r"^#{1,6}\s*(.+?)\s*$", re.MULTILINE)
 _STOP = frozenset(
-    """the a an and or of to in for on with that this it is are be as at by from into
-    you your they their our we i not but if then so what when which who whom how why
-    only over under more most less than thing things something someone when where
-    just like about across very real own kind sort one two get got make made go
-    its his her them he she him do does did has have had will would can could should""".split()
+    ["the", "a", "an", "and", "or", "of", "to", "in", "for", "on", "with", "that", "this", "it", "is", "are", "be", "as", "at", "by", "from", "into", "you", "your", "they", "their", "our", "we", "i", "not", "but", "if", "then", "so", "what", "when", "which", "who", "whom", "how", "why", "only", "over", "under", "more", "most", "less", "than", "thing", "things", "something", "someone", "when", "where", "just", "like", "about", "across", "very", "real", "own", "kind", "sort", "one", "two", "get", "got", "make", "made", "go", "its", "his", "her", "them", "he", "she", "him", "do", "does", "did", "has", "have", "had", "will", "would", "can", "could", "should"]
 )
 
 
@@ -292,10 +288,10 @@ def get_llm_client() -> LLMClient:
 
 
 __all__ = [
+    "AnthropicLLMClient",
     "LLMClient",
     "LLMError",
     "MockLLMClient",
-    "AnthropicLLMClient",
     "TokenUsage",
     "get_llm_client",
 ]

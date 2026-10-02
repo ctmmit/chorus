@@ -31,6 +31,20 @@ testpaths = ["tests"]
 line-length = 100
 target-version = "py312"
 
+# Explicit rule set so lint results don't change when ruff's defaults do
+# (CI installs the pinned ruff from requirements-dev.txt).
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "SIM", "C4", "PIE", "DTZ", "FLY", "PYI"]
+
+[tool.ruff.lint.per-file-ignores]
+# Live scripts call chorus.config.load_env() before importing the package so
+# provider selection sees .env.local; that ordering is the point.
+"scripts/*.py" = ["E402"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency injection idiom: `param: T = Depends(fn)` is by design.
+extend-immutable-calls = ["fastapi.Depends"]
+
 # Read by Vercel's Python runtime (vercel.com/docs/frameworks/backend/fastapi)
 # to find the ASGI app object without guessing at file layout.
 [tool.vercel]

@@ -252,7 +252,7 @@ async def run_digest_body(step: StepLike, event_data: dict[str, Any], store: Job
     job_id = event_data.get("job_id", "<unknown>")
     try:
         await _execute(step, event_data, store, deps)
-    except Exception as err:  # noqa: BLE001 - classify, then decide: retry or acknowledge
+    except Exception as err:
         retryable = is_retryable(err)
         reason = f"{type(err).__name__}: {err}"
         log.exception("inngest run_digest %s failed (retryable=%s)", job_id, retryable)
@@ -265,7 +265,7 @@ async def run_digest_body(step: StepLike, event_data: dict[str, Any], store: Job
                 job.error = reason
             try:
                 store.save(job)
-            except Exception:  # noqa: BLE001 - store itself is broken; nothing more to do
+            except Exception:
                 log.exception(
                     "job %s: could not persist %s diagnostic",
                     job_id,
@@ -315,7 +315,7 @@ def finalize_after_exhausted_retries(store: JobStore, job_id: str | None) -> Non
             job.status = JobStatus.failed
             job.error = "exhausted retries (see warnings for the last retryable failure)"
             store.save(job)
-    except Exception:  # noqa: BLE001 - last line of defense; nothing more to do
+    except Exception:
         log.exception("run_digest on_failure: could not finalize job %s", job_id)
 
 

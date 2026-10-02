@@ -68,7 +68,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from chorus import catalog, config_env, discovery
 from chorus.artifacts import job_id_from_artifact_name
 from chorus.email import EmailSender, get_email_sender
-from chorus.jobs import JobStore, MASTER_OWNER, SqliteJobStore
+from chorus.jobs import MASTER_OWNER, JobStore, SqliteJobStore
 from chorus.keys import (
     IpIssueRateLimiter,
     KeyRateLimited,
@@ -386,7 +386,7 @@ def create_app(
         )
         try:
             email_sender.send(request.email, subject, text)
-        except Exception as err:  # noqa: BLE001 - R23: compensate, don't leave an unrecoverable key
+        except Exception as err:
             key_store.revoke(issued_token)
             log.error("keys: issued but delivery failed for %s: %s", request.email, err)
             raise HTTPException(

@@ -130,7 +130,7 @@ def run_subscription(
     try:
         request = _build_request(subscription)
         run_job(job_id, request, store, deps)
-    except Exception as err:  # noqa: BLE001 - mirrors run_job's own terminal-state guarantee
+    except Exception as err:
         log.exception("subscription %s: job %s did not run", subscription.subscription_id, job_id)
         job = store.get(job_id)
         if job is not None:
@@ -153,7 +153,7 @@ def run_subscription(
             reason = job.error or "unknown error"
             text = f"This week's digest failed: {reason}\n\nUnsubscribe: {unsubscribe_url}\n"
             email_sender.send(subscription.email, FAILED_DIGEST_SUBJECT, text, headers=headers)
-    except Exception:  # noqa: BLE001 - delivery failure must not strand the schedule
+    except Exception:
         log.exception("subscription %s: email delivery failed", subscription.subscription_id)
 
     subscription.last_job_id = job_id

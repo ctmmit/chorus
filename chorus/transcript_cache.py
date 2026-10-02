@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -77,7 +77,7 @@ class SqliteTranscriptCache:
 
     def put(self, transcript: Transcript) -> None:
         key = _namespaced_key(transcript.video_id)
-        fetched_at = datetime.now(timezone.utc).isoformat()
+        fetched_at = datetime.now(UTC).isoformat()
         with self._lock:
             self._conn.execute(
                 f"INSERT OR REPLACE INTO {CACHE_TABLE} (episode_id, payload, fetched_at) "

@@ -46,7 +46,7 @@ def test_render_rejects_unsafe_job_id() -> None:
 class _FakeResp:
     content = b"ID3\x03fake-mp3-bytes"
 
-    def raise_for_status(self) -> None:  # noqa: D401
+    def raise_for_status(self) -> None:
         return None
 
 

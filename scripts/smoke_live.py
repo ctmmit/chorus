@@ -14,17 +14,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # Windows console (cp1252)
 
-from chorus.config import load_env  # noqa: E402
+from chorus.config import load_env
 
 load_env()
 
-from chorus.curation import build_digest, window_segments  # noqa: E402
-from chorus.ingest import ingest  # noqa: E402
-from chorus.llm import get_llm_client  # noqa: E402
-from chorus.models import EpisodeInput  # noqa: E402
-from chorus.audio import get_audio_renderer  # noqa: E402
-from chorus.script import get_script_composer  # noqa: E402
-from chorus.transcripts import FixtureTranscriptProvider  # noqa: E402
+from chorus.audio import get_audio_renderer
+from chorus.curation import build_digest, window_segments
+from chorus.ingest import ingest
+from chorus.llm import get_llm_client
+from chorus.models import EpisodeInput
+from chorus.script import get_script_composer
+from chorus.transcripts import FixtureTranscriptProvider
 
 FIX = Path(__file__).resolve().parent.parent / "fixtures"
 EPISODE = "2Ryr95iiYNk"  # Gavin Baker — shortest clean transcript (cheapest)

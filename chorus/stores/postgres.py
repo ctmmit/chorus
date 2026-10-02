@@ -20,7 +20,7 @@ import hashlib
 import logging
 import secrets
 import uuid
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from psycopg_pool import ConnectionPool
 
@@ -206,7 +206,7 @@ class PostgresTranscriptCache:
         return Transcript.model_validate_json(row[0]) if row else None
 
     def put(self, transcript: Transcript) -> None:
-        fetched_at = datetime.now(timezone.utc).isoformat()
+        fetched_at = datetime.now(UTC).isoformat()
         with self._pool.connection() as conn:
             conn.execute(
                 f"INSERT INTO {TRANSCRIPTS_TABLE} (episode_id, payload, fetched_at) VALUES (%s, %s, %s) "

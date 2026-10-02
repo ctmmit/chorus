@@ -15,7 +15,7 @@ import logging
 import os
 from datetime import UTC, datetime, timedelta
 
-from chorus.jobs import JobStore, MASTER_OWNER
+from chorus.jobs import MASTER_OWNER, JobStore
 
 log = logging.getLogger("chorus.quotas")
 

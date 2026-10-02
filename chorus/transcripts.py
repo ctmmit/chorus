@@ -153,7 +153,7 @@ class _SupadataResponse(BaseModel):
 
 class _Pc20Segment(BaseModel):
     body: str | None = None
-    startTime: float | None = None  # noqa: N815 - external JSON field name
+    startTime: float | None = None
 
 
 class _Pc20Transcript(BaseModel):
