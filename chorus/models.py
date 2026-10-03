@@ -56,6 +56,15 @@ class Segment(BaseModel):
 
     start: float = Field(description="Start time of the transcript segment in seconds.")
     text: str = Field(description="Verbatim transcript text for this segment.")
+    speaker: str | None = Field(
+        default=None,
+        description=(
+            "Who is speaking in this segment, when the source knows: a real name from a "
+            'publisher transcript (VTT voice span, JSON speaker), or a diarization label such as '
+            '"Speaker A" (AssemblyAI) or "Speaker 0" (Deepgram). None when the source carries no '
+            "speaker information (YouTube captions, plain cues). Never part of `text`."
+        ),
+    )
 
 
 class Transcript(BaseModel):
@@ -64,7 +73,21 @@ class Transcript(BaseModel):
     # None only for transcripts built before Phase C (old cached payloads still validate).
     source: str | None = Field(
         default=None,
-        description='Provider that produced it: "fixture", "supadata", "rss:json", "deepgram"...',
+        description=(
+            'Provider that produced it: "fixture", "supadata", "rss:json", "rss:vtt", '
+            '"rss:srt", "assemblyai", "deepgram"...'
+        ),
+    )
+    # Dynamic ad insertion means two downloads of one enclosure can differ, which
+    # shifts every timestamp after the first inserted ad; recording the exact URL
+    # a speech-to-text provider transcribed lets a citation be traced back to it.
+    source_audio_url: str | None = Field(
+        default=None,
+        description=(
+            "The exact audio URL a speech-to-text provider transcribed (AssemblyAI, Deepgram). "
+            "Timestamps index that file, which can differ from the audio a listener streams when "
+            "the publisher inserts ads dynamically. None for publisher transcripts and captions."
+        ),
     )
 
     @property

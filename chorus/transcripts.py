@@ -1,9 +1,12 @@
 """Transcript resolution: a provider ladder behind one Protocol.
 
-Phase C replaces the fixture-only resolver with a chain (§8 row C):
-fixtures (tests/dev) -> Supadata managed YouTube captions -> Podcasting 2.0
-RSS transcript tags -> Deepgram STT fallback, each trying the next on failure.
-`ChainTranscriptProvider` is assembled by `chorus.pipeline.default_deps`.
+The ladder (reports/Podcast transcript sources.md, 02 Oct 2026), each rung
+trying the next on failure: fixtures (tests/dev) -> publisher Podcasting 2.0
+`podcast:transcript` tag -> AssemblyAI speech-to-text on the RSS enclosure ->
+Deepgram speech-to-text (backup) -> Supadata native YouTube captions (last
+resort). `ChainTranscriptProvider` is assembled by
+`chorus.config_env.build_transcript_chain`, the single builder behind both
+`chorus.config_env.build_deps` and `chorus.pipeline.default_deps`.
 
 Every provider implements `TranscriptProvider.get(episode) -> Transcript`,
 raises `TranscriptNotFound` when the source has nothing for this episode, and
@@ -21,10 +24,14 @@ unbounded read or a bare KeyError/TypeError escaping the provider taxonomy.
 """
 from __future__ import annotations
 
+import html
 import json
 import logging
 import re
+import time
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 from urllib.parse import urljoin
@@ -50,20 +57,85 @@ FIXTURE_TRANSCRIPTS_DIR = Path(__file__).resolve().parent.parent / "fixtures" / 
 PODCAST_NS = "https://podcastindex.org/namespace/1.0"
 _TRANSCRIPT_TAG = f"{{{PODCAST_NS}}}transcript"
 
-# Preference order for podcast:transcript @type (richest/cheapest to parse first).
-_TRANSCRIPT_MIME_PREFERENCE = ("application/json", "text/vtt", "application/srt")
+# podcast:transcript @type handling. Only formats that carry cue timestamps are
+# usable for citations, so the preference runs JSON -> VTT -> SRT. The
+# namespace spec's enum documents `application/srt`; Buzzsprout emits the
+# de-facto `application/x-subrip` instead (research report, 02 Oct 2026).
+_MIME_JSON = "application/json"
+_MIME_VTT = "text/vtt"
+_SRT_MIMES = frozenset({"application/srt", "application/x-subrip", "text/srt"})
+# `text/plain` and `text/html` transcripts carry no timestamps at all (Acquired
+# on Transistor publishes `.txt` with speakers but no times), so they cannot
+# back a citation. They are skipped, never parsed as if timed.
+_UNTIMED_MIMES = frozenset({"text/plain", "text/html"})
+# Parse order within a tag set: (label used in Transcript.source, accepted mimes).
+_TRANSCRIPT_FORMAT_PREFERENCE: tuple[tuple[str, frozenset[str]], ...] = (
+    ("json", frozenset({_MIME_JSON})),
+    ("vtt", frozenset({_MIME_VTT})),
+    ("srt", _SRT_MIMES),
+)
 
+# Supadata, verified 02 Oct 2026: `mode` (native | auto | generate, default auto)
+# exists on the universal GET /v1/transcript endpoint
+# (https://docs.supadata.ai/api-reference/endpoint/transcript/transcript), not on
+# /v1/youtube/transcript. `native` returns only captions that already exist;
+# `auto` silently falls back to AI transcription billed at 2 credits/minute.
 SUPADATA_BASE_URL = "https://api.supadata.ai/v1"
 SUPADATA_TIMEOUT_S = 20.0
+SUPADATA_MODE = "native"
+SUPADATA_YOUTUBE_WATCH_URL = "https://www.youtube.com/watch?v="
+# Long videos (>20 min) answer 202 + {"jobId"} and must be polled at
+# GET /v1/transcript/{jobId} (statuses queued/active/completed/failed). Kept
+# well inside one Vercel function / Inngest step.
+SUPADATA_POLL_INTERVAL_S = 2.0
+SUPADATA_MAX_WAIT_S = 60.0
+_SUPADATA_UNAVAILABLE_CODES = frozenset({"transcript-unavailable", "not-found"})
+_SUPADATA_IN_PROGRESS = frozenset({"queued", "active"})
 
 RSS_TIMEOUT_S = 20.0
 
 DEEPGRAM_LISTEN_URL = "https://api.deepgram.com/v1/listen"
-DEEPGRAM_PARAMS = {"model": "nova-3", "smart_format": "true", "utterances": "true"}
+# `diarize_model` both enables diarization and selects the model; the older
+# `diarize=true` is deprecated and a request setting both is rejected
+# (https://developers.deepgram.com/docs/diarization, verified 02 Oct 2026).
+DEEPGRAM_PARAMS = {
+    "model": "nova-3",
+    "smart_format": "true",
+    "utterances": "true",
+    "diarize_model": "latest",
+}
 DEEPGRAM_TIMEOUT_S = 120.0
 # Fallback path (no utterances in the response): group word timings into
 # ~10s pseudo-segments so downstream windowing still has something to chew on.
 DEEPGRAM_WORD_GROUP_SECONDS = 10.0
+
+# AssemblyAI, verified 02 Oct 2026 against the API reference
+# (https://www.assemblyai.com/docs/api-reference/transcripts/submit and
+# .../transcripts/get), the model guide
+# (https://www.assemblyai.com/docs/pre-recorded-audio/select-the-speech-model)
+# and the diarization guide
+# (https://www.assemblyai.com/docs/pre-recorded-audio/label-speakers):
+#   POST https://api.assemblyai.com/v2/transcript   header `authorization: <key>`
+#     {"audio_url": str, "speaker_labels": bool, "speech_models": [str, ...]}
+#   GET  https://api.assemblyai.com/v2/transcript/{id}
+#     status: queued | processing | completed | error (+ `error` message string)
+#     utterances[]: {speaker "A"|"B"..., text, start, end (ms), words[]}
+#     words[]: {text, speaker, start, end (ms), confidence}
+# `speech_models` is the current parameter (priority list; singular
+# `speech_model` is deprecated). "universal-3-5-pro" is marked Recommended and
+# "universal-2" is the documented fallback; both support speaker_labels.
+ASSEMBLYAI_BASE_URL = "https://api.assemblyai.com/v2"
+ASSEMBLYAI_SPEECH_MODELS = ["universal-3-5-pro", "universal-2"]
+ASSEMBLYAI_REQUEST_TIMEOUT_S = 20.0
+ASSEMBLYAI_POLL_INTERVAL_S = 3.0
+# Submit + poll must fit one Vercel function / one Inngest step. ~37 s per audio
+# hour (report) leaves ample headroom for a three-hour episode; on timeout the
+# provider raises TranscriptProviderError so Inngest retries the step.
+ASSEMBLYAI_MAX_WAIT_S = 240.0
+_ASSEMBLYAI_IN_PROGRESS = frozenset({"queued", "processing"})
+# Words regrouped into segments break on a speaker change or after this many seconds.
+ASSEMBLYAI_WORD_GROUP_SECONDS = 10.0
+_MS_PER_SECOND = 1000.0
 
 # R15 (docs/REVIEW_WAVE1.md #15): hard byte ceilings per response kind. A
 # caller-controlled endpoint (feed_url, a feed's own transcript/enclosure
@@ -148,12 +220,23 @@ class _SupadataContentItem(BaseModel):
 
 
 class _SupadataResponse(BaseModel):
+    """A 200 transcript body, or a polled job result (which also carries
+    `status`, and an `error` object when the job failed)."""
+
     content: list[_SupadataContentItem] = Field(default_factory=list)
+    status: str | None = None
+    error: Any = None
+
+
+class _SupadataJob(BaseModel):
+    jobId: str
 
 
 class _Pc20Segment(BaseModel):
     body: str | None = None
     startTime: float | None = None
+    # Buzzsprout emits real speaker names; tolerate a numeric id too.
+    speaker: str | int | None = None
 
 
 class _Pc20Transcript(BaseModel):
@@ -163,11 +246,13 @@ class _Pc20Transcript(BaseModel):
 class _DeepgramUtterance(BaseModel):
     start: float
     transcript: str | None = None
+    speaker: int | None = None
 
 
 class _DeepgramWord(BaseModel):
     word: str
     start: float
+    speaker: int | None = None
 
 
 class _DeepgramAlternative(BaseModel):
@@ -185,6 +270,90 @@ class _DeepgramResults(BaseModel):
 
 class _DeepgramResponse(BaseModel):
     results: _DeepgramResults = Field(default_factory=_DeepgramResults)
+
+
+class _AssemblyAIWord(BaseModel):
+    text: str
+    start: float  # milliseconds
+    speaker: str | None = None
+
+
+class _AssemblyAIUtterance(BaseModel):
+    text: str | None = None
+    start: float  # milliseconds
+    speaker: str | None = None
+
+
+class _AssemblyAISubmitResponse(BaseModel):
+    id: str
+    status: str
+    error: str | None = None
+
+
+class _AssemblyAITranscript(BaseModel):
+    status: str
+    error: str | None = None
+    utterances: list[_AssemblyAIUtterance] | None = None
+    words: list[_AssemblyAIWord] | None = None
+
+
+@dataclass(frozen=True)
+class _TimedWord:
+    """A provider-neutral word: `start` in seconds, `speaker` already a
+    display label (or None)."""
+
+    text: str
+    start: float
+    speaker: str | None
+
+
+def _speaker_label(raw: str | int | None) -> str | None:
+    """Diarization ids ("A", 0) -> "Speaker A" / "Speaker 0". Publisher-supplied
+    names are passed through untouched by their own parsers, never here."""
+    if raw is None or raw == "":
+        return None
+    return f"Speaker {raw}"
+
+
+def _group_timed_words(words: list[_TimedWord], window_s: float) -> list[Segment]:
+    """Group word timings into segments, breaking on a speaker change or once
+    `window_s` seconds have elapsed since the group began."""
+    segments: list[Segment] = []
+    buf: list[str] = []
+    window_start = 0.0
+    current_speaker: str | None = None
+    for w in words:
+        if buf and (w.speaker != current_speaker or w.start - window_start >= window_s):
+            segments.append(Segment(start=window_start, text=" ".join(buf), speaker=current_speaker))
+            buf = []
+        if not buf:
+            window_start = w.start
+            current_speaker = w.speaker
+        buf.append(w.text)
+    if buf:
+        segments.append(Segment(start=window_start, text=" ".join(buf), speaker=current_speaker))
+    return segments
+
+
+def _resolve_safe_audio_url(
+    episode: EpisodeInput,
+    rss_provider: RssTranscriptProvider,
+    resolver: Resolver | None,
+    *,
+    what: str,
+) -> str:
+    """Shared by both speech-to-text providers: the episode's direct
+    `audio_url`, else the RSS enclosure, validated through netguard before the
+    vendor is asked to fetch it (defense in depth — the GET happens on the
+    vendor's side, not ours)."""
+    audio_url = episode.audio_url or rss_provider.enclosure_audio_url(episode)
+    if not audio_url:
+        raise TranscriptNotFound(f"{what}: episode has no resolvable audio_url")
+    try:
+        safe_url(audio_url, resolver=resolver)
+    except UnsafeURLError as err:
+        raise TranscriptProviderError(f"{what}: refused unsafe audio_url {audio_url!r}: {err}") from err
+    return audio_url
 
 
 # Exceptions a malformed/unexpected-shape payload can raise while we decode
@@ -215,27 +384,119 @@ def _enforce_transcript_limits(segments: list[Segment], *, what: str) -> None:
 
 
 class ManagedCaptionsProvider:
-    """YouTube captions via the Supadata API.
+    """Existing YouTube captions via the Supadata API, last rung of the ladder.
 
-    Verified 21 Sep 2026 against Supadata's published docs
-    (https://docs.supadata.ai/get-transcript, YouTube-specific endpoint
-    confirmed via https://supadata.ai/youtube-transcript-api and the
-    supadata-ai/supadata-docs reference):
+    Verified 02 Oct 2026 against Supadata's docs
+    (https://docs.supadata.ai/api-reference/endpoint/transcript/transcript and
+    .../transcript/transcript-get):
 
-        GET https://api.supadata.ai/v1/youtube/transcript?videoId=<id>
+        GET https://api.supadata.ai/v1/transcript?url=<watch url>&mode=native
         header: x-api-key: <key>
         200 -> {"content": [{"text": str, "offset": ms, "duration": ms,
                               "lang": str}], "lang": str, "availableLangs": [...]}
-        404 -> video doesn't exist / is private (no transcript)
+        202 -> {"jobId": str}   (videos over ~20 min; poll the job below)
+        206 -> transcript unavailable (no captions exist)
+        404 -> video doesn't exist / is private
         401/403 -> auth required or access restricted
-        5xx -> transport failure
+        GET /v1/transcript/{jobId} -> {"status": queued|active|completed|failed,
+                                       "content": [...], "error": {...}}
+
+    `mode=native` is deliberate: the default `auto` silently falls back to AI
+    transcription at 2 credits per audio minute (about 150 credits for a
+    75-minute episode with no captions). Missing captions must surface as
+    TranscriptNotFound so the ladder, not Supadata, decides what to pay for.
+    The older /v1/youtube/transcript endpoint has no `mode` parameter, which is
+    why this provider uses the universal endpoint. YouTube captions breach
+    YouTube's terms, fail from cloud IPs unless a vendor absorbs it, and carry
+    no speaker labels, which is why this provider runs last.
 
     `offset`/`duration` are milliseconds; Segment.start wants seconds.
     """
 
-    def __init__(self, api_key: str, base_url: str = SUPADATA_BASE_URL) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str = SUPADATA_BASE_URL,
+        *,
+        poll_interval_s: float = SUPADATA_POLL_INTERVAL_S,
+        max_wait_s: float = SUPADATA_MAX_WAIT_S,
+        sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self.api_key = api_key
         self.base_url = base_url
+        self.poll_interval_s = poll_interval_s
+        self.max_wait_s = max_wait_s
+        # Injectable so tests never actually wait.
+        self._sleep = sleep
+        self._clock = clock
+
+    def _request(self, path: str, video_id: str, params: dict[str, str] | None = None) -> Any:
+        try:
+            resp = httpx.get(
+                f"{self.base_url}{path}",
+                params=params,
+                headers={"x-api-key": self.api_key},
+                timeout=SUPADATA_TIMEOUT_S,
+            )
+        except httpx.TimeoutException as err:
+            raise TranscriptProviderError(f"supadata: timeout fetching {video_id}: {err}") from err
+        except httpx.HTTPError as err:
+            raise TranscriptProviderError(
+                f"supadata: transport error fetching {video_id}: {err}"
+            ) from err
+        if len(resp.content) > MAX_TRANSCRIPT_BYTES:
+            raise TranscriptProviderError(
+                f"supadata: response for {video_id} exceeds MAX_TRANSCRIPT_BYTES={MAX_TRANSCRIPT_BYTES}"
+            )
+        return resp
+
+    @staticmethod
+    def _error_code(error: Any) -> str | None:
+        if isinstance(error, str):
+            return error
+        if isinstance(error, dict):
+            code = error.get("error") or error.get("code")
+            return str(code) if code else None
+        return None
+
+    def _await_job(self, job_id: str, video_id: str) -> _SupadataResponse:
+        deadline = self._clock() + self.max_wait_s
+        while True:
+            resp = self._request(f"/transcript/{job_id}", video_id)
+            if resp.status_code in (401, 403):
+                raise TranscriptProviderError(f"supadata: auth failed ({resp.status_code})")
+            if resp.status_code == 404:
+                raise TranscriptProviderError(f"supadata: job {job_id} for {video_id} not found")
+            if resp.status_code != 200:
+                raise TranscriptProviderError(
+                    f"supadata: unexpected status {resp.status_code} polling job {job_id}"
+                )
+            try:
+                job = _SupadataResponse.model_validate(resp.json())
+            except _PAYLOAD_ERRORS as err:
+                raise TranscriptProviderError(
+                    f"supadata: malformed job result for {video_id}: {err}"
+                ) from err
+            if job.status == "completed":
+                return job
+            if job.status == "failed":
+                code = self._error_code(job.error)
+                if code in _SUPADATA_UNAVAILABLE_CODES:
+                    raise TranscriptNotFound(f"supadata: no native captions for {video_id} ({code})")
+                raise TranscriptProviderError(
+                    f"supadata: job {job_id} for {video_id} failed: {job.error!r}"
+                )
+            if job.status not in _SUPADATA_IN_PROGRESS:
+                raise TranscriptProviderError(
+                    f"supadata: job {job_id} for {video_id} has unexpected status {job.status!r}"
+                )
+            if self._clock() >= deadline:
+                raise TranscriptProviderError(
+                    f"supadata: job {job_id} for {video_id} still {job.status} after "
+                    f"{self.max_wait_s:.0f}s"
+                )
+            self._sleep(self.poll_interval_s)
 
     def get(self, episode: EpisodeInput) -> Transcript:
         try:
@@ -246,35 +507,32 @@ class ManagedCaptionsProvider:
             # Not a YouTube episode; nothing this provider can do.
             raise TranscriptNotFound("supadata: episode is not a YouTube episode")
 
-        try:
-            resp = httpx.get(
-                f"{self.base_url}/youtube/transcript",
-                params={"videoId": video_id},
-                headers={"x-api-key": self.api_key},
-                timeout=SUPADATA_TIMEOUT_S,
+        resp = self._request(
+            "/transcript",
+            video_id,
+            params={
+                "url": f"{SUPADATA_YOUTUBE_WATCH_URL}{video_id}",
+                "mode": SUPADATA_MODE,
+                "text": "false",
+            },
+        )
+        if resp.status_code in (404, 206):
+            raise TranscriptNotFound(
+                f"supadata: no native captions for {video_id} (status {resp.status_code})"
             )
-        except httpx.TimeoutException as err:
-            raise TranscriptProviderError(f"supadata: timeout fetching {video_id}: {err}") from err
-        except httpx.HTTPError as err:
-            raise TranscriptProviderError(
-                f"supadata: transport error fetching {video_id}: {err}"
-            ) from err
-
-        if resp.status_code == 404:
-            raise TranscriptNotFound(f"supadata: no transcript for {video_id}")
         if resp.status_code in (401, 403):
             raise TranscriptProviderError(f"supadata: auth failed ({resp.status_code})")
         if resp.status_code >= 500:
             raise TranscriptProviderError(f"supadata: server error {resp.status_code}")
-        if resp.status_code != 200:
-            raise TranscriptProviderError(f"supadata: unexpected status {resp.status_code}")
-        if len(resp.content) > MAX_TRANSCRIPT_BYTES:
-            raise TranscriptProviderError(
-                f"supadata: response for {video_id} exceeds MAX_TRANSCRIPT_BYTES={MAX_TRANSCRIPT_BYTES}"
-            )
 
         try:
-            parsed = _SupadataResponse.model_validate(resp.json())
+            if resp.status_code == 202:
+                job_id = _SupadataJob.model_validate(resp.json()).jobId
+                parsed = self._await_job(job_id, video_id)
+            elif resp.status_code == 200:
+                parsed = _SupadataResponse.model_validate(resp.json())
+            else:
+                raise TranscriptProviderError(f"supadata: unexpected status {resp.status_code}")
         except _PAYLOAD_ERRORS as err:
             raise TranscriptProviderError(
                 f"supadata: malformed response for {video_id}: {err}"
@@ -283,7 +541,7 @@ class ManagedCaptionsProvider:
         if not parsed.content:
             raise TranscriptNotFound(f"supadata: empty transcript for {video_id}")
         segments = [
-            Segment(start=item.offset / 1000.0, text=item.text)
+            Segment(start=item.offset / _MS_PER_SECOND, text=item.text)
             for item in parsed.content
             if item.text
         ]
@@ -396,7 +654,8 @@ def _parse_pc20_json(text: str) -> list[Segment]:
     for seg in parsed.segments:
         if seg.body is None or seg.startTime is None:
             continue
-        out.append(Segment(start=float(seg.startTime), text=seg.body))
+        speaker = str(seg.speaker).strip() if seg.speaker is not None else ""
+        out.append(Segment(start=float(seg.startTime), text=seg.body, speaker=speaker or None))
     return out
 
 
@@ -404,7 +663,39 @@ def _parse_pc20_json(text: str) -> list[Segment]:
 # a "start --> end" timestamp line, one or more text lines, a blank line) and
 # differ only in the decimal separator (VTT '.', SRT ','), which this regex
 # accepts either way — so one parser covers both formats.
-_CUE_TS_RE = re.compile(r"(\d{2}):(\d{2}):(\d{2})[.,](\d{3})\s*-->")
+#
+# The hour is optional (WebVTT allows `00:05.120`) and may be a single digit:
+# Omny's VTT writes `0:00:00.450` (research report, 02 Oct 2026). Anchored to
+# the start of the line so cue text that happens to contain a clock time and
+# an arrow can't be mistaken for a timing line.
+_CUE_TS_RE = re.compile(r"^\s*(?:(\d+):)?(\d{1,2}):(\d{2})[.,](\d{1,3})\s*-->")
+# WebVTT voice span `<v Speaker Name>` (optionally `<v.class Name>`), closed by `</v>`.
+_VOICE_TAG_RE = re.compile(r"<v(?:\.[^\s>]*)*\s+([^>]*)>", re.IGNORECASE)
+# Any other cue markup: `<c.yellow>`, `<i>`, `</v>`, inline timestamps `<00:00:01.000>`.
+_CUE_MARKUP_RE = re.compile(r"</?[A-Za-z][^>]*>|<\d+:\d{2}(?::\d{2})?[.,]\d{3}>")
+_SECONDS_PER_MINUTE = 60
+_SECONDS_PER_HOUR = 3600
+_MS_DIGITS = 3
+
+
+def _cue_start_seconds(hours: str | None, minutes: str, seconds: str, fraction: str) -> float:
+    ms = int(fraction.ljust(_MS_DIGITS, "0"))
+    return (
+        int(hours or 0) * _SECONDS_PER_HOUR
+        + int(minutes) * _SECONDS_PER_MINUTE
+        + int(seconds)
+        + ms / _MS_PER_SECOND
+    )
+
+
+def _clean_cue_text(raw: str) -> tuple[str, str | None]:
+    """(plain text, first voice-span speaker) for one cue's joined text lines.
+    The `<v Name>` tag is removed from the text and its name kept separately
+    so downstream windowing never sees markup."""
+    voice = _VOICE_TAG_RE.search(raw)
+    speaker = html.unescape(voice.group(1)).strip() if voice else ""
+    text = html.unescape(_CUE_MARKUP_RE.sub("", raw))
+    return " ".join(text.split()), speaker or None
 
 
 def _parse_cues(text: str) -> list[Segment]:
@@ -412,19 +703,25 @@ def _parse_cues(text: str) -> list[Segment]:
     lines = text.splitlines()
     i = 0
     while i < len(lines):
-        match = _CUE_TS_RE.search(lines[i])
+        match = _CUE_TS_RE.match(lines[i])
         if match:
-            h, m, s, ms = (int(g) for g in match.groups())
-            start = h * 3600 + m * 60 + s + ms / 1000.0
+            hours, minutes, seconds, fraction = match.groups()
+            start = _cue_start_seconds(hours, minutes, seconds, fraction)
             i += 1
             body: list[str] = []
             while i < len(lines) and lines[i].strip():
                 body.append(lines[i].strip())
                 i += 1
-            if body:
-                segments.append(Segment(start=start, text=" ".join(body)))
+            cue_text, speaker = _clean_cue_text(" ".join(body))
+            if cue_text:
+                segments.append(Segment(start=start, text=cue_text, speaker=speaker))
         i += 1
     return segments
+
+
+def _normalize_mime(raw: str | None) -> str:
+    """`Text/VTT; charset=utf-8` -> `text/vtt`."""
+    return (raw or "").split(";", 1)[0].strip().lower()
 
 
 class RssTranscriptProvider:
@@ -497,28 +794,55 @@ class RssTranscriptProvider:
                 f"rss: no item matched guid/audio_url in {episode.feed_url}"
             )
 
-        by_type = {
-            tag.get("type"): tag.get("url")
+        # Raw ElementTree pass (not feedparser, which keeps only the LAST repeated
+        # podcast:transcript tag and so loses a VTT's speakers when an SRT follows):
+        # every tag is kept, in feed order, and the preference below picks.
+        tags = [
+            (_normalize_mime(tag.get("type")), url)
             for tag in item.findall(_TRANSCRIPT_TAG)
-            if tag.get("url")
-        }
-        if not by_type:
+            if (url := tag.get("url"))
+        ]
+        if not tags:
             raise TranscriptNotFound(f"rss: no podcast:transcript tag in {episode.feed_url}")
 
         video_id = episode.resolved_id()
-        for mime in _TRANSCRIPT_MIME_PREFERENCE:
-            url = by_type.get(mime)
-            if not url:
-                continue
-            resp = self._fetch_transcript_file(url)
-            segments = _parse_pc20_json(resp.text) if mime == "application/json" else _parse_cues(resp.text)
-            if segments:
-                _enforce_transcript_limits(segments, what=f"rss:{video_id}")
-                tag = "json" if mime == "application/json" else mime.rsplit("/", 1)[-1]
-                return Transcript(video_id=video_id, segments=segments, source=f"rss:{tag}")
+        skipped: list[str] = []
+        for label, mimes in _TRANSCRIPT_FORMAT_PREFERENCE:
+            for mime, url in tags:
+                if mime not in mimes:
+                    continue
+                try:
+                    resp = self._fetch_transcript_file(url)
+                except TranscriptNotFound as err:
+                    skipped.append(f"{mime} unavailable ({err})")
+                    continue
+                segments = (
+                    _parse_pc20_json(resp.text) if label == "json" else _parse_cues(resp.text)
+                )
+                if segments:
+                    _enforce_transcript_limits(segments, what=f"rss:{video_id}")
+                    return Transcript(video_id=video_id, segments=segments, source=f"rss:{label}")
+                skipped.append(f"{mime} parsed to no segments")
 
+        untimed = sorted({mime for mime, _ in tags if mime in _UNTIMED_MIMES})
+        if untimed:
+            skipped.append(
+                f"skipped untimed {', '.join(untimed)} transcript(s): no timestamps, "
+                "not usable for citations"
+            )
+        unsupported = sorted(
+            {
+                mime or "(no type)"
+                for mime, _ in tags
+                if mime not in _UNTIMED_MIMES
+                and not any(mime in mimes for _, mimes in _TRANSCRIPT_FORMAT_PREFERENCE)
+            }
+        )
+        if unsupported:
+            skipped.append(f"unsupported transcript type(s) {', '.join(unsupported)}")
         raise TranscriptNotFound(
-            f"rss: transcript tag(s) present but none parsed to segments ({episode.feed_url})"
+            f"rss: no usable timed transcript among podcast:transcript tags in "
+            f"{episode.feed_url} ({'; '.join(skipped)})"
         )
 
     def enclosure_audio_url(self, episode: EpisodeInput) -> str | None:
@@ -540,37 +864,25 @@ class RssTranscriptProvider:
         return enclosure.get("url") if enclosure is not None else None
 
 
-def _group_words_into_segments(words: list[_DeepgramWord], window_s: float) -> list[Segment]:
-    if not words:
-        return []
-    segments: list[Segment] = []
-    window_start = words[0].start
-    buf: list[str] = []
-    for w in words:
-        if buf and w.start - window_start >= window_s:
-            segments.append(Segment(start=window_start, text=" ".join(buf)))
-            window_start = w.start
-            buf = []
-        buf.append(w.word)
-    if buf:
-        segments.append(Segment(start=window_start, text=" ".join(buf)))
-    return segments
-
-
 class DeepgramTranscriptProvider:
-    """STT fallback for episodes with an audio file (direct `audio_url`, or
-    one resolved from the RSS `<enclosure>` via `RssTranscriptProvider`).
+    """Backup speech-to-text for episodes with an audio file (direct
+    `audio_url`, or one resolved from the RSS `<enclosure>` via
+    `RssTranscriptProvider`). Runs when AssemblyAI is unconfigured or failed;
+    a different model lineage hedges against correlated failure.
 
     Verified 21 Sep 2026 against Deepgram's published reference
-    (https://developers.deepgram.com/reference/speech-to-text/listen-pre-recorded):
+    (https://developers.deepgram.com/reference/speech-to-text/listen-pre-recorded)
+    and 02 Oct 2026 for diarization (https://developers.deepgram.com/docs/diarization):
 
-        POST https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&utterances=true
+        POST https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true
+             &utterances=true&diarize_model=latest
         header: Authorization: Token <key>
         body: {"url": "<audio url>"}
         200 -> {"results": {
-                  "utterances": [{"start": s, "end": s, "transcript": str, ...}],
+                  "utterances": [{"start": s, "end": s, "transcript": str,
+                                  "speaker": int, ...}],
                   "channels": [{"alternatives": [{"words": [
-                      {"word": str, "start": s, "end": s, ...}]}]}]}}
+                      {"word": str, "start": s, "end": s, "speaker": int, ...}]}]}]}}
 
     `utterances` is preferred (already segment-shaped); if the response has
     none (utterances can come back empty on some audio), word timings are
@@ -597,13 +909,9 @@ class DeepgramTranscriptProvider:
         self.resolver = resolver
 
     def get(self, episode: EpisodeInput) -> Transcript:
-        audio_url = episode.audio_url or self.rss_provider.enclosure_audio_url(episode)
-        if not audio_url:
-            raise TranscriptNotFound("deepgram: episode has no resolvable audio_url")
-        try:
-            safe_url(audio_url, resolver=self.resolver)
-        except UnsafeURLError as err:
-            raise TranscriptProviderError(f"deepgram: refused unsafe audio_url {audio_url!r}: {err}") from err
+        audio_url = _resolve_safe_audio_url(
+            episode, self.rss_provider, self.resolver, what="deepgram"
+        )
 
         resp = _fetch_bounded(
             "POST",
@@ -636,21 +944,181 @@ class DeepgramTranscriptProvider:
 
         if parsed.results.utterances:
             segments = [
-                Segment(start=u.start, text=u.transcript)
+                Segment(start=u.start, text=u.transcript, speaker=_speaker_label(u.speaker))
                 for u in parsed.results.utterances
                 if u.transcript
             ]
         else:
             alternatives = parsed.results.channels[0].alternatives if parsed.results.channels else []
             words = alternatives[0].words if alternatives else []
-            segments = _group_words_into_segments(words, DEEPGRAM_WORD_GROUP_SECONDS)
+            segments = _group_timed_words(
+                [_TimedWord(w.word, w.start, _speaker_label(w.speaker)) for w in words],
+                DEEPGRAM_WORD_GROUP_SECONDS,
+            )
 
         if not segments:
             raise TranscriptNotFound(f"deepgram: empty transcript for {audio_url}")
 
         video_id = episode.resolved_id()
         _enforce_transcript_limits(segments, what=f"deepgram:{video_id}")
-        return Transcript(video_id=video_id, segments=segments, source="deepgram")
+        return Transcript(
+            video_id=video_id, segments=segments, source="deepgram", source_audio_url=audio_url
+        )
+
+
+class AssemblyAITranscriptProvider:
+    """Primary speech-to-text on the RSS enclosure: AssemblyAI Universal-3.5 Pro
+    with diarization (about $0.23 per audio hour, 3.1% independent WER, best
+    vendor-run diarization score; reports/Podcast transcript sources.md).
+
+    API shape verified 02 Oct 2026; see the ASSEMBLYAI_* constants for the
+    request fields, `speech_models` parameter, status values and response
+    shape, and the URLs they were checked against.
+
+    Flow: validate the audio URL (netguard), POST the job, then poll until
+    `completed`/`error`. Polling is bounded by `max_wait_s` (240 s) so a call
+    fits one Vercel function or one Inngest step; on timeout it raises
+    TranscriptProviderError so Inngest retries. A retry submits a NEW job (the
+    API has no idempotency key), so a timed-out job is paid for twice; a
+    webhook plus `step.waitForEvent` is the planned long-term shape.
+
+    `utterances[]` (ms) map to Segments in seconds with a "Speaker A" label;
+    if a completed transcript has no utterances, `words[]` are grouped by
+    speaker change / ASSEMBLYAI_WORD_GROUP_SECONDS like the Deepgram fallback.
+    `Transcript.source_audio_url` records the exact URL transcribed, since
+    dynamic ad insertion can shift timestamps between two downloads.
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        rss_provider: RssTranscriptProvider | None = None,
+        resolver: Resolver | None = None,
+        base_url: str = ASSEMBLYAI_BASE_URL,
+        poll_interval_s: float = ASSEMBLYAI_POLL_INTERVAL_S,
+        max_wait_s: float = ASSEMBLYAI_MAX_WAIT_S,
+        sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self.api_key = api_key
+        # Share this provider's resolver with the enclosure lookup (see Deepgram).
+        self.rss_provider = rss_provider or RssTranscriptProvider(resolver=resolver)
+        self.resolver = resolver
+        self.base_url = base_url
+        self.poll_interval_s = poll_interval_s
+        self.max_wait_s = max_wait_s
+        # Injectable so tests never actually wait.
+        self._sleep = sleep
+        self._clock = clock
+
+    def _call(self, method: str, path: str, what: str, **kwargs: Any) -> _BoundedResponse:
+        resp = _fetch_bounded(
+            method,
+            f"{self.base_url}{path}",
+            timeout_s=ASSEMBLYAI_REQUEST_TIMEOUT_S,
+            what=what,
+            max_bytes=MAX_STT_RESPONSE_BYTES,
+            resolver=self.resolver,
+            headers={"authorization": self.api_key, "content-type": "application/json"},
+            **kwargs,
+        )
+        if resp.status_code in (401, 403):
+            raise TranscriptProviderError(f"{what}: auth failed ({resp.status_code})")
+        if resp.status_code == 429:
+            raise TranscriptProviderError(f"{what}: rate limited (429)")
+        if resp.status_code >= 500:
+            raise TranscriptProviderError(f"{what}: server error {resp.status_code}")
+        if resp.status_code != 200:
+            raise TranscriptProviderError(f"{what}: unexpected status {resp.status_code}")
+        return resp
+
+    def _submit(self, audio_url: str) -> str:
+        resp = self._call(
+            "POST",
+            "/transcript",
+            "assemblyai:submit",
+            json={
+                "audio_url": audio_url,
+                "speaker_labels": True,
+                "speech_models": ASSEMBLYAI_SPEECH_MODELS,
+            },
+        )
+        try:
+            submitted = _AssemblyAISubmitResponse.model_validate(resp.json())
+        except _PAYLOAD_ERRORS as err:
+            raise TranscriptProviderError(
+                f"assemblyai: malformed submit response for {audio_url}: {err}"
+            ) from err
+        if submitted.status == "error":
+            raise TranscriptProviderError(
+                f"assemblyai: job {submitted.id} rejected: {submitted.error or 'no message'}"
+            )
+        return submitted.id
+
+    def _await(self, transcript_id: str, audio_url: str) -> _AssemblyAITranscript:
+        deadline = self._clock() + self.max_wait_s
+        while True:
+            resp = self._call("GET", f"/transcript/{transcript_id}", "assemblyai:poll")
+            try:
+                result = _AssemblyAITranscript.model_validate(resp.json())
+            except _PAYLOAD_ERRORS as err:
+                raise TranscriptProviderError(
+                    f"assemblyai: malformed transcript {transcript_id} for {audio_url}: {err}"
+                ) from err
+            if result.status == "completed":
+                return result
+            if result.status == "error":
+                raise TranscriptProviderError(
+                    f"assemblyai: job {transcript_id} failed: {result.error or 'no message'}"
+                )
+            if result.status not in _ASSEMBLYAI_IN_PROGRESS:
+                raise TranscriptProviderError(
+                    f"assemblyai: job {transcript_id} has unexpected status {result.status!r}"
+                )
+            if self._clock() >= deadline:
+                raise TranscriptProviderError(
+                    f"assemblyai: job {transcript_id} still {result.status} after "
+                    f"{self.max_wait_s:.0f}s for {audio_url}"
+                )
+            self._sleep(self.poll_interval_s)
+
+    @staticmethod
+    def _segments(result: _AssemblyAITranscript) -> list[Segment]:
+        if result.utterances:
+            return [
+                Segment(
+                    start=u.start / _MS_PER_SECOND,
+                    text=u.text.strip(),
+                    speaker=_speaker_label(u.speaker),
+                )
+                for u in result.utterances
+                if u.text and u.text.strip()
+            ]
+        words = [
+            _TimedWord(w.text, w.start / _MS_PER_SECOND, _speaker_label(w.speaker))
+            for w in result.words or []
+        ]
+        return _group_timed_words(words, ASSEMBLYAI_WORD_GROUP_SECONDS)
+
+    def get(self, episode: EpisodeInput) -> Transcript:
+        audio_url = _resolve_safe_audio_url(
+            episode, self.rss_provider, self.resolver, what="assemblyai"
+        )
+        transcript_id = self._submit(audio_url)
+        result = self._await(transcript_id, audio_url)
+        segments = self._segments(result)
+        if not segments:
+            raise TranscriptNotFound(f"assemblyai: empty transcript for {audio_url}")
+
+        video_id = episode.resolved_id()
+        _enforce_transcript_limits(segments, what=f"assemblyai:{video_id}")
+        return Transcript(
+            video_id=video_id,
+            segments=segments,
+            source="assemblyai",
+            source_audio_url=audio_url,
+        )
 
 
 class ChainTranscriptProvider:

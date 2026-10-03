@@ -93,10 +93,12 @@ An RSS episode's cache/identity key is derived from the feed URL *and* the
 guid/audio_url together, so the same guid in two different feeds is always
 two different episodes — never a cache collision.
 
-The service resolves a transcript through a provider ladder (managed YouTube
-captions, the episode's own RSS `podcast:transcript` tag, then speech-to-text
-on the audio as a last resort) — you never need to know which one fired;
-`usage.transcript_sources` (below) tells you after the fact if you're curious.
+The service resolves a transcript through a provider ladder: the publisher's own
+RSS `podcast:transcript` file when it has timestamps, then speech-to-text on the
+episode's RSS audio (AssemblyAI, with Deepgram as backup, both with speaker
+labels), then existing YouTube captions as a last resort for shows with no RSS
+audio. You never need to know which one fired; `usage.transcript_sources`
+(below) tells you after the fact if you're curious.
 Returns:
 
 ```json
@@ -157,8 +159,8 @@ never stays `queued` or `digest_ready` indefinitely. The digest is usable at
 - Every highlight's `segment_timestamp` + `quote` resolve to the real transcript.
 - `usage` is run telemetry, not part of the lifecycle contract — safe to ignore.
   `transcript_sources` maps each resolved episode id to which provider produced
-  its transcript ("fixture", "supadata", "rss:json"/"rss:vtt"/"rss:srt", or
-  "deepgram"); `skipped` lists episodes that never resolved and why (the same
+  its transcript ("fixture", "rss:json"/"rss:vtt"/"rss:srt", "assemblyai",
+  "deepgram", or "supadata"); `skipped` lists episodes that never resolved and why (the same
   information a skipped episode's absence from `digest.episodes` otherwise
   throws away). A `reason` prefixed `"transient: "` means the source may well
   have had a transcript — a provider call failed (timeout, auth, malformed
