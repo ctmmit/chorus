@@ -80,6 +80,7 @@ from chorus.pipeline import (
     stage_script,
     sum_llm_tokens,
 )
+from chorus.saved_items import SavedItemStore
 from chorus.scheduler import TICK_CRON_SCHEDULE, due_subscriptions, run_subscription
 from chorus.subscriptions import Subscription, SubscriptionStore
 from chorus.subscriptions_api import resolve_base_url
@@ -325,6 +326,7 @@ async def run_tick_body(
     deps: Deps,
     subscription_store: SubscriptionStore,
     email_sender: EmailSender,
+    saved_items: SavedItemStore | None = None,
 ) -> dict[str, Any]:
     """The `chorus/tick` function body: one `step.run` per due subscription
     (so one subscription's failure retries alone, exactly like `_execute`'s
@@ -340,7 +342,14 @@ async def run_tick_body(
 
         async def _run(subscription: Subscription = subscription) -> dict[str, str | None]:
             job_id = run_subscription(
-                subscription, store, deps, subscription_store, email_sender, base_url, now
+                subscription,
+                store,
+                deps,
+                subscription_store,
+                email_sender,
+                base_url,
+                now,
+                saved_items=saved_items,
             )
             return {"subscription_id": subscription.subscription_id, "job_id": job_id}
 
@@ -366,6 +375,7 @@ def register(
     deps: Deps,
     subscription_store: SubscriptionStore | None = None,
     email_sender: EmailSender | None = None,
+    saved_items: SavedItemStore | None = None,
 ) -> None:
     """Define `run_digest` (and, when `subscription_store`/`email_sender`
     are given, the `chorus/tick` cron function) bound to `store`/`deps`, and
@@ -397,7 +407,9 @@ def register(
             trigger=inngest.TriggerCron(cron=TICK_CRON_SCHEDULE),
         )
         async def run_tick(ctx: inngest.Context) -> dict[str, Any]:
-            return await run_tick_body(ctx.step, store, deps, subscription_store, email_sender)
+            return await run_tick_body(
+                ctx.step, store, deps, subscription_store, email_sender, saved_items
+            )
 
         functions.append(run_tick)
 

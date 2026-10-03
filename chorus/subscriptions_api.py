@@ -43,6 +43,7 @@ from chorus.feeds import SubscriptionPreview, preview_sources
 from chorus.jobs import JobStore
 from chorus.pipeline import Deps
 from chorus.quotas import QuotaExceeded, enforce_job_quota
+from chorus.saved_items import SavedItemStore, saved_queue_lister
 from chorus.scheduler import due_subscriptions, next_run, run_subscription
 from chorus.subscriptions import (
     DEFAULT_LOOKBACK_DAYS,
@@ -114,11 +115,21 @@ class PreviewRequest(BaseModel):
     )
 
 
-def preview_for(request: PreviewRequest) -> SubscriptionPreview:
+def preview_for(
+    request: PreviewRequest,
+    owner: str = MASTER_OWNER,
+    saved_items: SavedItemStore | None = None,
+) -> SubscriptionPreview:
+    saved = (
+        saved_queue_lister(saved_items, owner, datetime.now(UTC))
+        if saved_items is not None
+        else None
+    )
     return preview_sources(
         request.sources,
         lookback_days=request.lookback_days,
         max_episodes_per_run=request.max_episodes_per_run,
+        saved=saved,
     )
 
 
@@ -181,6 +192,7 @@ def build_subscriptions_router(
     deps: Deps,
     email_sender: EmailSender,
     cron_secret: str | None,
+    saved_items: SavedItemStore | None = None,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -191,9 +203,9 @@ def build_subscriptions_router(
         return subscription
 
     @router.post("/subscriptions/preview")
-    def preview_subscription(payload: PreviewRequest) -> SubscriptionPreview:
+    def preview_subscription(payload: PreviewRequest, request: Request) -> SubscriptionPreview:
         """What the next run would pick up for these sources; saves nothing."""
-        return preview_for(payload)
+        return preview_for(payload, _owner(request), saved_items)
 
     @router.get("/subscriptions")
     def list_subscriptions(request: Request) -> list[Subscription]:
@@ -234,7 +246,14 @@ def build_subscriptions_router(
             raise HTTPException(status_code=429, detail=str(err)) from err
         base_url = resolve_base_url(request)
         job_id = run_subscription(
-            sub, store, deps, subscription_store, email_sender, base_url, datetime.now(UTC)
+            sub,
+            store,
+            deps,
+            subscription_store,
+            email_sender,
+            base_url,
+            datetime.now(UTC),
+            saved_items=saved_items,
         )
         summary = sub.last_run_summary
         return {"job_id": job_id, "skipped_reason": summary.skipped_reason if summary else None}
@@ -269,7 +288,10 @@ def build_subscriptions_router(
         base_url = resolve_base_url(request)
         ran: list[dict[str, str | None]] = []
         for sub in due_subscriptions(subscription_store, now):
-            job_id = run_subscription(sub, store, deps, subscription_store, email_sender, base_url, now)
+            job_id = run_subscription(
+                sub, store, deps, subscription_store, email_sender, base_url, now,
+                saved_items=saved_items,
+            )
             ran.append({"subscription_id": sub.subscription_id, "job_id": job_id})
         return {"ran": len(ran), "subscriptions": ran}
 

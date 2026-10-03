@@ -59,7 +59,9 @@ CADENCES = ("weekly", "daily")
 __all__ = [
     "MASTER_OWNER",
     "LastRunSummary",
+    "LibraryProvider",
     "RssSource",
+    "SavedQueueSource",
     "ShowSource",
     "Source",
     "SqliteSubscriptionStore",
@@ -171,9 +173,36 @@ class ShowSource(BaseModel):
     )
 
 
+# Where an imported library item came from (chorus.library). "pushed" is an
+# agent that fetched the items through its own connector and sent them as-is.
+LibraryProvider = Literal["readwise", "spotify", "apple", "instapaper", "opml", "pushed"]
+SAVED_QUEUE_TITLE = "Saved episodes"
+
+
+class SavedQueueSource(BaseModel):
+    """The principal's saved-but-unheard episodes, imported through
+    POST /library/import (chorus.library_api). Each run takes the newest saved
+    episodes not yet digested, so a backlog drains a few per run."""
+
+    kind: Literal["saved"] = Field(description='Source type discriminator: always "saved".')
+    providers: list[LibraryProvider] | None = Field(
+        default=None,
+        max_length=6,
+        description="Only take saves imported from these providers; omit for all of them.",
+    )
+    title: str = Field(
+        default=SAVED_QUEUE_TITLE,
+        min_length=1,
+        max_length=MAX_TITLE_CHARS,
+        description="Display label for this source in emails and previews.",
+    )
+
+
 # Discriminated on `kind`: one JSON shape per source type, which is also what
 # the OpenAPI schema and the MCP tool schemas expose to clients.
-Source = Annotated[RssSource | YoutubeSource | ShowSource, Field(discriminator="kind")]
+Source = Annotated[
+    RssSource | YoutubeSource | ShowSource | SavedQueueSource, Field(discriminator="kind")
+]
 
 
 class LastRunSummary(BaseModel):

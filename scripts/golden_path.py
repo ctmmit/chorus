@@ -8,6 +8,8 @@ offline deps, and asserts:
      and it never leaks into highlights.
   3. the ungrounded fixture refuses ("nothing cleared the relevance bar").
   4. all-transcripts-fail returns `failed` (never an empty `done`).
+  5-6. two souls diverge on one episode; catalog selection runs green.
+  7. a pushed library import fills the saved queue a saved source previews.
 
 Prints PATH_TEST GREEN and exits 0, or PATH_TEST FAIL: <reason> and exits 1.
 `path_test.ps1` / `path_test.sh` delegate here.
@@ -17,6 +19,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 # Make `chorus` importable when run as a standalone script (not via pytest).
@@ -148,6 +151,31 @@ def main() -> None:
         sel_job = Job.model_validate(client.get(f"/digest/{sel.json()['job_id']}").json())
         if sel_job.status.value != "done" or not (sel_job.digest and sel_job.digest.highlights):
             fail(f"selection run not green (status={sel_job.status.value})")
+
+        # 7. Library import: an agent pushes saved episodes; they land in the
+        # saved queue and a saved source previews them (no network: each item
+        # already names its feed item).
+        feed = "https://feeds.example.com/golden.xml"
+        saved = [
+            {
+                "provider": "pushed",
+                "item_kind": "episode",
+                "title": f"Saved episode {n}",
+                "show_title": "Golden Show",
+                "feed_url": feed,
+                "guid": f"golden-{n}",
+                "saved_at": (datetime.now(UTC) - timedelta(days=3 - n)).isoformat(),
+            }
+            for n in (1, 2)
+        ]
+        imported = client.post("/library/import", json={"items": saved}).json()
+        if imported.get("queued_episodes") != len(saved):
+            fail(f"library import did not queue the saved episodes ({imported})")
+        preview = client.post(
+            "/subscriptions/preview", json={"sources": [imported["saved_queue_source"]]}
+        ).json()
+        if [e["title"] for e in preview["episodes"]] != ["Saved episode 2", "Saved episode 1"]:
+            fail(f"saved-queue preview did not list the saved episodes ({preview})")
 
         client.close()
         store.close()  # release the SQLite handle so the temp dir can be removed

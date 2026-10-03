@@ -26,8 +26,10 @@ from psycopg_pool import ConnectionPool
 
 from chorus.jobs import IN_FLIGHT_STATUSES, MASTER_OWNER
 from chorus.keys import KEY_BYTES, KEY_PREFIX, KEY_RATE_LIMIT, KeyRateLimited
+from chorus.library import ResolutionStatus, SavedItem
 from chorus.models import Job, JobStatus, Transcript
 from chorus.personas import PERSONA_TABLE, Persona
+from chorus.saved_items import SAVED_ITEMS_TABLE, SavedItemList, saved_at_column
 from chorus.subscriptions import Subscription, SubscriptionList
 
 log = logging.getLogger("chorus.stores.postgres")
@@ -373,6 +375,76 @@ class PostgresSubscriptionStore:
                 (now.isoformat(),),
             ).fetchall()
         return [Subscription.model_validate_json(r[0]) for r in rows]
+
+    def close(self) -> None:
+        self._pool.close()
+
+
+class PostgresSavedItemStore:
+    """Mirrors chorus.saved_items.SqliteSavedItemStore's table shape
+    (owner/item_key/status/saved_at/payload, PRIMARY KEY (owner, item_key))
+    against Postgres. Selected by chorus.config_env.select_saved_item_store
+    when DATABASE_URL is set."""
+
+    def __init__(self, dsn: str) -> None:
+        self.dsn = dsn
+        self._pool = ConnectionPool(dsn, min_size=POOL_MIN_SIZE, max_size=POOL_MAX_SIZE, open=True)
+        with self._pool.connection() as conn:
+            conn.execute(
+                f"CREATE TABLE IF NOT EXISTS {SAVED_ITEMS_TABLE} ("
+                "owner TEXT NOT NULL, item_key TEXT NOT NULL, status TEXT NOT NULL, "
+                "saved_at TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY (owner, item_key))"
+            )
+            conn.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_saved_items_owner_saved "
+                f"ON {SAVED_ITEMS_TABLE} (owner, saved_at)"
+            )
+            conn.commit()
+
+    def get_many(self, owner: str, keys: list[str]) -> dict[str, SavedItem]:
+        if not keys:
+            return {}
+        with self._pool.connection() as conn:
+            rows = conn.execute(
+                f"SELECT payload FROM {SAVED_ITEMS_TABLE} WHERE owner = %s AND item_key = ANY(%s)",
+                (owner, keys),
+            ).fetchall()
+        items = [SavedItem.model_validate_json(r[0]) for r in rows]
+        return {i.key: i for i in items}
+
+    def put_many(self, items: list[SavedItem]) -> None:
+        if not items:
+            return
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.executemany(
+                    f"INSERT INTO {SAVED_ITEMS_TABLE} "
+                    "(owner, item_key, status, saved_at, payload) VALUES (%s, %s, %s, %s, %s) "
+                    "ON CONFLICT (owner, item_key) DO UPDATE SET "
+                    "status = EXCLUDED.status, saved_at = EXCLUDED.saved_at, "
+                    "payload = EXCLUDED.payload",
+                    [
+                        (i.owner, i.key, i.status, saved_at_column(i), i.model_dump_json())
+                        for i in items
+                    ],
+                )
+            conn.commit()
+
+    def list(
+        self, owner: str, *, status: ResolutionStatus | None = None, limit: int | None = None
+    ) -> SavedItemList:
+        query = f"SELECT payload FROM {SAVED_ITEMS_TABLE} WHERE owner = %s"
+        params: list[object] = [owner]
+        if status is not None:
+            query += " AND status = %s"
+            params.append(status)
+        query += " ORDER BY saved_at DESC, item_key"
+        if limit is not None:
+            query += " LIMIT %s"
+            params.append(limit)
+        with self._pool.connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [SavedItem.model_validate_json(r[0]) for r in rows]
 
     def close(self) -> None:
         self._pool.close()

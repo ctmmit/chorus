@@ -5,7 +5,7 @@
 (`POST /subscriptions/preview`) share, so a preview shows exactly what the
 next run would pick up.
 
-Three source kinds:
+Four source kinds:
 
 - `rss`: fetch the feed through `chorus.transcripts._fetch_bounded` (SSRF
   guard on every hop, byte cap, redirect cap), parse `<item>` elements, read
@@ -28,6 +28,13 @@ Three source kinds:
 - `show`: the static demo catalog (`chorus.catalog`). Catalog fixtures carry
   no publish date, so they are stamped with `since`; dedupe against
   `seen_episode_ids` is what keeps them from repeating.
+- `saved`: the owner's imported saved-episode queue (chorus.library). It is
+  per-owner state, not a URL, so `list_recent_episodes` cannot read it;
+  `gather_episodes` takes a `saved` lister bound to the owner
+  (chorus.saved_items.saved_queue_lister) and routes these sources to it.
+  The queue ignores `since` (a save is unheard until it is digested) and
+  takes the run's seen ids instead, so already-digested saves never crowd
+  out older unheard ones.
 
 Errors are per source. `list_recent_episodes` raises `FeedFetchError`;
 `gather_episodes` catches it per source and returns it alongside whatever the
@@ -54,7 +61,7 @@ from chorus.models import (
     EpisodeInput,
 )
 from chorus.netguard import Resolver
-from chorus.subscriptions import RssSource, ShowSource, Source, YoutubeSource
+from chorus.subscriptions import RssSource, SavedQueueSource, ShowSource, Source, YoutubeSource
 from chorus.transcripts import (
     FEED_PREFIX_BYTES,
     MAX_FEED_BYTES,
@@ -122,6 +129,9 @@ class ParsedFeed(BaseModel):
 
 
 FeedLister = Callable[..., list[FeedEpisode]]
+# (source, limit, exclude_ids) -> the owner's saved queue; see the module docstring.
+SavedQueueLister = Callable[[SavedQueueSource, int, frozenset[str]], list[FeedEpisode]]
+SAVED_QUEUE_UNAVAILABLE = "the saved-episode queue is not available here"
 
 
 class GatherResult(BaseModel):
@@ -139,6 +149,8 @@ def source_label(source: Source) -> str:
         return source.title or source.feed_url
     if isinstance(source, YoutubeSource):
         return source.title or f"YouTube channel {source.channel_id}"
+    if isinstance(source, SavedQueueSource):
+        return source.title
     return source.show
 
 
@@ -431,6 +443,8 @@ def list_recent_episodes(
                 ) from err
             raise
         episodes = parse_youtube_atom(root, title_override=source.title).episodes
+    elif isinstance(source, SavedQueueSource):
+        raise FeedFetchError(SAVED_QUEUE_UNAVAILABLE)
     else:
         assert isinstance(source, ShowSource)
         resolved = catalog.resolve(shows=[source.show])
@@ -458,13 +472,21 @@ def gather_episodes(
     *,
     resolver: Resolver | None = None,
     lister: FeedLister | None = None,
+    saved: SavedQueueLister | None = None,
+    exclude_ids: frozenset[str] = frozenset(),
 ) -> GatherResult:
     """List every source concurrently. A failing source contributes an entry
-    in `errors` and an empty list; it never raises."""
+    in `errors` and an empty list; it never raises. `saved` reads
+    SavedQueueSource entries (with `exclude_ids`); without it they fail as
+    unavailable."""
     list_one = lister or list_recent_episodes
 
     def run(source: Source) -> tuple[list[FeedEpisode], SourceError | None]:
         try:
+            if isinstance(source, SavedQueueSource):
+                if saved is None:
+                    raise FeedFetchError(SAVED_QUEUE_UNAVAILABLE)
+                return saved(source, limit, exclude_ids), None
             return list_one(source, since, limit, resolver=resolver), None
         except FeedFetchError as err:
             return [], SourceError(source=source, reason=err.reason)
@@ -529,12 +551,13 @@ def preview_sources(
     now: datetime | None = None,
     resolver: Resolver | None = None,
     lister: FeedLister | None = None,
+    saved: SavedQueueLister | None = None,
 ) -> SubscriptionPreview:
     """Exactly the selection a first run would make (same listing window,
     same round-robin cap), minus the seen filter since nothing is saved yet."""
     since = (now or datetime.now(UTC)) - timedelta(days=lookback_days)
     gathered = gather_episodes(
-        sources, since, PREVIEW_LIST_LIMIT, resolver=resolver, lister=lister
+        sources, since, PREVIEW_LIST_LIMIT, resolver=resolver, lister=lister, saved=saved
     )
     picked = round_robin(gathered.per_source, max_episodes_per_run)
     return SubscriptionPreview(episodes=picked, errors=gathered.errors)

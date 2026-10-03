@@ -359,16 +359,22 @@ Over MCP the whole flow is three tools: `search_podcasts` (or
 `resolve_podcast` for a pasted link), then `preview_subscription`, then
 `subscribe`. `list_subscriptions`, `update_subscription` and `unsubscribe`
 manage what exists. The HTTP routes below are the same operations.
+`import_library` and `import_opml` bring in what the principal already follows
+and saves elsewhere; start there when you can.
 
 ### 1. Find the sources
 
-A source is one of three JSON shapes, discriminated on `kind`:
+A source is one of four JSON shapes, discriminated on `kind`:
 
 ```json
 { "kind": "rss", "feed_url": "https://feeds.example.com/acquired.xml", "title": "Acquired", "artwork_url": null }
 { "kind": "youtube", "channel_id": "UCxxxxxxxxxxxxxxxxxxxxxx", "title": "Lex Clips" }
 { "kind": "show", "show": "20VC with Harry Stebbings" }
+{ "kind": "saved", "providers": null, "title": "Saved episodes" }
 ```
+
+`saved` is the principal's imported saved-episode queue; see "Start from the
+principal's library" below.
 
 `rss` is the normal case. `youtube` takes the channel id (`UC` plus 22
 characters), not the @handle; episodes are listed from the channel's public
@@ -398,6 +404,93 @@ Three routes build sources without hand-writing them:
 No soul yet? `POST /souls/interview` with `{ "answers": { "identity": "...",
 "interests": "...", ... } }` (the six keys under "Building a soul") returns
 `{ "soul": "<markdown>" }`.
+
+### Start from the principal's library
+
+The principal probably already follows shows and saves episodes somewhere
+else. Import that before asking them to search. Work through these in order:
+
+1. **Your own connectors.** If you can read the principal's library yourself
+   (a Readwise MCP, a Spotify MCP, a file they gave you), fetch it and push
+   the items with `POST /library/import` (MCP: `import_library`). Chorus never
+   needs that provider's token.
+2. **An OPML file.** Pocket Casts, Overcast and Castro export one. Apple
+   Podcasts has no export, but an iOS Shortcut that runs "Get Podcasts from
+   Library" can write the feed URLs into an OPML file. Use
+   `POST /podcasts/import-opml` (MCP: `import_opml`).
+3. **Nothing to read.** Fall back to search and resolve.
+
+`POST /library/import` takes `{ "items": [ ... ] }`, up to 500 per call. Each
+item has `provider` (one of `readwise`, `spotify`, `apple`, `instapaper`,
+`opml`, `pushed`), `item_kind` (`episode`, `show` or `document`) and `title`.
+Optional fields: `show_title`, `author`, `external_id`, `url`, `feed_url`,
+`guid`, `audio_url`, `saved_at` (ISO 8601 with an offset), `consumed`, `tags`,
+`highlights` and `notes`. Every identifier you include makes resolution
+cheaper:
+
+- `feed_url` plus `guid` needs no lookup.
+- An Apple Podcasts episode link (`podcasts.apple.com/.../id<show>?i=<episode>`)
+  needs one lookup per show.
+- A bare show and episode title is matched by exact show title in Apple's
+  directory, then by episode title in that show's feed.
+
+`document` items, such as articles, only feed the soul.
+
+**Readwise Reader.** List documents with `category=podcast`, page through all
+of them, and map each one like this:
+
+| Item field | Reader field |
+|---|---|
+| `provider` | `"readwise"` |
+| `item_kind` | `"episode"` |
+| `title` | `title` |
+| `show_title` | `author` (the show's name is replaced once the feed resolves) |
+| `url` | `source_url` |
+| `external_id` | `id` |
+| `saved_at` | `saved_at` |
+| `tags` | the tag names |
+| `notes` | `notes` |
+| `consumed` | `true` when `location` is `archive` or `reading_progress` is at least 0.9 |
+
+Podcast highlights from Snipd or Airr go in `highlights`. Re-importing is
+idempotent, so push the whole list each time; items that already resolved
+cost nothing.
+
+The response is a preview. Nothing is subscribed and no soul is changed:
+
+```json
+{
+  "received": 72, "new": 72, "queued_episodes": 64, "pending": 0,
+  "unresolved_count": 8, "unresolved": [{ "title", "show_title", "status", "reason" }],
+  "suggested_sources": [{ "title": "Dwarkesh Podcast", "save_count": 9, "score": 6.1,
+                          "explicit": false, "already_subscribed": false,
+                          "source": { "kind": "rss", "feed_url": "...", "title": "..." } }],
+  "saved_queue_source": { "kind": "saved", "providers": null, "title": "Saved episodes" },
+  "corpus_items": 72,
+  "next_steps": "..."
+}
+```
+
+How to read the response:
+
+- **`suggested_sources`** ranks shows by saves. Each save is weighted
+  `0.5 ^ (age_days / 30)`. A show needs two saves, or a `show` item (a follow
+  in another app), to qualify. Offer the principal each suggestion's `source`.
+- **`saved_queue_source`** is a fourth source kind. Add it to a subscription's
+  `sources` and each run also digests the newest saved episodes it hasn't sent
+  before, draining a backlog a few at a time. Consumed saves and saves older
+  than 120 days are skipped. Set `providers` to limit it, for example to
+  `["readwise"]`.
+- **`pending`** means Apple's rate limit (about 20 lookups a minute) stopped
+  resolution partway through. Import again in a minute to finish.
+- **`unresolved`** lists each item that could not be matched, with the reason.
+  Usually the show has no public feed (a Spotify exclusive, a paywalled show).
+
+`GET /library/items?status=resolved|pending|unresolved|corpus&limit=50` lists
+what is stored (MCP: `list_library_items`). `POST /library/soul` (MCP:
+`soul_from_library`) proposes a soul from the titles, tags, notes and
+highlights. It returns `{ "soul", "based_on" }` and saves nothing, so show it
+to the principal before using it.
 
 ### 2. Preview
 

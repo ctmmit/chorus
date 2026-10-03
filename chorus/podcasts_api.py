@@ -17,7 +17,11 @@ External APIs (shapes checked against Apple's and Google's documentation on
   https://itunes.apple.com/search?media=podcast&entity=podcast&term=<q>&limit=<n>`
   and `GET https://itunes.apple.com/lookup?id=<n>&entity=podcast`; no key; JSON
   `{"resultCount", "results": [{"collectionId", "collectionName", "artistName",
-  "feedUrl", "artworkUrl600", ...}]}`. Apple documents "approximately 20
+  "feedUrl", "artworkUrl600", ...}]}`. `lookup?id=<n>&entity=podcastEpisode
+  &limit=<m>` returns the show followed by its newest episodes
+  (`wrapperType: "podcastEpisode"`, with `trackId`, `trackName`,
+  `episodeGuid`, `episodeUrl`, `releaseDate`); chorus.library_resolve uses it
+  to turn an Apple episode link into a feed item. Apple documents "approximately 20
   calls per minute", so search results are cached in-process and upstream
   calls are throttled below that ceiling.
 - YouTube Data API v3 `channels.list` (https://developers.google.com/youtube/
@@ -84,6 +88,8 @@ UPSTREAM_WINDOW_S = 60.0
 # shares one cache entry per query.
 SEARCH_UPSTREAM_LIMIT = SEARCH_MAX_LIMIT
 JSON_MAX_BYTES = 2 * 1024 * 1024
+# Episodes requested per show lookup; Apple's documented maximum is 200.
+ITUNES_EPISODE_LOOKUP_LIMIT = 200
 
 OPML_MAX_BYTES = 1 << 20
 OPML_MAX_SOURCES = 500
@@ -124,6 +130,22 @@ class PodcastSearchResult(BaseModel):
     feed_url: str = Field(description="The show's RSS feed URL.")
     artwork_url: str | None = Field(default=None, description="Cover art URL (display only).")
     apple_id: int | None = Field(default=None, description="Apple Podcasts collection id.")
+
+
+class AppleEpisode(BaseModel):
+    """One episode from an Apple show lookup."""
+
+    track_id: str = Field(description="Apple track id (the ?i= in an episode link).")
+    title: str = Field(description="Episode title.")
+    guid: str | None = Field(default=None, description="The feed item's <guid>, when Apple has it.")
+    audio_url: str | None = Field(default=None, description="The episode's audio URL.")
+
+
+class AppleShowLookup(BaseModel):
+    """A show's feed plus the newest episodes Apple lists for it."""
+
+    source: RssSource = Field(description="The show as an RSS source.")
+    episodes: list[AppleEpisode] = Field(description="Newest episodes, as Apple lists them.")
 
 
 class ResolveRequest(BaseModel):
@@ -454,6 +476,41 @@ class PodcastDirectory:
         raise PodcastError(
             422, f"Apple has no podcast with id {apple_id}, or it publishes no public feed URL"
         )
+
+    def lookup_show_episodes(self, apple_id: str) -> AppleShowLookup:
+        """The show's feed and its newest episodes in one throttled call."""
+        query = urlencode(
+            {"id": apple_id, "entity": "podcastEpisode", "limit": ITUNES_EPISODE_LOOKUP_LIMIT}
+        )
+        items = self._itunes(f"{ITUNES_LOOKUP_URL}?{query}")
+        source: RssSource | None = None
+        episodes: list[AppleEpisode] = []
+        for item in items:
+            if item.get("wrapperType") == "podcastEpisode":
+                track_id, title = item.get("trackId"), item.get("trackName")
+                if not isinstance(track_id, int) or not isinstance(title, str):
+                    continue
+                guid, audio = item.get("episodeGuid"), item.get("episodeUrl")
+                episodes.append(
+                    AppleEpisode(
+                        track_id=str(track_id),
+                        title=title[:MAX_TITLE_CHARS],
+                        guid=guid if isinstance(guid, str) and guid else None,
+                        audio_url=audio if isinstance(audio, str) and _valid_feed_url(audio) else None,
+                    )
+                )
+            elif source is None and (result := self._as_result(item)) is not None:
+                source = RssSource(
+                    kind="rss",
+                    feed_url=result.feed_url,
+                    title=result.title,
+                    artwork_url=result.artwork_url,
+                )
+        if source is None:
+            raise PodcastError(
+                422, f"Apple has no podcast with id {apple_id}, or it publishes no public feed URL"
+            )
+        return AppleShowLookup(source=source, episodes=episodes)
 
     def _resolve_feed(self, url: str) -> RssSource:
         try:
