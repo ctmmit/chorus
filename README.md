@@ -104,6 +104,14 @@ You are the agent. Complete these steps in order:
 4. Call `list_shows`, then `submit_digest` with that soul, current context, and
    at least one episode. Poll `get_digest(job_id)` until `done` or `failed`.
    Deliver the grounded highlights, warnings, and authenticated `audio_url`.
+5. To deliver this every week without being asked, subscribe. The agent flow is
+   `search_podcasts` -> `preview_subscription` -> `subscribe`: find each show
+   the principal follows, preview the episodes the first run would send, then
+   subscribe with the soul, context, and the confirmed sources. Chorus checks
+   every feed for new episodes on each run, never repeats one it already sent,
+   and emails the digest (or a short "nothing new" note). Manage it with
+   `list_subscriptions`, `update_subscription`, and `unsubscribe`; the
+   `chorus-weekly` skill walks through each step.
 
 The HTTP API exposes the same flow at `POST /digest` and `GET /digest/{job_id}`.
 Read [`SKILL.md`](SKILL.md) for its complete request, response, and failure contract.

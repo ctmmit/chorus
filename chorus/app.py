@@ -79,6 +79,7 @@ from chorus.mcp_server import mount_mcp
 from chorus.models import DigestRequest, Job, JobStatus, KeyRequest, SelectionRequest
 from chorus.personas import PersonaRegistry
 from chorus.pipeline import Deps
+from chorus.podcasts_api import PodcastDirectory, build_podcasts_router
 from chorus.quotas import QuotaExceeded, enforce_job_quota
 from chorus.runners import InngestRunner, JobRunner
 from chorus.scheduler import CRON_SECRET_ENV
@@ -127,6 +128,9 @@ DEFAULT_STALE_JOB_SECONDS = 1800
 # headers are added at all (today's behavior — same-origin/non-browser
 # callers only).
 CORS_ORIGINS_ENV = "CHORUS_CORS_ORIGINS"
+# Base URL of the web app (web/): when set, the key email carries a sign-in
+# link `<url>/subscribe#token=<token>` in addition to the token text.
+VIEWER_URL_ENV = "CHORUS_VIEWER_URL"
 # Inngest signs its own requests (INNGEST_SIGNING_KEY) and calls this path
 # directly, not through an agent holding CHORUS_API_TOKEN.
 INNGEST_EXEMPT_PATH = "/api/inngest"
@@ -385,6 +389,11 @@ def create_app(
             "Your Chorus API key is below. Store it securely; it will not be shown again.\n\n"
             f"{issued_token}\n"
         )
+        viewer_url = os.environ.get(VIEWER_URL_ENV, "").strip().rstrip("/")
+        if viewer_url:
+            # The token rides in the URL fragment, which browsers never send to
+            # a server and which therefore stays out of access logs.
+            text += f"\nOr sign in to the web app: {viewer_url}/subscribe#token={issued_token}\n"
         try:
             email_sender.send(request.email, subject, text)
         except Exception as err:
@@ -473,6 +482,10 @@ def create_app(
     app.include_router(
         build_subscriptions_router(subscription_store, store, deps, email_sender, cron_secret)
     )
+    # Podcast search/resolve/OPML import and POST /souls/interview, sharing
+    # one cache and throttle with the MCP tools.
+    podcasts = PodcastDirectory()
+    app.include_router(build_podcasts_router(podcasts))
 
     # Inngest only when it is actually the active runner (a durable-step
     # invocation needs the same store/deps every step reads and writes).
@@ -486,7 +499,7 @@ def create_app(
     # rather than awaiting the whole pipeline inline within one MCP call.
     # Mounts at / internally so its own route stays exactly /mcp. Keep last:
     # Starlette resolves routes in order and this mount is intentionally catch-all.
-    mount_mcp(app, store, deps, runner)
+    mount_mcp(app, store, deps, runner, subscription_store, podcasts)
     return app
 
 

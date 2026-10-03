@@ -335,10 +335,10 @@ async def run_tick_body(
     tests, same pattern as `run_digest_body`."""
     now = datetime.now(UTC)
     base_url = resolve_base_url(None)
-    ran: list[dict[str, str]] = []
+    ran: list[dict[str, str | None]] = []
     for subscription in due_subscriptions(subscription_store, now):
 
-        async def _run(subscription: Subscription = subscription) -> dict[str, str]:
+        async def _run(subscription: Subscription = subscription) -> dict[str, str | None]:
             job_id = run_subscription(
                 subscription, store, deps, subscription_store, email_sender, base_url, now
             )

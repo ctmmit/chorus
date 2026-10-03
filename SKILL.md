@@ -345,14 +345,75 @@ curl -s -H "$AUTH" "$BASE/digest/$JOB" \
 
 ## Subscriptions
 
-A subscription is a stored digest request plus a schedule and a delivery
-address: create one and the service runs it every week (or day) on its own —
-you no longer poll and re-submit. Every write is scoped to whichever token
-created it: the master token sees and edits every subscription, an issued
-key sees and edits only its own (another key's subscription id 404s, exactly
-like an unknown one, so a key can't enumerate other principals).
+A subscription is a list of **sources** (podcast RSS feeds, YouTube channels)
+plus a schedule and a delivery address. Create one and the service runs it
+every week (or day) on its own: on each run it checks every source's feed for
+episodes published since the last run, drops any it has already sent, digests
+the rest, and emails the result. You do not poll and you do not re-submit.
+Every write is scoped to whichever token created it: the master token sees and
+edits every subscription, an issued key sees and edits only its own (another
+key's subscription id 404s, exactly like an unknown one, so a key can't
+enumerate other principals).
 
-### Create
+Over MCP the whole flow is three tools: `search_podcasts` (or
+`resolve_podcast` for a pasted link), then `preview_subscription`, then
+`subscribe`. `list_subscriptions`, `update_subscription` and `unsubscribe`
+manage what exists. The HTTP routes below are the same operations.
+
+### 1. Find the sources
+
+A source is one of three JSON shapes, discriminated on `kind`:
+
+```json
+{ "kind": "rss", "feed_url": "https://feeds.example.com/acquired.xml", "title": "Acquired", "artwork_url": null }
+{ "kind": "youtube", "channel_id": "UCxxxxxxxxxxxxxxxxxxxxxx", "title": "Lex Clips" }
+{ "kind": "show", "show": "20VC with Harry Stebbings" }
+```
+
+`rss` is the normal case. `youtube` takes the channel id (`UC` plus 22
+characters), not the @handle; episodes are listed from the channel's public
+Atom feed (video ids, titles and publish times only). `show` names a catalog
+show from `GET /shows`; the catalog is the static demo set, so it never gains
+episodes. Feed URLs must be `https` unless the operator has set
+`CHORUS_ALLOW_HTTP`.
+
+Three routes build sources without hand-writing them:
+
+- `GET /podcasts/search?q=acquired&limit=10` searches Apple's directory and
+  returns `[{ "title", "author", "feed_url", "artwork_url", "apple_id" }]`.
+  Pass `feed_url` and `title` into an `rss` source. Results are cached for an
+  hour and Apple rate-limits the upstream API (about 20 calls a minute), so a
+  burst of distinct queries can return `429`; retry shortly.
+- `POST /podcasts/resolve` with `{ "url": "..." }` turns a link into a source.
+  It accepts a direct RSS URL (fetched and checked to be RSS, title and artwork
+  filled in), an Apple Podcasts show URL (`podcasts.apple.com/.../id123456`),
+  and a YouTube channel URL (`youtube.com/channel/UC...`). `@handle`, `/c/` and
+  `/user/` YouTube URLs resolve only when the operator has configured a YouTube
+  API key; otherwise the route answers `422` and asks for the
+  `/channel/UC...` URL. Anything unrecognized is a `422` with the reason.
+- `POST /podcasts/import-opml` with `{ "opml": "<xml string, up to 1 MiB>" }`
+  reads a podcast-app export and returns `{ "sources": [...], "skipped":
+  [{ "line", "reason" }] }`. It creates nothing; review the list first.
+
+No soul yet? `POST /souls/interview` with `{ "answers": { "identity": "...",
+"interests": "...", ... } }` (the six keys under "Building a soul") returns
+`{ "soul": "<markdown>" }`.
+
+### 2. Preview
+
+`POST /subscriptions/preview`
+
+```json
+{ "sources": [ ...source objects... ], "lookback_days": 7, "max_episodes_per_run": 8 }
+```
+
+returns `{ "episodes": [{ "source_title", "title", "published_at", "episode" }],
+"errors": [{ "source", "reason" }] }`: exactly the episodes the first run would
+digest, newest first, capped round-robin across sources, plus any source that
+could not be read. Show the principal the list and drop sources that errored.
+Nothing is saved.
+
+### 3. Create
 
 `POST /subscriptions`
 
@@ -361,57 +422,86 @@ like an unknown one, so a key can't enumerate other principals).
   "email": "you@example.com",
   "soul": "<markdown: your lens>",
   "context": "<plain text>",
-  "episodes": [{ "video_id": "gs39QFYIbBY" }],
+  "sources": [ ...source objects... ],
   "cadence": "weekly",
-  "highlight_count": 4
+  "highlight_count": 4,
+  "max_episodes_per_run": 8,
+  "lookback_days_first_run": 7,
+  "notify_when_empty": true
 }
 ```
 
-Provide either `episodes` (explicit, same shape as `POST /digest`) or `shows`
-(catalog show names, resolved fresh each run — new episodes get picked up
-automatically). `cadence` is `"weekly"` (next Friday 13:00 UTC) or `"daily"`
-(next 13:00 UTC); `profile` works exactly as in `POST /digest` (omit for the
-single-voice default). The response is the stored `Subscription`, including
-its `subscription_id` and computed `next_run_at`.
+Give exactly one of `sources`, `episodes` or `shows`; `sources` takes 1 to 50
+entries. `cadence` is `"weekly"` (next Friday 13:00 UTC) or `"daily"` (next
+13:00 UTC); `profile` works exactly as in `POST /digest`. The response is the
+stored subscription: `subscription_id`, `next_run_at`, and the run state
+described next.
 
-### Refresh context
+### What each run does
 
-Context goes stale between runs. `PATCH /subscriptions/{id}` any time before
-the next run:
+1. Lists every source and keeps episodes published after the previous run
+   (`last_run_at`). The first run looks back `lookback_days_first_run` days
+   (1 to 30, default 7).
+2. Drops any episode whose id is in `seen_episode_ids`, the ids already sent
+   (the most recent 2,000 are kept), so an episode is never digested twice.
+3. Takes at most `max_episodes_per_run` (1 to 20, default 8) round-robin across
+   sources, so one prolific show cannot crowd out the others. Episodes the cap
+   leaves out are not carried over; the email says how many were left out.
+4. Creates one digest job for those episodes, counted against the owner's job
+   quota like any other, and emails the result with highlights grouped by show.
+5. Records `last_run_summary`: `{ "ran_at", "new_episodes", "job_id",
+   "skipped_reason" }`.
+
+A run with nothing new creates no job. With `notify_when_empty: true` (the
+default) it emails a short "Nothing new from your shows this week" note listing
+the sources it checked; with `false` it stays silent. Either way
+`last_run_summary.skipped_reason` is `"no new episodes"` and the schedule
+advances. A source that cannot be read never stops the run: it is named, with
+the reason, in the email's "Could not check" footer, and when every source
+fails the cursor does not advance so the next run covers the gap. A digest job
+that fails emails a short failure notice and leaves the cursor and seen list
+alone, so the same episodes are retried on the next run.
+
+The older `episodes` (an explicit list) and `shows` (catalog names) forms are
+still accepted. They re-digest the same fixed set on every run and never
+discover new episodes; use `sources` for a recurring digest.
+
+### Change it
+
+`PATCH /subscriptions/{id}` any time before the next run; only the fields you
+send change:
 
 ```bash
 curl -s -X PATCH "$BASE/subscriptions/$SUB_ID" -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"context":"<this week'"'"'s projects, reading, priorities>"}'
 ```
 
-The same route also toggles `active` (pause without deleting), changes
-`cadence`, or replaces `episodes`/`shows`/`highlight_count`. Only the fields
-you send are changed.
+It accepts `context`, `active` (pause or resume without deleting), `cadence`,
+`highlight_count`, `sources`, `max_episodes_per_run` and `notify_when_empty`.
+Replacing `sources` keeps `seen_episode_ids`, so nothing already sent repeats.
 
 ### List, inspect, run now, delete
 
-- `GET /subscriptions` — every subscription you (or, with the master token,
-  anyone) own.
-- `GET /subscriptions/{id}` — one subscription.
-- `POST /subscriptions/{id}/run` — run it immediately (bypassing the
-  schedule) and return `{"job_id"}`; poll `GET /digest/{job_id}` as usual.
-  Also advances `next_run_at` and sends the same email a scheduled run would.
-- `DELETE /subscriptions/{id}` — stop and remove it.
+- `GET /subscriptions` returns every subscription you (or, with the master
+  token, anyone) own.
+- `GET /subscriptions/{id}` returns one.
+- `POST /subscriptions/{id}/run` runs it immediately (bypassing the schedule)
+  and returns `{ "job_id", "skipped_reason" }`; `job_id` is `null` when there
+  was nothing new. Poll `GET /digest/{job_id}` as usual. It also advances
+  `next_run_at` and sends the same email a scheduled run would.
+- `DELETE /subscriptions/{id}` stops and removes it.
 
 ### Delivery and unsubscribe
 
-On its scheduled run the service submits the digest job itself, waits for it
-to reach a terminal state, and emails `email`: highlights grouped by
-episode with a working per-highlight link (`youtube.com/watch?v=<id>&t=<s>s`
-for YouTube episodes, the plain `audio_url` for RSS episodes), refused and
-skipped episodes listed honestly, one link to the rendered audio episode,
-and the lens's provenance (`soul_version`, `soul_origin`). A failed run still
-emails a short "this week's digest failed: `<error>`" notice and still
-advances the schedule — a subscription is never silently stuck.
+The email carries highlights grouped by show with a working per-highlight link
+(`youtube.com/watch?v=<id>&t=<s>s` for YouTube episodes, the plain `audio_url`
+for RSS episodes), refused and skipped episodes listed honestly, one link to
+the rendered audio episode, and the lens's provenance (`soul_version`,
+`soul_origin`).
 
 Every email carries a one-click unsubscribe link
 (`GET /subscriptions/{id}/unsubscribe?token=<sig>`, HMAC-signed, no API
-token required — it's meant to be clicked from an email client) and the
+token required, since it is meant to be clicked from an email client) and the
 `List-Unsubscribe` / `List-Unsubscribe-Post` headers Gmail and Yahoo require
 of bulk senders. Clicking it deactivates the subscription (`active: false`);
 clicking it again is a no-op, not an error.

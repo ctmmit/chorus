@@ -18,15 +18,19 @@ still carries the job id.
 """
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+import functools
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from typing import cast
+from datetime import UTC, datetime
+from typing import Any, Literal, cast
 
+import anyio.to_thread
 from fastapi import FastAPI
 from mcp.server.fastmcp import Context, FastMCP  # type: ignore[import-not-found,import-untyped]
 
 from chorus import catalog
 from chorus.bootstrap import get_soul_builder
+from chorus.feeds import SubscriptionPreview
 from chorus.jobs import MASTER_OWNER, JobStore, SqliteJobStore
 from chorus.models import (
     DigestRequest,
@@ -37,15 +41,47 @@ from chorus.models import (
     SelectionRequest,
 )
 from chorus.pipeline import Deps, default_deps
+from chorus.podcasts_api import PodcastDirectory, PodcastSearchResult
 from chorus.quotas import QuotaExceeded, enforce_job_quota
 from chorus.runners import BackgroundRunner, JobRunner
+from chorus.subscriptions import (
+    DEFAULT_LOOKBACK_DAYS,
+    DEFAULT_MAX_EPISODES_PER_RUN,
+    Source,
+    Subscription,
+    SubscriptionCreate,
+    SubscriptionStore,
+    SubscriptionUpdate,
+)
+from chorus.subscriptions_api import (
+    PreviewRequest,
+    apply_update,
+    get_owned,
+    new_subscription,
+    preview_for,
+)
 
 MCP_NAME = "Chorus"
 MCP_INSTRUCTIONS = (
     "Build persona-conditioned podcast digests. List shows, submit episodes or a catalog "
     "selection, then poll the returned job id (get_digest) until done or failed — submission "
-    "returns immediately and does not itself wait for the pipeline to finish."
+    "returns immediately and does not itself wait for the pipeline to finish. For a recurring "
+    "weekly email digest, find shows with search_podcasts (or resolve_podcast for a pasted "
+    "URL), check preview_subscription, then subscribe; the service checks each feed for new "
+    "episodes on every run and never repeats one."
 )
+
+def _in_thread[T](fn: Callable[..., T]) -> Callable[..., Any]:
+    """Register a blocking-network tool as async: FastMCP runs a plain `def`
+    tool on the event loop, and a feed fetch (up to 20 s per source) would
+    stall every other request on the app. The wrapper keeps `fn`'s signature
+    and docstring (functools.wraps), so the tool schema is unchanged."""
+
+    @functools.wraps(fn)
+    async def wrapper(*args: Any, **kwargs: Any) -> T:
+        return await anyio.to_thread.run_sync(functools.partial(fn, *args, **kwargs))
+
+    return wrapper
 
 
 class MCPSubmitError(RuntimeError):
@@ -85,13 +121,33 @@ class ChorusTools:
     """Directly callable tool implementation with injected storage, providers,
     and job runner."""
 
-    def __init__(self, store: JobStore, deps: Deps, runner: JobRunner | None = None) -> None:
+    def __init__(
+        self,
+        store: JobStore,
+        deps: Deps,
+        runner: JobRunner | None = None,
+        subscription_store: SubscriptionStore | None = None,
+        podcasts: PodcastDirectory | None = None,
+    ) -> None:
         self._store = store
         self._deps = deps
         # Defaults to a BackgroundRunner over `store`/`deps` so direct callers
         # (tests, the local stdio transport) work with zero extra wiring;
         # chorus.app.create_app always passes the app's own selected runner.
         self._runner = runner or BackgroundRunner(store, deps)
+        self._subscription_store = subscription_store
+        self._podcasts = podcasts or PodcastDirectory()
+
+    def _subscriptions(self) -> SubscriptionStore:
+        """The subscription store: the app's own when injected, else selected
+        the same way chorus.app does (Postgres when DATABASE_URL is set, else
+        SQLite beside the job store). Created lazily so a server that never
+        touches subscriptions opens no extra connection."""
+        if self._subscription_store is None:
+            from chorus import config_env
+
+            self._subscription_store = config_env.select_subscription_store(self._store)
+        return self._subscription_store
 
     def list_shows(self) -> list[dict[str, object]]:
         """List catalog shows and their currently selectable episodes."""
@@ -165,6 +221,128 @@ class ChorusTools:
         """Build soul.md from the interview answer keys documented in the skill."""
         return get_soul_builder().build_from_interview(answers)
 
+    # --- Recurring digests: search or resolve -> preview -> subscribe ----------
+
+    def search_podcasts(self, query: str, limit: int = 10) -> list[PodcastSearchResult]:
+        """Step 1 of subscribing: find podcasts by name in Apple's directory.
+        Returns up to `limit` shows with title, author, feed_url, artwork_url
+        and apple_id. To subscribe to one, pass {"kind": "rss", "feed_url":
+        <feed_url>, "title": <title>} as a source to preview_subscription and
+        then subscribe. Results are cached for an hour, so repeat searches
+        are free."""
+        return self._podcasts.search(query, limit)
+
+    def resolve_podcast(self, url: str) -> Source:
+        """Step 1 of subscribing, when you already have a link: turn an RSS
+        feed URL, an Apple Podcasts show URL (podcasts.apple.com/.../id123) or
+        a YouTube channel URL (/channel/UC...) into a source object ready for
+        preview_subscription and subscribe. YouTube @handle URLs resolve only
+        when the server has a YouTube API key; otherwise paste the
+        /channel/UC... URL."""
+        return self._podcasts.resolve(url)
+
+    def preview_subscription(
+        self,
+        sources: list[Source],
+        lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+        max_episodes_per_run: int = DEFAULT_MAX_EPISODES_PER_RUN,
+    ) -> SubscriptionPreview:
+        """Step 2 of subscribing: show exactly which episodes the first run
+        would digest for these sources (published within `lookback_days`,
+        capped at `max_episodes_per_run` round-robin across sources), plus any
+        source that could not be read. Saves nothing. Show the principal this
+        list, drop sources with errors, then call subscribe."""
+        return preview_for(
+            PreviewRequest(
+                sources=sources,
+                lookback_days=lookback_days,
+                max_episodes_per_run=max_episodes_per_run,
+            )
+        )
+
+    def subscribe(
+        self,
+        email: str,
+        soul: str,
+        context: str,
+        sources: list[Source],
+        cadence: Literal["weekly", "daily"] = "weekly",
+        highlight_count: int = 4,
+        profile: EpisodeProfile | None = None,
+        max_episodes_per_run: int = DEFAULT_MAX_EPISODES_PER_RUN,
+        ctx: Context | None = None,
+    ) -> Subscription:
+        """Step 3: create the recurring digest. On every run (weekly: Friday
+        13:00 UTC; daily: 13:00 UTC) the service checks each source for
+        episodes published since the last run, digests only ones it has not
+        sent before, and emails `email`; a week with nothing new gets a short
+        "nothing new" note. `sources` are objects from search_podcasts /
+        resolve_podcast, e.g. {"kind": "rss", "feed_url": "...", "title": "..."},
+        {"kind": "youtube", "channel_id": "UC..."}. Returns the stored
+        subscription including its subscription_id."""
+        payload = SubscriptionCreate(
+            email=email,
+            soul=soul,
+            context=context,
+            sources=sources,
+            cadence=cadence,
+            highlight_count=highlight_count,
+            profile=profile,
+            max_episodes_per_run=max_episodes_per_run,
+        )
+        subscription = new_subscription(payload, _owner_from_context(ctx), datetime.now(UTC))
+        self._subscriptions().create(subscription)
+        return subscription
+
+    def list_subscriptions(self, ctx: Context | None = None) -> list[Subscription]:
+        """List your subscriptions with their sources, schedule, last_run_summary
+        and the episode ids already sent. (The master token lists everyone's.)"""
+        owner = _owner_from_context(ctx)
+        return self._subscriptions().list(owner=None if owner == MASTER_OWNER else owner)
+
+    def update_subscription(
+        self,
+        subscription_id: str,
+        context: str | None = None,
+        active: bool | None = None,
+        cadence: Literal["weekly", "daily"] | None = None,
+        sources: list[Source] | None = None,
+        highlight_count: int | None = None,
+        max_episodes_per_run: int | None = None,
+        notify_when_empty: bool | None = None,
+        ctx: Context | None = None,
+    ) -> Subscription:
+        """Change a subscription; only the fields you pass are changed (leave
+        the rest out). Typical uses: refresh `context` before the next run,
+        pause or resume with `active`, replace `sources` (episodes already
+        sent stay remembered, so nothing repeats), change `cadence`, or turn
+        the "nothing new" email off with `notify_when_empty=False`."""
+        supplied = {
+            "context": context,
+            "active": active,
+            "cadence": cadence,
+            "sources": sources,
+            "highlight_count": highlight_count,
+            "max_episodes_per_run": max_episodes_per_run,
+            "notify_when_empty": notify_when_empty,
+        }
+        payload = SubscriptionUpdate.model_validate(
+            {k: v for k, v in supplied.items() if v is not None}
+        )
+        store = self._subscriptions()
+        current = get_owned(store, subscription_id, _owner_from_context(ctx))
+        updated = apply_update(current, payload)
+        store.save(updated)
+        return updated
+
+    def unsubscribe(self, subscription_id: str, ctx: Context | None = None) -> dict[str, str]:
+        """Stop and delete a subscription (it is removed, not paused; use
+        update_subscription(active=False) to pause instead)."""
+        store = self._subscriptions()
+        get_owned(store, subscription_id, _owner_from_context(ctx))
+        store.delete(subscription_id)
+        return {"unsubscribed": subscription_id}
+
     def _submit(self, request: DigestRequest, ctx: Context | None) -> dict[str, str]:
         owner = _owner_from_context(ctx)
         try:
@@ -185,7 +363,11 @@ class ChorusTools:
 
 
 def create_mcp_server(
-    store: JobStore, deps: Deps, runner: JobRunner | None = None
+    store: JobStore,
+    deps: Deps,
+    runner: JobRunner | None = None,
+    subscription_store: SubscriptionStore | None = None,
+    podcasts: PodcastDirectory | None = None,
 ) -> tuple[FastMCP, ChorusTools]:
     """Create one MCP server and expose its direct-call implementation for tests."""
     server = FastMCP(
@@ -196,18 +378,33 @@ def create_mcp_server(
         host="0.0.0.0",
         json_response=True,
     )
-    tools = ChorusTools(store, deps, runner)
+    tools = ChorusTools(store, deps, runner, subscription_store, podcasts)
     server.add_tool(tools.list_shows)
     server.add_tool(tools.submit_digest)
     server.add_tool(tools.submit_selection)
     server.add_tool(tools.get_digest)
     server.add_tool(tools.build_soul_from_interview)
+    # Tools that fetch feeds or call Apple/YouTube run off the event loop.
+    server.add_tool(_in_thread(tools.search_podcasts))
+    server.add_tool(_in_thread(tools.resolve_podcast))
+    server.add_tool(_in_thread(tools.preview_subscription))
+    server.add_tool(tools.subscribe)
+    server.add_tool(tools.list_subscriptions)
+    server.add_tool(tools.update_subscription)
+    server.add_tool(tools.unsubscribe)
     return server, tools
 
 
-def mount_mcp(app: FastAPI, store: JobStore, deps: Deps, runner: JobRunner | None = None) -> None:
+def mount_mcp(
+    app: FastAPI,
+    store: JobStore,
+    deps: Deps,
+    runner: JobRunner | None = None,
+    subscription_store: SubscriptionStore | None = None,
+    podcasts: PodcastDirectory | None = None,
+) -> None:
     """Mount Streamable HTTP at /mcp and compose its lifespan into FastAPI."""
-    server, tools = create_mcp_server(store, deps, runner)
+    server, tools = create_mcp_server(store, deps, runner, subscription_store, podcasts)
     mcp_app = server.streamable_http_app()
     parent_lifespan = app.router.lifespan_context
 
@@ -234,12 +431,14 @@ def main() -> None:
     load_env()
     store = SqliteJobStore()
     deps = default_deps()
-    server, _ = create_mcp_server(store, deps, BackgroundRunner(store, deps))
+    server, tools = create_mcp_server(store, deps, BackgroundRunner(store, deps))
     try:
         server.run(transport="stdio")
     finally:
         deps.close()
         store.close()
+        if tools._subscription_store is not None:
+            tools._subscription_store.close()
 
 
 if __name__ == "__main__":
