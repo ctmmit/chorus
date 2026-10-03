@@ -6,7 +6,13 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { Job, NetworkGraph, Persona, ShowListing } from "@/lib/api-types";
+import type {
+  Job,
+  NetworkGraph,
+  Persona,
+  PodcastSearchResult,
+  ShowListing,
+} from "@/lib/api-types";
 
 const MOCKS_DIR = path.join(process.cwd(), "mocks");
 const FIXTURE_JOB_FILES = ["job_investor.json", "job_popculture.json"] as const;
@@ -67,4 +73,14 @@ export async function readMockPersona(personaId: string): Promise<Persona | null
  * matching the real endpoint's public-only listing. */
 export async function readMockPersonas(): Promise<Persona[]> {
   return readJsonFile<Persona[]>("personas.json");
+}
+
+/** Search catalog behind GET /podcasts/search in mock mode. */
+export async function readMockPodcastCatalog(): Promise<PodcastSearchResult[]> {
+  return readJsonFile<PodcastSearchResult[]>("podcast_catalog.json");
+}
+
+/** The committed sample OPML export (web/mocks/subscriptions_sample.opml). */
+export async function readSampleOpml(): Promise<string> {
+  return readFile(path.join(MOCKS_DIR, "subscriptions_sample.opml"), "utf-8");
 }
