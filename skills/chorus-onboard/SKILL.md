@@ -20,9 +20,10 @@ They ship with Chorus and update when Chorus does.
 4. Never answer an onboarding question for the principal. The soul step is
    required: show them the full draft and save it only once they approve it.
 5. Once ready, `run_my_digest` starts a digest. If it returns
-   `brain: "host"`, you do the thinking: loop on `host_next(job_id)` and
-   follow each task (wait, score, script) until it is `done`. Otherwise poll
-   `get_digest(job_id)` until it is `done` or `failed`. Then share:
+   `drive: "host_next"`, you do part of the work: loop on `host_next(job_id)`
+   and follow each task (wait, score, script, render with your text-to-speech
+   tool) until it is `done`. Otherwise poll `get_digest(job_id)` until it is
+   `done` or `failed`. Then share:
    - each highlight with its timestamp
    - any refusals, without padding
    - the episode file

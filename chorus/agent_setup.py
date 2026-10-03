@@ -124,6 +124,15 @@ def step_prompt(step: Step, config: OnboardingConfig) -> StepPrompt:
                 "model; Chorus serves the instructions and checks every citation. Say which "
                 "model you are, so the principal knows who will be judging their podcasts."
             )
+        if step is Step.voice and config.mode is Mode.host_agent:
+            notes.append(
+                "'host-plugin' means you voice the episode with your own text-to-speech tool. "
+                "Before offering it, check that you have one, such as an ElevenLabs MCP "
+                "server (text_to_speech), connector or plugin. If not, you can offer to "
+                "install the official server (command `uvx elevenlabs-mcp`, with "
+                "ELEVENLABS_API_KEY in its env, which the principal enters into your config "
+                "themselves), or recommend another option."
+            )
         if step in (Step.brain, Step.voice):
             notes.append(
                 "Options marked unavailable are on the roadmap. Mention them, but only offer "
@@ -207,7 +216,11 @@ def step_prompt(step: Step, config: OnboardingConfig) -> StepPrompt:
             ],
             data={"catalog_shows": [s["show"] for s in list_shows()]},
         )
-    billed = config.brain is Brain.anthropic or config.voice is Voice.elevenlabs_key
+    billed = config.brain is Brain.anthropic or config.voice in (
+        Voice.elevenlabs_key,
+        Voice.host_plugin,
+    )
+    agent_driven = config.brain is Brain.host or config.voice is Voice.host_plugin
     return StepPrompt(
         step=step,
         title=title,
@@ -219,11 +232,12 @@ def step_prompt(step: Step, config: OnboardingConfig) -> StepPrompt:
             "brain, pass agent_model (the model you are) so the run records who judged it.",
             *(
                 [
-                    "With the host brain, that starts a run you drive yourself: follow "
-                    "host_next(job_id) through scoring and the script until it is done. The "
-                    "step completes when that run finishes."
+                    "Your agent does part of this setup's work, so that starts a run you "
+                    "drive yourself: follow host_next(job_id) through each task (score, "
+                    "script, render) until it is done. The step completes when that run "
+                    "finishes."
                 ]
-                if config.brain is Brain.host
+                if agent_driven
                 else []
             ),
             "Share the highlights it returns, and where the episode file was saved.",
@@ -423,7 +437,7 @@ def smoke_test(
     ]
     if unfinished:
         raise OnboardingError(f"finish these steps first: {', '.join(unfinished)}")
-    if config.brain is Brain.host:
+    if config.brain is Brain.host or config.voice is Voice.host_plugin:
         return _start_host_smoke(config, background, agent_model)
     job = run_smoke(config)
     if job.status is JobStatus.done:
@@ -454,8 +468,8 @@ def _start_host_smoke(
     save_config(config.model_copy(update={"smoke_job": job_id}))
     return {
         "host_job_id": job_id,
-        "instructions": "Drive this run yourself: follow host_next(job_id) through scoring and "
-        "the script. The smoke test completes when the run is done.",
+        "instructions": "Drive this run yourself: follow host_next(job_id) through each task "
+        "until it is done. The smoke test completes when the run is done.",
         "next": task.model_dump(mode="json"),
     }
 

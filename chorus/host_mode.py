@@ -36,8 +36,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import threading
 import time
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
@@ -45,7 +47,9 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from chorus import paths
-from chorus.brains import build_provider, build_voice
+from chorus.artifacts import LocalArtifactStore, artifact_stem
+from chorus.audio import MockAudioRenderer
+from chorus.brains import BrainConfigError, build_provider, build_thinking, build_voice
 from chorus.curation import RELEVANCE_THRESHOLD, curate_episode, soul_version, window_segments
 from chorus.ingest import AllEpisodesFailed
 from chorus.jobs import JobStore, SqliteJobStore
@@ -68,8 +72,9 @@ from chorus.models import (
     Take,
     Turn,
 )
-from chorus.onboarding import Brain, OnboardingConfig, OnboardingError, status
-from chorus.pipeline import PLACEHOLDER_AUDIO_WARNING, stage_audio, stage_ingest
+from chorus.onboarding import Brain, OnboardingConfig, OnboardingError, Voice, status
+from chorus.pipeline import PLACEHOLDER_AUDIO_WARNING, Deps, run_job, stage_audio, stage_ingest
+from chorus.render_plan import AudioChunkError, RenderPlan, build_plan, join_mp3, read_chunk
 from chorus.script import _max_turns, _speaker_persona, _turns_transcript
 from chorus.soul import load_soul
 
@@ -79,10 +84,12 @@ HOST_PROTOCOL = 1
 RUBRIC_VERSION = "host-1"
 RUNS_DIRNAME = "runs"
 WAIT_SECONDS = 3
+SHARING_RETRIES = 20
+SHARING_RETRY_SECONDS = 0.01
 EMPTY_EPISODE_TEXT = "Nothing cleared the bar this week."
 
-Phase = Literal["ingesting", "scoring", "scripting", "done", "failed"]
-TaskKind = Literal["wait", "score", "script", "done", "failed"]
+Phase = Literal["ingesting", "thinking", "scoring", "scripting", "rendering", "done", "failed"]
+TaskKind = Literal["wait", "score", "script", "render", "done", "failed"]
 
 SCORING_INSTRUCTIONS = f"""\
 Score how strongly each transcript window below matches the principal's lens.
@@ -119,6 +126,24 @@ Write a short, opinionated podcast script in the principal's lens.
 Submit with host_submit_script (shell: `chorus setup host-script`) as
   {schema}
 """
+
+RENDER_INSTRUCTIONS = """\
+Voice this episode with your own text-to-speech tool: for example the ElevenLabs MCP
+server's text_to_speech, or an ElevenLabs connector or plugin.
+
+- Voice every chunk in render_plan.chunks, in index order, with that chunk's voice_id
+  and the plan's model_id. Ask for MP3 output (output_format {output_format}).
+- If your tool takes an output directory, use {staging}
+- Then call host_submit_audio (shell: `chorus setup host-audio`) with every chunk:
+  [{{"index": 0, "path": "<the file your tool saved>"}}, ...]
+  Use "base64" instead of "path" if your tool hands back audio bytes.
+- If you have no text-to-speech tool, or it fails, call host_submit_audio with a
+  skip_reason. The digest is still delivered, with the script as text.
+{dialogue_note}"""
+_DIALOGUE_RENDER_NOTE = (
+    "- This is a two-host episode voiced turn by turn with alternating voices. It sounds "
+    "less natural than a native dialogue model; mention that if the principal asks.\n"
+)
 
 _MONOLOGUE_RULES = "- Single voice: write takes only, in the order they should be spoken.\n"
 _DIALOGUE_RULES = """\
@@ -163,6 +188,7 @@ class HostTask(BaseModel):
     speakers: list[dict[str, str]] | None = None
     style: dict[str, Any] | None = None
     max_turns: int | None = None
+    render_plan: dict[str, Any] | None = None
     result: dict[str, Any] | None = None
     error: str | None = None
 
@@ -206,18 +232,41 @@ def _episode_key(episode_id: str) -> str:
     return hashlib.sha1(episode_id.encode("utf-8")).hexdigest()[:16]
 
 
+def _retry_sharing[T](action: Callable[[], T]) -> T:
+    """Retry briefly on Windows sharing violations. `os.replace` onto a file
+    another thread has open for reading (an agent polling host_next while the
+    background ingest saves state) fails with PermissionError on Windows,
+    where POSIX would just swap the inode. The window is microseconds wide."""
+    for attempt in range(SHARING_RETRIES):
+        try:
+            return action()
+        except PermissionError:
+            if attempt == SHARING_RETRIES - 1:
+                raise
+            time.sleep(SHARING_RETRY_SECONDS * (attempt + 1))
+    raise AssertionError("unreachable")
+
+
 def _write(path: Path, model: BaseModel) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
+    # A unique temp name per write: two writers never share one temp file.
+    tmp = path.with_name(f"{path.stem}.{uuid.uuid4().hex}.tmp")
     tmp.write_text(model.model_dump_json(), encoding="utf-8")
-    tmp.replace(path)
+    try:
+        _retry_sharing(lambda: tmp.replace(path))
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def _read(path: Path) -> str:
+    return _retry_sharing(lambda: path.read_text(encoding="utf-8"))
 
 
 def _load_state(job_id: str) -> HostRunState:
     target = run_dir(job_id) / "state.json"
     if not target.is_file():
         raise HostModeError(f"no host-brain run {job_id}")
-    return HostRunState.model_validate_json(target.read_text(encoding="utf-8"))
+    return HostRunState.model_validate_json(_read(target))
 
 
 def _save_state(state: HostRunState) -> None:
@@ -226,7 +275,7 @@ def _save_state(state: HostRunState) -> None:
 
 def _load_ingest(job_id: str) -> IngestResult:
     return IngestResult.model_validate_json(
-        (run_dir(job_id) / "ingest.json").read_text(encoding="utf-8")
+        _read(run_dir(job_id) / "ingest.json")
     )
 
 
@@ -238,7 +287,7 @@ def _scored(job_id: str, episode_id: str) -> EpisodeDigest | None:
     target = _score_path(job_id, episode_id)
     if not target.is_file():
         return None
-    return EpisodeDigest.model_validate_json(target.read_text(encoding="utf-8"))
+    return EpisodeDigest.model_validate_json(_read(target))
 
 
 def _job(store: JobStore, job_id: str) -> Job:
@@ -286,8 +335,11 @@ def start(
     """Create the job and ingest its transcripts. `background=True` (MCP)
     returns at once and the agent polls `next_task`; the CLI ingests inline
     because its process exits after the command."""
-    if config.brain is not Brain.host:
-        raise HostModeError("this setup's brain is not 'host'; use run_my_digest instead")
+    agent_brain = config.brain is Brain.host
+    if not agent_brain and config.voice is not Voice.host_plugin:
+        raise HostModeError(
+            "neither the brain nor the voice is your agent in this setup; use run_my_digest"
+        )
     if require_ready and not status(config).ready:
         raise OnboardingError("setup is incomplete; call onboarding_status")
     if not episodes:
@@ -295,12 +347,46 @@ def start(
     request = build_request(config, episodes, episode_format)
     job_id = store.create()
     state = HostRunState(
-        job_id=job_id, phase="ingesting", request=request, brain_model=brain_model
+        job_id=job_id,
+        phase="ingesting" if agent_brain else "thinking",
+        request=request,
+        brain_model=brain_model if agent_brain else None,
     )
     _save_state(state)
     job = _job(store, job_id)
-    job.usage = JobUsage(brain="host", brain_model=brain_model, rubric_version=RUBRIC_VERSION)
+    job.usage = (
+        JobUsage(brain="host", brain_model=brain_model, rubric_version=RUBRIC_VERSION)
+        if agent_brain
+        else JobUsage(brain=config.brain.value if config.brain else None)
+    )
     store.save(job)
+
+    def think_work(store: JobStore) -> None:
+        """Chorus's own brain curates and scripts; the agent voices it."""
+        try:
+            llm, composer = build_thinking(config)
+        except BrainConfigError as err:
+            _fail(store, state, str(err))
+            return
+        deps = Deps(
+            build_provider(config),
+            llm,
+            composer,
+            MockAudioRenderer(),  # never called: the run stops before audio
+            LocalArtifactStore(paths.artifacts_dir()),
+        )
+        try:
+            run_job(job_id, request, store, deps, stop_before_audio=True)
+        finally:
+            deps.close()
+        finished = _job(store, job_id)
+        if finished.status is JobStatus.failed:
+            state.phase, state.error = "failed", finished.error
+        elif finished.status is JobStatus.done:
+            state.phase = "done"  # script synthesis failed; the digest stands without audio
+        else:
+            state.phase = "rendering"
+        _save_state(state)
 
     def ingest_work(store: JobStore) -> None:
         provider = build_provider(config)
@@ -332,8 +418,9 @@ def start(
         state.phase = "scoring"
         _save_state(state)
 
+    work = ingest_work if agent_brain else think_work
     if not background:
-        ingest_work(store)
+        work(store)
         return job_id
 
     # The caller may close its store as soon as this returns (the smoke test
@@ -344,7 +431,13 @@ def start(
     def ingest_in_background() -> None:
         own = SqliteJobStore(db_path)
         try:
-            ingest_work(own)
+            work(own)
+        except Exception as err:  # noqa: BLE001 - a dead thread must never strand the run
+            log.exception("host run %s: background work failed", job_id)
+            try:
+                _fail(own, state, f"{type(err).__name__}: {err}")
+            except Exception:  # noqa: BLE001 - nothing more can be recorded
+                log.exception("host run %s: could not record the failure", job_id)
         finally:
             own.close()
 
@@ -441,6 +534,16 @@ def next_task(store: JobStore, job_id: str) -> HostTask:
             instructions="Chorus is fetching transcripts. Call host_next again shortly.",
             wait_seconds=WAIT_SECONDS,
         )
+    if state.phase == "thinking":
+        return HostTask(
+            job_id=job_id,
+            kind="wait",
+            instructions="Chorus is curating and writing the script. Call host_next again "
+            "shortly.",
+            wait_seconds=WAIT_SECONDS,
+        )
+    if state.phase == "rendering":
+        return _render_task(store, state)
     if state.phase == "failed":
         return HostTask(
             job_id=job_id,
@@ -657,14 +760,20 @@ def _complete(
 ) -> None:
     """Render the audio with the principal's chosen voice and finish the job.
     Audio failure degrades (warning), exactly as in the in-process pipeline."""
-    from chorus.artifacts import LocalArtifactStore
     from chorus.onboarding import load_config
 
+    principal = config or load_config()
     job = _job(store, state.job_id)
     job.script = script
     job.warnings += [f"dropped ungrounded script item {d}" for d in dropped]
+    if principal.voice is Voice.host_plugin:
+        job.status = JobStatus.digest_ready
+        store.save(job)
+        state.phase = "rendering"
+        _save_state(state)
+        return
     try:
-        renderer = build_voice(config or load_config())
+        renderer = build_voice(principal)
         audio = stage_audio(
             script,
             state.request,
@@ -682,3 +791,89 @@ def _complete(
     store.save(job)
     state.phase = "done"
     _save_state(state)
+
+
+# --- agent-rendered audio ("host-plugin" voice) ----------------------------
+
+
+def _env_voices() -> dict[str, str]:
+    pairs = {
+        "host": os.environ.get("ELEVENLABS_VOICE_ID"),
+        "cohost": os.environ.get("ELEVENLABS_COHOST_VOICE_ID"),
+    }
+    return {role: voice for role, voice in pairs.items() if voice}
+
+
+def _plan_for(store: JobStore, job_id: str) -> RenderPlan:
+    script = _job(store, job_id).script
+    if script is None:
+        raise HostModeError(f"run {job_id} has no script to voice")
+    return build_plan(script, _env_voices())
+
+
+def _render_task(store: JobStore, state: HostRunState) -> HostTask:
+    plan = _plan_for(store, state.job_id)
+    staging = run_dir(state.job_id) / "audio"
+    staging.mkdir(parents=True, exist_ok=True)
+    return HostTask(
+        job_id=state.job_id,
+        kind="render",
+        instructions=RENDER_INSTRUCTIONS.format(
+            output_format=plan.output_format,
+            staging=staging,
+            dialogue_note=_DIALOGUE_RENDER_NOTE if plan.format == "dialogue" else "",
+        ),
+        render_plan=plan.model_dump(),
+    )
+
+
+def submit_audio(
+    store: JobStore,
+    job_id: str,
+    chunks: list[dict[str, Any]] | None = None,
+    skip_reason: str | None = None,
+) -> dict[str, Any]:
+    """Join the agent's voiced chunks into the episode, or record why it could
+    not voice them. Either way the run finishes and the digest is delivered."""
+    with _lock(job_id):
+        state = _load_state(job_id)
+        if state.phase != "rendering":
+            raise HostModeError(f"run {job_id} is {state.phase}, not waiting for audio")
+        job = _job(store, job_id)
+        artifacts = LocalArtifactStore(paths.artifacts_dir())
+        stem = artifact_stem(job_id)
+        if skip_reason is not None:
+            text = (job.script.monologue if job.script else EMPTY_EPISODE_TEXT).encode("utf-8")
+            job.audio_url = artifacts.put(f"{stem}.txt", text, "text/plain")
+            reason = skip_reason.strip() or "no reason given"
+            job.warnings.append(f"audio skipped by the agent: {reason}")
+        else:
+            plan = _plan_for(store, job_id)
+            try:
+                data = join_mp3(_ordered_chunks(chunks or [], len(plan.chunks)))
+            except AudioChunkError as err:
+                raise HostModeError(str(err)) from err
+            job.audio_url = artifacts.put(f"{stem}.mp3", data, "audio/mpeg")
+        job.status = JobStatus.done
+        store.save(job)
+        state.phase = "done"
+        _save_state(state)
+    return {"next": next_task(store, job_id).model_dump(mode="json")}
+
+
+def _ordered_chunks(chunks: list[dict[str, Any]], expected: int) -> list[bytes]:
+    by_index: dict[int, bytes] = {}
+    for item in chunks:
+        index = item.get("index")
+        if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < expected:
+            raise HostModeError(f"chunk index {index!r} is not in the plan (0..{expected - 1})")
+        if index in by_index:
+            raise HostModeError(f"chunk {index} was submitted twice")
+        try:
+            by_index[index] = read_chunk(item.get("path"), item.get("base64"))
+        except AudioChunkError as err:
+            raise HostModeError(f"chunk {index}: {err}") from err
+    missing = [i for i in range(expected) if i not in by_index]
+    if missing:
+        raise HostModeError(f"missing chunks {missing}; voice every chunk in the plan")
+    return [by_index[i] for i in range(expected)]

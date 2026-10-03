@@ -24,7 +24,6 @@ from chorus import paths
 from chorus.soul import SoulError, describe_problems, load_soul, validate_soul
 
 CONFIG_SCHEMA_VERSION = 1
-LATER_RELEASE = "arrives in a later Chorus release"
 
 
 class Step(StrEnum):
@@ -197,14 +196,12 @@ def options(step: Step, config: OnboardingConfig) -> list[Option]:
         return [
             Option(
                 value=Voice.host_plugin,
-                label="The agent's ElevenLabs plugin",
-                detail="Chorus hands the agent a render plan; its ElevenLabs MCP voices it.",
-                available=False,
-                reason=(
-                    "needs mode 'host-agent'"
-                    if config.mode is not Mode.host_agent
-                    else LATER_RELEASE
-                ),
+                label="Your agent's voice tool (e.g. an ElevenLabs plugin)",
+                detail="Chorus hands your agent the script in voiced chunks; its own "
+                "text-to-speech tool renders them on your account. Two-host episodes are "
+                "voiced turn by turn.",
+                available=config.mode is Mode.host_agent,
+                reason=None if config.mode is Mode.host_agent else "needs mode 'host-agent'",
             ),
             Option(
                 value=Voice.elevenlabs_key,

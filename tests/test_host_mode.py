@@ -106,7 +106,7 @@ def test_host_brain_needs_no_keys_and_is_ready() -> None:
 def test_start_refuses_a_non_host_brain(store: Any) -> None:
     _setup_host()
     agent_setup.set_choice("brain", "mock")
-    with pytest.raises(HostModeError, match="not 'host'"):
+    with pytest.raises(HostModeError, match="neither the brain nor the voice"):
         _start(store)
 
 
@@ -329,3 +329,49 @@ def test_cli_host_run(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> Non
     )
     assert call("host-script", job_id, "--file", str(script))["next"]["kind"] == "done"
     assert call("host-next", job_id)["result"]["status"] == "done"
+
+
+# --- robustness ------------------------------------------------------------
+
+
+def test_state_write_retries_a_windows_sharing_violation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Windows refuses os.replace onto a file another thread is reading.
+    real_replace = Path.replace
+    failures = {"left": 2}
+
+    def flaky_replace(self: Path, target: Any) -> Path:
+        if failures["left"]:
+            failures["left"] -= 1
+            raise PermissionError(5, "Access is denied")
+        return real_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", flaky_replace)
+    target = tmp_path / "state.json"
+    host_mode._write(target, EpisodeInput(video_id="x"))
+    assert failures["left"] == 0
+    assert EpisodeInput.model_validate_json(target.read_text(encoding="utf-8")).video_id == "x"
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_unexpected_background_failure_fails_the_run(
+    store: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _setup_host()
+    real_write = host_mode._write
+
+    def broken_write(path: Path, model: Any) -> None:
+        if path.name == "ingest.json":
+            raise OSError("disk full")
+        real_write(path, model)
+
+    monkeypatch.setattr(host_mode, "_write", broken_write)
+    job_id = host_mode.start(store, load_config(), [EpisodeInput(video_id=SAMPLE)])
+    deadline = time.monotonic() + WAIT_LIMIT_SECONDS
+    task = host_mode.next_task(store, job_id)
+    while task.kind == "wait":
+        assert time.monotonic() < deadline, "run stranded in wait"
+        time.sleep(0.05)
+        task = host_mode.next_task(store, job_id)
+    assert task.kind == "failed" and task.error and "disk full" in task.error

@@ -31,7 +31,6 @@ from chorus.onboarding import (
     dump_config,
     load_config,
     mark_done,
-    options,
     reset,
     save_config,
     set_env_value,
@@ -154,12 +153,9 @@ def test_legacy_state_is_copied_once(tmp_path: Path) -> None:
 # --- state machine ---------------------------------------------------------
 
 
-def test_plugin_voice_is_not_offered_yet() -> None:
-    config = OnboardingConfig(mode=Mode.host_agent)
-    voice = {o.value: o for o in options(Step.voice, config)}
-    assert not voice[Voice.host_plugin].available
-    with pytest.raises(OnboardingError, match="unavailable"):
-        apply(Step.voice, Voice.host_plugin, config)
+def test_plugin_voice_is_refused_outside_host_agent_mode() -> None:
+    with pytest.raises(OnboardingError, match="needs mode 'host-agent'"):
+        apply(Step.voice, Voice.host_plugin, OnboardingConfig(mode=Mode.local_agent))
 
 
 def test_host_brain_is_refused_outside_host_agent_mode() -> None:

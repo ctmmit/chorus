@@ -72,7 +72,8 @@ def build_voice(config: OnboardingConfig) -> AudioRenderer:
         return ProfileAwareRenderer(mock, mock)
     if config.voice is Voice.host_plugin:
         raise BrainConfigError(
-            "the 'host-plugin' voice runs through your coding agent's ElevenLabs MCP"
+            "the 'host-plugin' voice is your agent's own text-to-speech tool: ask your agent "
+            "to run the digest (MCP run_my_digest, or `chorus setup host-start`)"
         )
     raise BrainConfigError("no voice chosen; run `chorus onboard`")
 

@@ -17,16 +17,17 @@ from mcp.server.fastmcp import FastMCP  # type: ignore[import-not-found,import-u
 
 from chorus import agent_setup, host_mode
 from chorus.jobs import JobStore
-from chorus.onboarding import Brain, load_config
+from chorus.onboarding import Brain, Voice, load_config
 
 LOCAL_INSTRUCTIONS = (
     "Chorus curates the podcasts a principal cannot get to and returns cited highlights plus a "
     "short voiced episode. Start every session with onboarding_status. If ready is false, walk "
     "the principal through `next`: ask them its `ask` text, follow its agent_notes, call the "
     "matching onboarding_* tool, and repeat until ready. The soul step is required. Once ready, "
-    "run_my_digest starts this week's digest. If it returns brain='host', you are the brain: "
-    "loop on host_next(job_id) and do what each task says (wait, score an episode, write the "
-    "script) until it is done. Otherwise poll get_digest(job_id) until done or failed."
+    "run_my_digest starts this week's digest. If it returns drive='host_next', you do part "
+    "of the work: loop on host_next(job_id) and do what each task says (wait, score an "
+    "episode, write the script, voice the audio) until it is done. Otherwise poll "
+    "get_digest(job_id) until done or failed."
 )
 
 
@@ -93,7 +94,8 @@ def register_setup_tools(server: FastMCP, store: JobStore) -> None:
     ) -> dict[str, str]:
         """Start a digest with the principal's saved soul and choices, over this
         week's shows and feeds (or the given episode ids). Returns {"job_id",
-        "brain"} immediately. brain='host' means you do the thinking: loop on
+        "brain"} immediately, plus drive='host_next' when you do part of the
+        work (your model thinks, or your voice tool renders): then loop on
         host_next(job_id). Otherwise poll get_digest. format: 'monologue' or
         'dialogue' (two hosts; host brain only). agent_model: the model you are
         (host brain only; recorded with the run). Refuses until setup is done."""
@@ -127,6 +129,18 @@ def register_setup_tools(server: FastMCP, store: JobStore) -> None:
         valid highlight ref are dropped and listed. Renders the episode."""
         return host_mode.submit_script(store, load_config(), job_id, takes, turns)
 
+    def host_submit_audio(
+        job_id: str,
+        chunks: list[dict[str, Any]] | None = None,
+        skip_reason: str | None = None,
+    ) -> dict[str, Any]:
+        """Agent voice: submit every chunk of the render plan you voiced, as
+        [{"index": <chunk index>, "path": "<mp3 file>"}] (or "base64" instead
+        of "path"). Chorus checks they are MP3 and joins them in order. If you
+        could not voice them, pass skip_reason instead; the digest is still
+        delivered with the script as text."""
+        return host_mode.submit_audio(store, job_id, chunks, skip_reason)
+
     for tool in (
         onboarding_status,
         onboarding_options,
@@ -142,6 +156,7 @@ def register_setup_tools(server: FastMCP, store: JobStore) -> None:
         host_episode,
         host_submit_scores,
         host_submit_script,
+        host_submit_audio,
     ):
         server.add_tool(tool)
 
@@ -174,11 +189,12 @@ def submit_configured_digest(
     )
     if not episodes:
         raise OnboardingError("no new episodes in the past week from the followed shows and feeds")
-    if config.brain is Brain.host:
+    if config.brain is Brain.host or config.voice is Voice.host_plugin:
         job_id = host_mode.start(
             store, config, episodes, episode_format=episode_format, brain_model=agent_model
         )
-        return {"job_id": job_id, "brain": "host"}
+        brain_name = config.brain.value if config.brain else "unknown"
+        return {"job_id": job_id, "brain": brain_name, "drive": "host_next"}
     try:
         deps = build_local_deps(config)
     except BrainConfigError as err:

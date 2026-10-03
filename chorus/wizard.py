@@ -277,10 +277,10 @@ class Wizard:
         return mark_done(updated, Step.shows)
 
     def _smoke(self, config: OnboardingConfig) -> OnboardingConfig:
-        if config.brain is Brain.host:
+        if config.brain is Brain.host or config.voice is Voice.host_plugin:
             self.io.say(
-                "  Your agent is the brain, so it runs the test digest. Connect Chorus to it "
-                "(below) and ask it to finish your Chorus setup."
+                "  Your agent does part of the work, so it runs the test digest. Connect "
+                "Chorus to it (below) and ask it to finish your Chorus setup."
             )
             return config
         # The sample transcript is a bundled fixture, so transcript keys are

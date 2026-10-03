@@ -107,6 +107,13 @@ def _add_setup(commands: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     host_script.add_argument(
         "--file", required=True, help='{"takes": [...], "turns": [...]} JSON (- for stdin)'
     )
+    host_audio = actions.add_parser("host-audio", help="agent voice: submit the voiced chunks")
+    host_audio.add_argument("job_id")
+    audio_input = host_audio.add_mutually_exclusive_group(required=True)
+    audio_input.add_argument(
+        "--file", help='{"chunks": [{"index": 0, "path": "..."}]} JSON (- for stdin)'
+    )
+    audio_input.add_argument("--skip", metavar="REASON", help="could not voice it; deliver text")
 
 
 def _read_arg(value: str) -> str:
@@ -196,6 +203,11 @@ def _host_action(args: argparse.Namespace) -> object:
             return host_mode.next_task(store, args.job_id)
         if args.action == "host-episode":
             return host_mode.episode_windows(args.job_id, args.episode_id)
+        if args.action == "host-audio":
+            if args.skip is not None:
+                return host_mode.submit_audio(store, args.job_id, skip_reason=args.skip)
+            chunks = json.loads(_read_arg(args.file))["chunks"]
+            return host_mode.submit_audio(store, args.job_id, chunks)
         body = json.loads(_read_arg(args.file))
         if args.action == "host-scores":
             return host_mode.submit_scores(store, args.job_id, args.episode_id, body["scores"])

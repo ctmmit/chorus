@@ -146,7 +146,15 @@ Ask, call the matching tool, and repeat. The steps are:
      model. No Anthropic key is needed, and Chorus checks every citation.
    - `anthropic`: Chorus calls Claude itself, using an Anthropic API key.
    - `mock`: the free demo.
-3. **voice**: who voices the episode (an ElevenLabs key, or text only)
+3. **voice**: who voices the episode. The options are:
+   - `host-plugin`: your own text-to-speech tool, such as an ElevenLabs MCP server,
+     connector or plugin, billed to the principal's account. If you don't have one,
+     you can offer to install the official server: add a stdio MCP server running
+     `uvx elevenlabs-mcp` with `ELEVENLABS_API_KEY` in its env, and have the
+     principal enter that key into your config themselves.
+   - `elevenlabs-key`: Chorus calls ElevenLabs itself. Two-host episodes sound more
+     natural this way.
+   - `text-only`: no audio.
 4. **transcripts**: where transcripts come from
 5. **keys**: whatever API keys those choices need. A key pasted into chat stays
    in the conversation transcript. Tell the principal, and offer the
@@ -163,10 +171,11 @@ Chorus won't run a digest until the soul is saved and validated.
 
 ## 5. Run
 
-Tier A: `run_my_digest` returns a `job_id` and a `brain`.
+Tier A: `run_my_digest` returns a `job_id`, a `brain`, and `drive: "host_next"`
+whenever you do part of the work (your model thinks, your voice tool renders,
+or both).
 
-- **If `brain` is `host`, you are the brain.** Loop on `host_next(job_id)` and
-  do what each task says:
+- **With `drive`, loop on `host_next(job_id)`** and do what each task says:
   - `wait`: call `host_next` again after `wait_seconds`.
   - `score`: score the episode's windows against the lens, following the
     task's `instructions`, then call `host_submit_scores`. If you can run
@@ -174,15 +183,19 @@ Tier A: `run_my_digest` returns a `job_id` and a `brain`.
     `host_episode` returns any one episode's windows.
   - `script`: write the takes (plus turns for a two-host episode), each citing
     a highlight by `ref`, then call `host_submit_script`.
+  - `render`: voice each chunk in `render_plan` with your text-to-speech tool,
+    using its `voice_id` and MP3 output. Then call `host_submit_audio` with
+    `[{"index": i, "path": "<file>"}]`, or `"base64"` instead of `"path"`. If you
+    can't voice it, pass `skip_reason`; the digest still goes out as text.
   - `done`: deliver `result`.
 
   Pass `agent_model` (the model you are) to `run_my_digest`, so the run
   records who judged it.
-- **Otherwise,** poll `get_digest(job_id)` until it reports `done` or `failed`.
+- **Without `drive`,** poll `get_digest(job_id)` until it reports `done` or `failed`.
 
 Tier B: `chorus setup run` waits and prints the result. With the host brain,
-use `chorus setup host-start`, `host-next`, `host-scores` and `host-script`
-instead.
+or the agent voice, use `chorus setup host-start`, `host-next`, `host-scores`,
+`host-script` and `host-audio` instead.
 
 Chorus never takes a quote from you. It cuts every quote from the
 transcript, so highlights stay verifiable whichever model scored them.
