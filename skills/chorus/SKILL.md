@@ -13,7 +13,7 @@ This is a thought partner with a point of view, not a generic summary.
 
 ## Base URL & auth
 
-- Base URL: the deployed service (e.g. `https://chorus.up.railway.app`).
+- Base URL: the deployed service your operator gives you (e.g. `https://<chorus-host>`).
 - Auth: send `Authorization: Bearer <token>` on **every** request, including
   `audio_url` downloads. The token is issued by whoever deployed the service.
   A missing or wrong token returns `401`. (A dev instance running only mock

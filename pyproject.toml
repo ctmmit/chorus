@@ -23,6 +23,20 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11"]
 
+# Installed into the venv's Scripts/ (Windows) or bin/ (macOS/Linux) by
+# `pip install -e .`, so an agent's MCP config can point at one executable
+# instead of depending on its launch directory.
+[project.scripts]
+chorus-mcp = "chorus.mcp_server:main"
+chorus-api = "chorus.app:serve"
+
+# The repo root is a flat layout with many top-level folders (tests, scripts,
+# web, fixtures, skills, docs); only `chorus` is the package. Install editable
+# (`pip install -e .`): the package reads fixtures/ and .env.local relative to
+# the checkout, so a non-editable install from a wheel is not supported.
+[tool.setuptools.packages.find]
+include = ["chorus*"]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]

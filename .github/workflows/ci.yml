@@ -23,6 +23,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
+          pip install -e . --no-deps
+
+      # The README tells agents to launch `chorus-mcp` by absolute path from
+      # any directory; prove the package and both commands resolve outside
+      # the checkout.
+      - name: Package install smoke
+        working-directory: /tmp
+        run: |
+          python -c "import chorus.mcp_server, chorus.app"
+          command -v chorus-mcp
+          command -v chorus-api
 
       # The full fixture transcripts live in the private repo (see
       # fixtures/README.md). Without them the real-fixture tests skip and

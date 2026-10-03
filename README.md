@@ -13,31 +13,53 @@ You are the agent. Complete these steps in order:
      -d '{"email":"principal@example.com"}'
    ```
 
-2. Install the Chorus skill, or connect the MCP server:
+2. Connect to Chorus. There are two ways, and they differ in where the work runs.
+
+   **Hosted (an operator runs Chorus for you).** Install the skill, which teaches
+   you the HTTP contract, and point it at the operator's base URL with your token:
 
    ```bash
    npx skills add ctmmit/chorus
    ```
 
-   For a local stdio server, clone this repository and point the client at its
-   Python environment. Claude Desktop uses this JSON; Claude Code can use the
-   command immediately below it.
+   Or connect the hosted MCP endpoint directly:
+
+   ```bash
+   claude mcp add --transport http chorus https://<chorus-host>/mcp \
+     --header "Authorization: Bearer <token>"
+   ```
+
+   **Local (Chorus runs on your principal's machine).** The whole pipeline runs
+   as a subprocess of the agent over MCP stdio. No server and no token are
+   needed. Set it up once from a clone:
+
+   ```bash
+   git clone https://github.com/ctmmit/chorus.git
+   cd chorus
+   python -m venv .venv
+   .venv/Scripts/python -m pip install -r requirements.txt   # macOS/Linux: .venv/bin/python
+   .venv/Scripts/python -m pip install -e . --no-deps
+   ```
+
+   That installs a `chorus-mcp` command inside the venv. Point the agent at its
+   absolute path: `<clone>/.venv/Scripts/chorus-mcp.exe` on Windows,
+   `<clone>/.venv/bin/chorus-mcp` on macOS and Linux. It works from any
+   directory.
+
+   Claude Code:
+
+   ```bash
+   claude mcp add --scope user --transport stdio chorus -- <clone>/.venv/Scripts/chorus-mcp.exe
+   ```
+
+   Claude Desktop (`claude_desktop_config.json`):
 
    ```json
    {
      "mcpServers": {
-       "chorus": {
-         "command": "C:/path/to/chorus/.venv/Scripts/python.exe",
-         "args": ["-m", "chorus.mcp_server"]
-       }
+       "chorus": { "command": "<clone>/.venv/Scripts/chorus-mcp.exe" }
      }
    }
-   ```
-
-   ```bash
-   claude mcp add --transport stdio chorus -- C:/path/to/chorus/.venv/Scripts/python.exe -m chorus.mcp_server
-   claude mcp add --transport http chorus https://<chorus-host>/mcp \
-     --header "Authorization: Bearer <token>"
    ```
 
    OpenClaw accepts either form in `openclaw.json`:
@@ -46,10 +68,7 @@ You are the agent. Complete these steps in order:
    {
      mcp: {
        servers: {
-         chorusLocal: {
-           command: "C:/path/to/chorus/.venv/Scripts/python.exe",
-           args: ["-m", "chorus.mcp_server"],
-         },
+         chorusLocal: { command: "<clone>/.venv/Scripts/chorus-mcp.exe" },
          chorus: {
            url: "https://<chorus-host>/mcp",
            transport: "streamable-http",
@@ -65,13 +84,19 @@ You are the agent. Complete these steps in order:
    ```yaml
    mcp_servers:
      chorus_local:
-       command: "C:/path/to/chorus/.venv/Scripts/python.exe"
-       args: ["-m", "chorus.mcp_server"]
+       command: "<clone>/.venv/Scripts/chorus-mcp.exe"
      chorus:
        url: "https://<chorus-host>/mcp"
        headers:
          Authorization: "Bearer ${CHORUS_API_TOKEN}"
    ```
+
+   Local mode reads provider keys from `<clone>/.env.local` (copy it from
+   `.env.local.example`). With no keys it runs deterministic mocks and spends
+   nothing: digests are keyword-scored and `audio_url` is a text placeholder.
+   With `ANTHROPIC_API_KEY` and `ELEVENLABS_API_KEY` set it makes real, billed
+   calls. Without a transcript key it can only read the bundled catalog and
+   RSS feeds that publish their own transcripts.
 
 3. Run the `chorus-soul-bootstrap` interview. Ask the six questions, then call
    `build_soul_from_interview` and save the returned markdown as the principal's
@@ -104,7 +129,8 @@ use fixtures and mocks.
 
 ```powershell
 python -m venv .venv
-.venv\Scripts\python.exe -m pip install -r requirements.in -r requirements-dev.in
+.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.venv\Scripts\python.exe -m pip install -e . --no-deps
 Copy-Item .env.local.example .env.local
 .venv\Scripts\python.exe -m pytest -q
 .venv\Scripts\python.exe -m ruff check chorus tests scripts
@@ -112,8 +138,18 @@ Copy-Item .env.local.example .env.local
 .venv\Scripts\python.exe scripts/golden_path.py
 ```
 
-Run the API with `.venv\Scripts\python.exe -m chorus.app`. Run the local MCP
-stdio server with `.venv\Scripts\python.exe -m chorus.mcp_server`.
+`requirements-dev.txt` holds the exact pinned versions CI uses. The editable
+install adds two commands to the venv:
+
+- `chorus-mcp` runs the local MCP stdio server described above.
+- `chorus-api` serves the HTTP API on `127.0.0.1:8000` after loading
+  `.env.local`. It refuses to start when a provider key is set without
+  `CHORUS_API_TOKEN`. Set `HOST=0.0.0.0` to expose it beyond loopback.
+
+The real show transcripts used by most tests live in the private
+`ctmmit/chorus-private` repository; without them those tests skip and the
+synthetic `sample_public` transcript still covers the whole pipeline. See
+[`fixtures/README.md`](fixtures/README.md).
 
 ## Project documents
 

@@ -152,7 +152,7 @@ it runs, so a duplicate tick around the same moment just finds nothing due).
   explicitly in production** so links in already-delivered emails keep
   working across deploys.
 - `CHORUS_PUBLIC_URL` — the deployed service's own base URL (e.g.
-  `https://chorus.up.railway.app`), used to build the absolute links a
+  `https://<your-app>.vercel.app`), used to build the absolute links a
   subscription email needs (the rendered audio episode, the unsubscribe
   link) from a cron-triggered invocation that has no incoming request to
   infer its own host from. Without it set, those links fall back to
@@ -210,7 +210,7 @@ in your shell environment (`chorus.config_env` only reads `os.environ`, and
 nothing in the test suite sets these vars).
 
 ```bash
-python -m chorus.app     # loads .env.local, serves on :8000
+chorus-api               # after `pip install -e .`; loads .env.local, serves 127.0.0.1:8000
 ```
 
 ## Smoke after deploy

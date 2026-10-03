@@ -508,13 +508,26 @@ def _dispatch_failure_response(store: JobStore, job_id: str, err: Exception) -> 
 app = create_app()
 
 
-if __name__ == "__main__":
-    # Local real-provider serving: `python -m chorus.app` (loads .env.local first).
-    # On Railway/Vercel, env vars are set in the platform, so the module-level
-    # `app` above already gets real providers via config_env's selection.
+LOCAL_HOST_DEFAULT = "127.0.0.1"
+LOCAL_PORT_DEFAULT = "8000"
+
+
+def serve() -> None:
+    """Local real-provider serving: the `chorus-api` command (or
+    `python -m chorus.app`). Loads .env.local first. Binds loopback by default;
+    set HOST=0.0.0.0 to expose it on the network. On Vercel, env vars are set
+    in the platform and the module-level `app` above is what gets served."""
     import uvicorn  # type: ignore[import-not-found]
 
     from chorus.config import load_env
 
     load_env()
-    uvicorn.run(create_app(), host="0.0.0.0", port=int(os.environ.get("PORT", "8000")))
+    uvicorn.run(
+        create_app(),
+        host=os.environ.get("HOST", LOCAL_HOST_DEFAULT),
+        port=int(os.environ.get("PORT", LOCAL_PORT_DEFAULT)),
+    )
+
+
+if __name__ == "__main__":
+    serve()

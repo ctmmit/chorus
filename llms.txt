@@ -21,4 +21,4 @@ bearer token or a self-serve API key delivered by email.
 
 ## Optional
 
-- [OpenAPI](https://chorus.up.railway.app/openapi.json): Machine-readable HTTP schemas for a deployed Chorus instance.
+- OpenAPI: `GET /openapi.json` on any deployed Chorus instance (bearer token required) returns the machine-readable HTTP schemas.

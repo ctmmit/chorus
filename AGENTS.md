@@ -6,7 +6,7 @@
 - `chorus/models.py`: Pydantic v2 request, response, and pipeline models.
 - `chorus/mcp_server.py`: FastMCP tools plus stdio and Streamable HTTP entrypoints.
 - `chorus/keys.py`, `chorus/email.py`: self-serve API-key and delivery seams.
-- `chorus/jobs.py`: SQLite job persistence.
+- `chorus/jobs.py`, `chorus/stores/postgres.py`: SQLite and Postgres persistence behind one Protocol.
 - `chorus/pipeline.py`: ingest → curate → script → audio orchestration.
 - `chorus/bootstrap.py`: source-agnostic soul builders.
 - `fixtures/`: public test inputs; real transcripts are gitignored.
@@ -15,7 +15,9 @@
 
 ## Commands
 
-Set `$PY` to the repository's Python 3.12 interpreter, then run from the root:
+Set `$PY` to the repository's Python 3.12 interpreter. Install once with
+`& $PY -m pip install -r requirements-dev.txt` then `& $PY -m pip install -e . --no-deps`,
+then run from the root:
 
 ```powershell
 & $PY -m pytest -q
