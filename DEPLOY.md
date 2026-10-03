@@ -88,11 +88,37 @@ it runs, so a duplicate tick around the same moment just finds nothing due).
 - `ELEVENLABS_API_KEY` — required for real audio. Without it `audio_url` is
   null.
 - `ELEVENLABS_VOICE_ID` — optional (defaults to ElevenLabs "Rachel").
-- `TRANSCRIPT_API_KEY` — Supadata managed captions (YouTube). Optional;
-  without it the live chain skips straight to the RSS/Deepgram providers.
-- `DEEPGRAM_API_KEY` — Deepgram STT, the last-resort transcript fallback
-  (transcribes the episode audio directly). Optional.
-- `CHORUS_ALLOW_HTTP` — set to `1` to let the RSS/Deepgram SSRF guard
+- `ASSEMBLYAI_API_KEY` — AssemblyAI speech-to-text (Universal-3.5 Pro, with
+  speaker labels) on the episode's RSS enclosure audio: the primary ASR tier.
+  Optional; about $0.23 per audio hour. A job is submitted then polled for up
+  to 240 s, which fits one function invocation / Inngest step; a longer job
+  raises a retryable provider error. Set `CHORUS_API_TOKEN` before adding this
+  key: an open endpoint with a paid ASR key is an open wallet.
+- `DEEPGRAM_API_KEY` — Deepgram Nova-3 STT with diarization, the backup ASR
+  tier (runs when AssemblyAI is unset or fails). Optional.
+- `TRANSCRIPT_API_KEY` — Supadata, native YouTube captions only
+  (`mode=native`, so it can never silently bill AI transcription for an
+  episode without captions). Optional; the last-resort tier for episodes with
+  no RSS audio.
+- **Transcript ladder.** One builder, `chorus.config_env.build_transcript_chain`,
+  serves both `build_deps` (Postgres/Vercel) and `default_deps` (SQLite/local):
+  fixture, then the publisher's RSS `podcast:transcript` (JSON, VTT or SRT;
+  untimed `text/plain`/`text/html` are skipped), then AssemblyAI, then Deepgram,
+  then Supadata, each rung present only when its key is set. The active chain
+  is logged at startup. Why this order (reports/Podcast transcript sources.md,
+  02 Oct 2026): transcribing the publisher's own enclosure costs about $0.29
+  per 75-minute episode and covers every show with a feed, returns acoustic
+  word timing and speaker labels, and rests on the acquisition route current
+  case law treats most kindly (*Thomson Reuters v. ROSS*, 3d Cir., 29 Sep 2026,
+  rewards using an authorized source over copying for convenience). YouTube
+  captions cost about half a cent but breach YouTube's terms, fail from cloud
+  IPs, carry no speakers and index a video that can differ from the podcast
+  audio, so they run last. Only successes are cached, so an episode whose
+  publisher transcript appears later is picked up on its next request; an ASR
+  transcript already cached stays until evicted. Each ASR transcript records the
+  exact audio URL it transcribed (`source_audio_url`) because dynamic ad
+  insertion can shift timestamps between downloads.
+- `CHORUS_ALLOW_HTTP` — set to `1` to let the RSS/Deepgram/AssemblyAI SSRF guard
   (chorus/netguard.py) accept plain `http://` URLs alongside `https://`.
   Leave unset in every real deployment; it exists only so tests and local
   dev can point at an `http://` fixture server without touching TLS. Every
