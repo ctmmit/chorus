@@ -159,6 +159,18 @@ it runs, so a duplicate tick around the same moment just finds nothing due).
   `http://localhost:8000` outside of an HTTP request context (the Inngest
   `chorus-tick` function and its own dev/test paths) — **set this in
   production**, or every subscription email's links will be wrong.
+- `CHORUS_VIEWER_URL` — base URL of the web app (`web/`), e.g.
+  `https://chorus-viewer.vercel.app`. When set, the key email from `POST /keys`
+  also carries a sign-in link, `<url>/subscribe#token=<key>`, in addition to
+  the key text. The token sits in the URL **fragment**, never a query string:
+  browsers do not send a fragment to any server, so the key stays out of access
+  logs and referrers. Unset means the email carries the key text only.
+- `YOUTUBE_API_KEY` — optional. A YouTube Data API v3 key (sent in the
+  `x-goog-api-key` header) that lets `POST /podcasts/resolve` and the
+  `resolve_podcast` MCP tool turn a YouTube `@handle`, `/c/` or `/user/` URL
+  into a channel id via `channels.list` (1 quota unit per lookup). Without it
+  those URL forms answer `422` and ask for the `/channel/UC...` URL; YouTube
+  pages are never scraped. Channel feeds themselves need no key.
 - `CHORUS_CORS_ORIGINS` — comma-separated allowlist of browser origins
   (e.g. `https://chorus-viewer.vercel.app`) allowed to call this API
   cross-origin (docs/REVIEW_WAVE1.md #13). **Required for the viewer (web/)
@@ -168,7 +180,7 @@ it runs, so a duplicate tick around the same moment just finds nothing due).
   (the viewer proxied through the API's own origin) or non-browser callers.
 - `CHORUS_MAX_JOBS_PER_DAY` / `CHORUS_MAX_INFLIGHT_JOBS` — per-owner spend
   quotas (docs/REVIEW_WAVE1.md #3), enforced before every job creation
-  (`POST /digest`, `/digest/select`, `/subscriptions/{id}/run`, MCP submit
+  (`POST /digest`, `/digest/select`, `/subscriptions/{id}/run`, scheduled feed-subscription runs, MCP submit
   tools). Defaults `20` / `3`. The master token is exempt. Exceeding either
   returns `429`.
 - `CHORUS_KEY_ISSUE_PER_IP_PER_HOUR` — per-client-IP token bucket on

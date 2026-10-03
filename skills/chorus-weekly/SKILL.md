@@ -1,79 +1,102 @@
 ---
 name: chorus-weekly
-description: Set up and maintain a recurring weekly (or daily) Chorus podcast digest for a principal. Use when an agent creates or manages a subscription, refreshes its context, or handles delivery/unsubscribe.
+description: Set up and maintain a recurring weekly (or daily) Chorus podcast digest for a principal. Use when an agent finds shows for a principal, creates or manages a subscription, refreshes its context, or handles delivery/unsubscribe.
 ---
 
 # Run Chorus every week
 
-Chorus owns the schedule now (docs/DEVELOPMENT_PLAN.md §3): create a
-**subscription** once and the service submits the digest job, waits for it,
-and emails the result on its own — `chorus-weekly` describing "your own
-scheduler or agent memory" running a manual gather-submit-poll loop is
-obsolete. Use the `chorus` skill's base URL, auth, and `POST /digest` /
-`GET /digest/{job_id}` contract for everything except the subscription
-lifecycle itself, which lives here.
+Chorus owns the schedule. Create a **subscription** once and the service
+checks each of the principal's shows for new episodes on every run, digests
+only the ones it has not sent before, and emails the result. There is no
+gather-submit-poll loop to run yourself. This skill drives the MCP tools; the
+`chorus` skill documents the same operations as HTTP routes and the
+digest/poll contract.
 
-## Create the subscription
+The flow is `search_podcasts` -> `preview_subscription` -> `subscribe`.
 
-`POST /subscriptions` once, with the same `soul`/`context`/`episodes`
-(or `shows`) shape as `POST /digest`, plus `email` and `cadence`:
+## 1. Find the shows
 
-```json
-{
-  "email": "principal@example.com",
-  "soul": "<markdown: your lens>",
-  "context": "<current projects, reading, priorities>",
-  "shows": ["20VC with Harry Stebbings", "The Tim Ferriss Show"],
-  "cadence": "weekly",
-  "highlight_count": 4
-}
+Ask the principal which shows they follow, then turn each name into a source.
+
+- `search_podcasts(query, limit=10)` searches Apple's directory and returns
+  `title`, `author`, `feed_url`, `artwork_url` and `apple_id`. Show the top
+  matches and let the principal confirm which one they mean; names collide.
+  The source is `{"kind": "rss", "feed_url": <feed_url>, "title": <title>}`.
+- `resolve_podcast(url)` takes a link the principal pasted (an RSS feed, an
+  Apple Podcasts show page, or a YouTube channel at `/channel/UC...`) and
+  returns the source object directly. A YouTube `@handle` link resolves only
+  if the server has a YouTube API key; if it refuses, ask for the
+  `/channel/UC...` URL instead of guessing.
+
+Shows are checked through their RSS feed, so any show with a public feed
+works. A YouTube channel is a source too, for shows that live only there.
+
+## 2. Preview what the first run would send
+
+`preview_subscription(sources, lookback_days=7, max_episodes_per_run=8)`
+returns the episodes the first run would digest (published within
+`lookback_days`, newest first, at most `max_episodes_per_run` shared
+round-robin across shows) and an `errors` list for any source that could not
+be read. Show the principal the titles. Drop or replace a source that
+errored; a feed that fails here will fail on the schedule too. If the list is
+empty for a show they love, the show may simply be between seasons, which is
+fine to subscribe to.
+
+## 3. Subscribe
+
+```
+subscribe(
+  email="principal@example.com",
+  soul="<markdown: the approved lens>",
+  context="<current projects, reading, priorities>",
+  sources=[...],
+  cadence="weekly",          # Friday 13:00 UTC; "daily" is 13:00 UTC
+  highlight_count=4,
+  max_episodes_per_run=8,
+)
 ```
 
-Prefer `shows` (catalog names, resolved fresh every run — a newly published
-episode is picked up automatically) over an explicit `episodes` list unless
-the principal wants a fixed set. `cadence: "weekly"` runs the next Friday
-13:00 UTC; `"daily"` runs the next 13:00 UTC. Store the returned
-`subscription_id` — you need it for every operation below.
+Use the principal's approved `soul.md` (build one with the
+`chorus-soul-bootstrap` skill if they have none). The return value is the
+stored subscription; keep its `subscription_id`, you need it for everything
+below.
 
-## Keep context fresh
+On each run Chorus lists every source's episodes published since the last run,
+drops any whose id is in `seen_episode_ids`, takes up to
+`max_episodes_per_run`, and emails highlights grouped by show with a deep link
+per highlight. A week with nothing new sends a short "Nothing new from your
+shows this week" note listing the sources it checked (turn it off with
+`notify_when_empty=False`). A source that cannot be read is named in the
+email's "Could not check" footer rather than failing the run, and a failed
+digest job emails a short failure notice and retries the same episodes next
+run.
 
-The `context` sent at creation goes stale. Before each week's run (or
-whenever the principal's projects/reading shift), `PATCH /subscriptions/{id}`:
+## Keep it current
 
-```bash
-curl -s -X PATCH "$BASE/subscriptions/$SUB_ID" -H "$AUTH" -H 'Content-Type: application/json' \
-  -d '{"context":"<this week'"'"'s projects, reading, priorities>"}'
-```
+- `list_subscriptions()` shows each subscription's sources, schedule,
+  `last_run_summary` (`ran_at`, `new_episodes`, `job_id`, `skipped_reason`)
+  and the episode ids already sent. Read `last_run_summary` before telling
+  the principal what they received; `skipped_reason: "no new episodes"` means
+  a quiet week, not an error.
+- `update_subscription(subscription_id, ...)` changes only the fields you pass:
+  `context` (refresh it before each week's run, or whenever the principal's
+  projects and reading shift), `active` (False pauses, True resumes),
+  `cadence`, `sources`, `highlight_count`, `max_episodes_per_run`,
+  `notify_when_empty`. Replacing `sources` keeps the sent-episode memory, so
+  nothing repeats. Do not rewrite the soul silently; a changed lens is a
+  deliberate decision for the principal.
+- `unsubscribe(subscription_id)` deletes it. When the principal wants fewer
+  emails or to drop one show, prefer `update_subscription` (fewer sources, or
+  `active=False`) over deleting unless they ask for it gone.
 
-Use the latest approved `soul.md`; do not rewrite the soul silently — if the
-lens itself changed, that is a deliberate `PATCH` with the new `soul`, not an
-automatic side effect of a context refresh. The same route pauses
-(`{"active": false}`) or resumes (`{"active": true}`) delivery without
-losing the subscription, and can change `cadence` or the `episodes`/`shows`
-list.
+Every delivered email also carries a one-click unsubscribe link and the
+standard `List-Unsubscribe` headers, so the principal can stop it themselves.
 
-## Delivery
+## Over HTTP
 
-Nothing to poll: on schedule, Chorus submits the job, waits for a terminal
-state, and emails the principal directly — highlights grouped by episode
-with the why-surfaced line and a working deep link per highlight, refused
-and skipped episodes listed honestly, one link to the rendered audio
-episode, and the lens's provenance. A failed run still emails a short
-failure notice and still advances the schedule; nothing is retried blindly.
-
-If the principal wants this week's digest immediately rather than waiting
-for the schedule, `POST /subscriptions/{id}/run` — same delivery, run now,
-returns `{"job_id"}` you can also poll directly with `GET /digest/{job_id}`
-if you want the text before the email lands.
-
-## Unsubscribe
-
-Every delivered email carries a one-click unsubscribe link
-(`GET /subscriptions/{id}/unsubscribe?token=...`) and the standard
-`List-Unsubscribe` headers. An agent acting for the principal can also just
-`DELETE /subscriptions/{id}` (or pause it with `PATCH {"active": false}`)
-through the API instead of waiting for the principal to click the link.
-
-If the principal cancels a subscribed show or wants fewer emails, prefer
-`PATCH` (reduce `episodes`/`shows`, or pause) over `DELETE` unless they
-explicitly want it gone.
+Without MCP, the same flow is `GET /podcasts/search`, `POST /podcasts/resolve`,
+`POST /subscriptions/preview`, `POST /subscriptions`, `GET /subscriptions`,
+`PATCH /subscriptions/{id}` and `DELETE /subscriptions/{id}`, documented in the
+`chorus` skill's Subscriptions section. `POST /subscriptions/{id}/run` runs a
+subscription immediately and returns `{"job_id", "skipped_reason"}`; `job_id`
+is null when nothing was new.

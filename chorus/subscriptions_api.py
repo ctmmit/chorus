@@ -4,6 +4,11 @@ chorus/app.py with one `app.include_router(...)` call so the route
 definitions (and their ownership-scoping rules) live entirely in this
 module.
 
+Feed subscriptions: `POST /subscriptions` takes typed `sources` (RSS feed,
+YouTube channel, catalog show); `POST /subscriptions/preview` shows what the
+next run would pick up without saving anything. Podcast search/resolve/OPML
+import live in chorus/podcasts_api.py.
+
 Ownership: `request.state.owner` (set by chorus.app's auth middleware) is
 either `"master"` (the master CHORUS_API_TOKEN) or the email an issued key
 was issued to (chorus.keys.KeyStore.owner_of). The master token sees every

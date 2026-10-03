@@ -864,5 +864,16 @@ def test_fakeweb_refuses_unrouted_urls() -> None:
         FakeWeb()("GET", "https://nowhere.example.com", timeout_s=1, what="x", max_bytes=10)
 
 
+def test_skill_docs_no_longer_claim_catalog_shows_pick_up_new_episodes() -> None:
+    root = Path(__file__).resolve().parent.parent
+    for relative in ("SKILL.md", "skills/chorus-weekly/SKILL.md"):
+        text = (root / relative).read_text(encoding="utf-8")
+        assert "picked up automatically" not in text
+    skill = (root / "SKILL.md").read_text(encoding="utf-8")
+    assert "search_podcasts" in skill and "preview_subscription" in skill
+    weekly = (root / "skills/chorus-weekly/SKILL.md").read_text(encoding="utf-8")
+    assert "`search_podcasts` -> `preview_subscription` -> `subscribe`" in weekly
+
+
 def test_youtube_entry_helpers_produce_atom() -> None:
     assert "<yt:videoId>AAAAAAAAAAA</yt:videoId>" in youtube_feed("T", [youtube_entry("AAAAAAAAAAA", "t", "2026-01-01T00:00:00+00:00")])
