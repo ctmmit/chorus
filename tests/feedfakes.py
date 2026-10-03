@@ -41,10 +41,12 @@ class FakeWeb:
         if method != "GET" or url not in self.routes:
             raise TranscriptProviderError(f"{what}: transport error fetching {url}: no route")
         status, body = self.routes[url]
-        if len(body) > max_bytes:
-            raise TranscriptProviderError(f"{what}: response exceeded {max_bytes} bytes at {url}")
         import httpx
 
+        if len(body) > max_bytes:
+            if kwargs.get("truncate_ok"):
+                return _BoundedResponse(status, httpx.Headers({}), body[:max_bytes], True)
+            raise TranscriptProviderError(f"{what}: response exceeded {max_bytes} bytes at {url}")
         return _BoundedResponse(status, httpx.Headers({}), body)
 
 

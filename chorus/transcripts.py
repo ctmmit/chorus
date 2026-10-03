@@ -30,10 +30,10 @@ import logging
 import re
 import time
 import xml.etree.ElementTree as ET
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, cast, runtime_checkable
 from urllib.parse import urljoin
 
 import httpx
@@ -141,7 +141,15 @@ _MS_PER_SECOND = 1000.0
 # caller-controlled endpoint (feed_url, a feed's own transcript/enclosure
 # URLs, audio_url handed to Deepgram) must never be able to force us to
 # buffer an unbounded body.
-MAX_FEED_BYTES = 5 * 1024 * 1024
+# Feeds list newest episodes first, and popular shows publish very large
+# feeds (measured 02 Oct 2026: Odd Lots 6.2 MiB, a large Simplecast show
+# 8.5 MiB, Tim Ferriss 29.1 MiB). Read a bounded prefix and parse the
+# episodes that arrived complete; fall back to a full read, capped at
+# MAX_FEED_FULL_BYTES, only when the prefix can't answer the question.
+FEED_PREFIX_BYTES = 2 * 1024 * 1024
+MAX_FEED_FULL_BYTES = 64 * 1024 * 1024
+# Largest feed body ever buffered (name kept for importers).
+MAX_FEED_BYTES = MAX_FEED_FULL_BYTES
 MAX_TRANSCRIPT_BYTES = 10 * 1024 * 1024
 MAX_STT_RESPONSE_BYTES = 20 * 1024 * 1024
 # Cap on <item> elements scanned per feed — independent of byte size, since a
@@ -560,10 +568,19 @@ class _BoundedResponse:
     `.content`, `.text`, `.json()` — backed by bytes already read under a
     hard ceiling by `_fetch_bounded` below."""
 
-    def __init__(self, status_code: int, headers: httpx.Headers, content: bytes) -> None:
+    def __init__(
+        self,
+        status_code: int,
+        headers: httpx.Headers,
+        content: bytes,
+        truncated: bool = False,
+    ) -> None:
         self.status_code = status_code
         self.headers = headers
         self.content = content
+        # True when `_fetch_bounded(..., truncate_ok=True)` stopped reading at
+        # `max_bytes`: `content` is a prefix of the body, not all of it.
+        self.truncated = truncated
 
     @property
     def text(self) -> str:
@@ -581,9 +598,14 @@ def _fetch_bounded(
     what: str,
     max_bytes: int,
     resolver: Resolver | None = None,
+    truncate_ok: bool = False,
     **httpx_kwargs: Any,
 ) -> _BoundedResponse:
-    """R10 + R15: fetch `url` behind `chorus.netguard.safe_url` (every hop,
+    """`truncate_ok=True` turns the byte ceiling from an error into a stop:
+    the first `max_bytes` bytes come back with `.truncated = True` and the
+    rest of the body is never read (bounded-prefix feed reads).
+
+    R10 + R15: fetch `url` behind `chorus.netguard.safe_url` (every hop,
     not just the first — a first-hop-safe URL can 3xx to an unsafe one) with
     `follow_redirects=False` and a hard byte ceiling. An over-limit
     Content-Length is rejected before any body is read; a body that grows
@@ -617,7 +639,7 @@ def _fetch_bounded(
                     continue
 
                 content_length = resp.headers.get("content-length")
-                if content_length is not None:
+                if content_length is not None and not truncate_ok:
                     try:
                         over_limit = int(content_length) > max_bytes
                     except ValueError:
@@ -632,6 +654,10 @@ def _fetch_bounded(
                 for chunk in resp.iter_bytes():
                     body.extend(chunk)
                     if len(body) > max_bytes:
+                        if truncate_ok:
+                            return _BoundedResponse(
+                                resp.status_code, resp.headers, bytes(body[:max_bytes]), True
+                            )
                         raise TranscriptProviderError(
                             f"{what}: response exceeded {max_bytes} bytes at {safe}"
                         )
@@ -640,6 +666,39 @@ def _fetch_bounded(
             raise TranscriptProviderError(f"{what}: timeout fetching {url}: {err}") from err
         except httpx.HTTPError as err:
             raise TranscriptProviderError(f"{what}: transport error fetching {url}: {err}") from err
+
+
+def _is_item(tag: str) -> bool:
+    return tag.rsplit("}", 1)[-1] == "item"
+
+
+def parse_feed_document(content: bytes, *, truncated: bool) -> ET.Element:
+    """Parse an RSS document, or the prefix of one. A prefix is parsed
+    incrementally and every <item> whose closing tag never arrived is pruned,
+    so callers see a well-formed tree of channel metadata plus only complete
+    items. Raises ET.ParseError when the bytes that did arrive are malformed."""
+    if not truncated:
+        return ET.fromstring(content)
+    parser: ET.XMLPullParser = ET.XMLPullParser(events=("start", "end"))
+    parser.feed(content)
+    root: ET.Element | None = None
+    complete: set[int] = set()
+    # typeshed types read_events() as a union over every event kind; with
+    # events=("start", "end") each record is (event, Element).
+    for event, element in cast(Iterator[tuple[str, Any]], parser.read_events()):
+        if not isinstance(element, ET.Element):
+            continue
+        if root is None and event == "start":
+            root = element
+        if event == "end" and _is_item(element.tag):
+            complete.add(id(element))
+    if root is None:
+        raise ET.ParseError("feed prefix contained no XML elements")
+    for parent in list(root.iter()):
+        for child in list(parent):
+            if _is_item(child.tag) and id(child) not in complete:
+                parent.remove(child)
+    return root
 
 
 def _parse_pc20_json(text: str) -> list[Segment]:
@@ -735,23 +794,39 @@ class RssTranscriptProvider:
         # DNS); tests pass a fixed hostname->address map.
         self.resolver = resolver
 
-    def _fetch_feed(self, feed_url: str) -> ET.Element:
+    def _fetch_feed(self, feed_url: str, *, full: bool = False) -> tuple[ET.Element, bool]:
+        """(root, truncated). By default only a FEED_PREFIX_BYTES prefix is
+        read; `full=True` reads up to MAX_FEED_FULL_BYTES."""
         resp = _fetch_bounded(
             "GET",
             feed_url,
             timeout_s=self.timeout_s,
             what="rss:feed",
-            max_bytes=MAX_FEED_BYTES,
+            max_bytes=MAX_FEED_FULL_BYTES if full else FEED_PREFIX_BYTES,
             resolver=self.resolver,
+            truncate_ok=not full,
         )
         if resp.status_code >= 500:
             raise TranscriptProviderError(f"rss: server error {resp.status_code} fetching {feed_url}")
         if resp.status_code != 200:
             raise TranscriptNotFound(f"rss: feed unavailable ({resp.status_code}) at {feed_url}")
+        truncated = getattr(resp, "truncated", False)
         try:
-            return ET.fromstring(resp.content)
+            return parse_feed_document(resp.content, truncated=truncated), truncated
         except ET.ParseError as err:
             raise TranscriptProviderError(f"rss: malformed feed at {feed_url}: {err}") from err
+
+    def _locate_item(
+        self, feed_url: str, guid: str | None, audio_url: str | None
+    ) -> ET.Element | None:
+        """Look in the newest-first prefix; read the whole feed only when the
+        item isn't there and the prefix was cut short (an older episode)."""
+        root, truncated = self._fetch_feed(feed_url)
+        item = self._find_item(root, guid, audio_url)
+        if item is None and truncated:
+            root, _ = self._fetch_feed(feed_url, full=True)
+            item = self._find_item(root, guid, audio_url)
+        return item
 
     @staticmethod
     def _find_item(root: ET.Element, guid: str | None, audio_url: str | None) -> ET.Element | None:
@@ -787,8 +862,7 @@ class RssTranscriptProvider:
         if not episode.feed_url or not (episode.guid or episode.audio_url):
             raise TranscriptNotFound("rss: episode has no feed_url + guid/audio_url")
 
-        root = self._fetch_feed(episode.feed_url)
-        item = self._find_item(root, episode.guid, episode.audio_url)
+        item = self._locate_item(episode.feed_url, episode.guid, episode.audio_url)
         if item is None:
             raise TranscriptNotFound(
                 f"rss: no item matched guid/audio_url in {episode.feed_url}"
@@ -853,11 +927,10 @@ class RssTranscriptProvider:
         if not episode.feed_url or not episode.guid:
             return None
         try:
-            root = self._fetch_feed(episode.feed_url)
+            item = self._locate_item(episode.feed_url, episode.guid, episode.audio_url)
         except (TranscriptNotFound, TranscriptProviderError) as err:
             log.warning("rss: could not resolve enclosure for %s: %s", episode.feed_url, err)
             return None
-        item = self._find_item(root, episode.guid, episode.audio_url)
         if item is None:
             return None
         enclosure = item.find("enclosure")

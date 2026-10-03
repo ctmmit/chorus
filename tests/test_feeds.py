@@ -406,3 +406,59 @@ def test_round_robin_counts_a_duplicate_episode_once() -> None:
 def test_round_robin_handles_empty_input() -> None:
     assert round_robin([], cap=3) == []
     assert round_robin([[], []], cap=3) == []
+
+
+# --- Oversized feeds: newest-first prefix, full read only when needed ------------
+
+_BIG_URL = "https://feeds.example.com/big.xml"
+_NOW = datetime(2026, 10, 2, 12, 0, tzinfo=UTC)
+_PAD = "x" * 2000  # ~2 KB per item, so ~1000 items fill the 2 MiB prefix
+
+
+def _daily_items(n: int, *, newest_first: bool) -> list[str]:
+    items = [
+        rss_item(
+            f"Episode {i} {_PAD}",
+            pub=_NOW - timedelta(days=i),
+            guid=f"g{i}",
+            audio=f"https://cdn.example.com/{i}.mp3",
+        )
+        for i in range(n)
+    ]
+    return items if newest_first else list(reversed(items))
+
+
+def _big_source(web: object, *, newest_first: bool, n: int = 1_500) -> RssSource:
+    body = rss_feed("Big Show", _daily_items(n, newest_first=newest_first))
+    assert len(body.encode("utf-8")) > tc.FEED_PREFIX_BYTES
+    web.set(_BIG_URL, body)  # type: ignore[attr-defined]
+    return RssSource(kind="rss", feed_url=_BIG_URL)
+
+
+def test_big_newest_first_feed_is_answered_from_the_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    web = install_fake_web(monkeypatch)
+    source = _big_source(web, newest_first=True)
+    eps = feeds.list_recent_episodes(source, _NOW - timedelta(days=7), limit=8)
+    assert [e.episode.guid for e in eps] == [f"g{i}" for i in range(8)]
+    assert web.calls == [_BIG_URL]  # one bounded read, no full download
+    assert web.call_kwargs[0].get("truncate_ok") is True
+
+
+def test_big_oldest_first_feed_falls_back_to_a_full_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    web = install_fake_web(monkeypatch)
+    source = _big_source(web, newest_first=False)
+    eps = feeds.list_recent_episodes(source, _NOW - timedelta(days=7), limit=8)
+    assert [e.episode.guid for e in eps] == [f"g{i}" for i in range(8)]
+    assert web.calls == [_BIG_URL, _BIG_URL]  # prefix held only old episodes
+
+
+def test_window_running_past_the_prefix_triggers_a_full_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    web = install_fake_web(monkeypatch)
+    source = _big_source(web, newest_first=True)
+    eps = feeds.list_recent_episodes(source, _NOW - timedelta(days=5_000), limit=1_400)
+    assert len(eps) == 1_400  # more than the prefix holds
+    assert web.calls == [_BIG_URL, _BIG_URL]

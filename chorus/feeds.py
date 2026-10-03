@@ -56,12 +56,15 @@ from chorus.models import (
 from chorus.netguard import Resolver
 from chorus.subscriptions import RssSource, ShowSource, Source, YoutubeSource
 from chorus.transcripts import (
+    FEED_PREFIX_BYTES,
     MAX_FEED_BYTES,
+    MAX_FEED_FULL_BYTES,
     MAX_FEED_ITEMS,
     RSS_TIMEOUT_S,
     TranscriptProviderError,
     _BoundedResponse,
     _fetch_bounded,
+    parse_feed_document,
 )
 
 log = logging.getLogger("chorus.feeds")
@@ -169,11 +172,13 @@ def _iter_named(root: ET.Element, name: str, default_ns: str) -> list[ET.Element
     return [element for element in root.iter() if element.tag in tags]
 
 
-def parse_xml(content: bytes, *, what: str) -> ET.Element:
+def parse_xml(content: bytes, *, what: str, truncated: bool = False) -> ET.Element:
+    """Parse a whole document, or (truncated=True) the prefix of an RSS feed
+    keeping only the items that arrived complete."""
     if _ENTITY_DECL in content:
         raise FeedFetchError(f"{what}: XML entity declarations are not allowed")
     try:
-        return ET.fromstring(content)
+        return parse_feed_document(content, truncated=truncated)
     except ET.ParseError as err:
         raise FeedFetchError(f"{what} is not well-formed XML: {err}") from err
 
@@ -185,6 +190,7 @@ def fetch_response(
     max_bytes: int = MAX_FEED_BYTES,
     resolver: Resolver | None = None,
     headers: dict[str, str] | None = None,
+    truncate_ok: bool = False,
 ) -> _BoundedResponse:
     """GET `url` behind the SSRF guard, redirect cap and byte cap. The one
     outbound-HTTP seam of this module and of chorus.podcasts_api, so tests
@@ -200,6 +206,7 @@ def fetch_response(
             what=what,
             max_bytes=max_bytes,
             resolver=resolver,
+            truncate_ok=truncate_ok,
             **extra,
         )
     except TranscriptProviderError as err:
@@ -208,10 +215,42 @@ def fetch_response(
 
 def fetch_xml(url: str, *, what: str, resolver: Resolver | None = None) -> ET.Element:
     """Fetch and parse an XML document behind the SSRF guard and byte cap."""
-    response = fetch_response(url, what=what, resolver=resolver)
+    root, _ = fetch_feed_root(url, what=what, resolver=resolver, full=True)
+    return root
+
+
+def fetch_feed_root(
+    url: str, *, what: str, resolver: Resolver | None = None, full: bool = False
+) -> tuple[ET.Element, bool]:
+    """(root, truncated). Default: the first FEED_PREFIX_BYTES of the feed,
+    parsed to channel metadata plus complete items. `full=True` reads the
+    whole document up to MAX_FEED_FULL_BYTES."""
+    response = fetch_response(
+        url,
+        what=what,
+        resolver=resolver,
+        max_bytes=MAX_FEED_FULL_BYTES if full else FEED_PREFIX_BYTES,
+        truncate_ok=not full,
+    )
     if response.status_code != 200:
         raise FeedFetchError(f"{what}: HTTP {response.status_code} at {url}")
-    return parse_xml(response.content, what=what)
+    truncated = getattr(response, "truncated", False)
+    return parse_xml(response.content, what=what, truncated=truncated), truncated
+
+
+def _feed_order_ascending(root: ET.Element) -> bool:
+    """True when the feed lists episodes oldest-first (its first item is
+    older than its last), so a prefix holds the oldest episodes, not the newest."""
+    default_ns = _local_ns(root.tag)
+    channel = _child(root, "channel", default_ns)
+    if channel is None:
+        return False
+    items = _iter_named(channel, "item", default_ns)
+    if len(items) < 2:
+        return False
+    first = parse_datetime(_text(_child(items[0], "pubDate", default_ns)))
+    last = parse_datetime(_text(_child(items[-1], "pubDate", default_ns)))
+    return first is not None and last is not None and first < last
 
 
 def parse_datetime(text: str | None) -> datetime | None:
@@ -365,9 +404,21 @@ def list_recent_episodes(
         raise ValueError("list_recent_episodes: `since` must be timezone-aware")
 
     if isinstance(source, RssSource):
-        root = fetch_xml(source.feed_url, what="rss feed", resolver=resolver)
+        root, truncated = fetch_feed_root(source.feed_url, what="rss feed", resolver=resolver)
         parsed = parse_rss(root, source.feed_url, title_override=source.title)
         episodes = parsed.episodes
+        if truncated:
+            in_window = [e for e in episodes if e.published_at >= since]
+            window_may_continue = (
+                bool(episodes)
+                and len(in_window) < limit
+                and min(e.published_at for e in episodes) >= since
+            )
+            if not episodes or window_may_continue or _feed_order_ascending(root):
+                root, _ = fetch_feed_root(
+                    source.feed_url, what="rss feed", resolver=resolver, full=True
+                )
+                episodes = parse_rss(root, source.feed_url, title_override=source.title).episodes
     elif isinstance(source, YoutubeSource):
         try:
             root = fetch_xml(

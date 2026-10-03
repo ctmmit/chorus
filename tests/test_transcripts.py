@@ -636,14 +636,85 @@ def test_rss_too_many_redirects_is_provider_error(monkeypatch: pytest.MonkeyPatc
 # --- R15: byte ceilings ------------------------------------------------------
 
 
-def test_rss_feed_content_length_over_cap_is_provider_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    resp = _FakeStreamResponse(
-        200, body=b"<rss></rss>", headers={"content-length": str(tc.MAX_FEED_BYTES + 1)}
+# --- Oversized feeds: read a newest-first prefix, full read only when needed ---
+
+_BIG_FEED_URL = "https://feed.example/big.xml"
+
+
+def _big_feed(n_filler: int) -> bytes:
+    """A feed whose newest item comes first, followed by enough ~2 KB filler
+    items to push the total past FEED_PREFIX_BYTES (popular shows' real feeds
+    run 6-30 MiB). Items are ~2 KB, so item ~1000 onward lies past the prefix."""
+    head = (
+        '<rss version="2.0"><channel><title>Big</title>'
+        "<item><guid>ep-new</guid><title>New</title>"
+        '<enclosure url="https://cdn.example.com/new.mp3" type="audio/mpeg"/></item>'
     )
-    _mock_stream(monkeypatch, {"https://feed.example/rss.xml": resp})
+    filler = "".join(
+        f"<item><guid>old-{i}</guid><title>Old {i}</title><description>{'x' * 2000}"
+        f'</description><enclosure url="https://cdn.example.com/old{i}.mp3" '
+        'type="audio/mpeg"/></item>'
+        for i in range(n_filler)
+    )
+    return (head + filler + "</channel></rss>").encode("utf-8")
+
+
+def _count_streams(monkeypatch: pytest.MonkeyPatch, resp: _FakeStreamResponse) -> list[str]:
+    calls: list[str] = []
+
+    def fake_stream(method: str, url: str, **kwargs: object) -> _FakeStreamResponse:
+        assert method == "GET" and url == _BIG_FEED_URL, f"unexpected stream: {method} {url}"
+        calls.append(url)
+        return resp
+
+    monkeypatch.setattr(tc.httpx, "stream", fake_stream)
+    return calls
+
+
+def test_rss_prefix_finds_newest_item_in_feed_larger_than_any_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    body = _big_feed(2_600)
+    assert len(body) > tc.FEED_PREFIX_BYTES
+    resp = _FakeStreamResponse(
+        200, body, headers={"content-length": str(tc.MAX_FEED_FULL_BYTES + 1)}
+    )
+    calls = _count_streams(monkeypatch, resp)
+    provider = RssTranscriptProvider(resolver=_safe_resolver)
+    url = provider.enclosure_audio_url(EpisodeInput(feed_url=_BIG_FEED_URL, guid="ep-new"))
+    assert url == "https://cdn.example.com/new.mp3"
+    assert len(calls) == 1  # the prefix answered; the body past it was never read
+
+
+def test_rss_old_item_beyond_prefix_triggers_full_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    body = _big_feed(2_600)
+    calls = _count_streams(monkeypatch, _FakeStreamResponse(200, body))
+    provider = RssTranscriptProvider(resolver=_safe_resolver)
+    url = provider.enclosure_audio_url(EpisodeInput(feed_url=_BIG_FEED_URL, guid="old-1500"))
+    assert url == "https://cdn.example.com/old1500.mp3"
+    assert len(calls) == 2  # prefix missed, full read found it
+
+
+def test_rss_full_read_still_enforces_its_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    body = _big_feed(2_600)
+    resp = _FakeStreamResponse(
+        200, body, headers={"content-length": str(tc.MAX_FEED_FULL_BYTES + 1)}
+    )
+    _count_streams(monkeypatch, resp)
     provider = RssTranscriptProvider(resolver=_safe_resolver)
     with pytest.raises(TranscriptProviderError):
-        provider.get(EpisodeInput(feed_url="https://feed.example/rss.xml", guid="ep-1"))
+        provider.get(EpisodeInput(feed_url=_BIG_FEED_URL, guid="old-1500"))
+
+
+def test_parse_feed_document_prunes_the_item_cut_mid_way() -> None:
+    doc = (
+        b'<rss><channel><title>T</title><item><guid>a</guid></item>'
+        b"<item><guid>b</guid></item><item><guid>c</gu"
+    )
+    root = tc.parse_feed_document(doc, truncated=True)
+    guids = [g.text for g in root.iter("guid")]
+    assert guids == ["a", "b"]
+    assert root.find("channel/title").text == "T"  # type: ignore[union-attr]
 
 
 def test_rss_feed_body_over_cap_without_content_length_is_provider_error(
