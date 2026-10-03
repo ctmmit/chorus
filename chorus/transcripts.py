@@ -39,6 +39,7 @@ from urllib.parse import urljoin
 import httpx
 from pydantic import BaseModel, Field, ValidationError
 
+from chorus import paths
 from chorus.errors import RetryableError, TerminalError
 from chorus.models import EpisodeInput, Segment, Transcript
 from chorus.netguard import MAX_REDIRECT_HOPS, Resolver, UnsafeURLError, safe_url
@@ -51,7 +52,7 @@ _ID_RE = re.compile(r"(?:[?&]v=|/shorts/|youtu\.be/|/embed/|/live/)([A-Za-z0-9_-
 _BARE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 
 # fixtures/transcripts/ lives at the project root, two levels up from this file.
-FIXTURE_TRANSCRIPTS_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "transcripts"
+FIXTURE_TRANSCRIPTS_DIR = paths.fixtures_dir() / "transcripts"
 
 # Podcasting 2.0 namespace (podcastindex.org/namespace/1.0) — <podcast:transcript>.
 PODCAST_NS = "https://podcastindex.org/namespace/1.0"

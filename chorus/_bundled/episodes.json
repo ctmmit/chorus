@@ -1,0 +1,69 @@
+{
+  "_comment": "Real episode pool sourced from Colin's Readwise Reader saves (YouTube videos, captions pulled locally via scripts/fetch_transcript.py with timestamps). Transcripts in fixtures/transcripts/<video_id>.json. The Goldman video has no captions on purpose-kept as the missing-transcript case. An off-topic 'ungrounded' episode still needs adding.",
+  "clean": [
+    {
+      "show": "The Tim Ferriss Show",
+      "title": "Ed Thorp on How to Think for Yourself, Be Inner-Directed, and the Dangers of Investing Fads",
+      "author": "Tim Ferriss",
+      "url": "https://www.youtube.com/watch?v=gs39QFYIbBY",
+      "video_id": "gs39QFYIbBY",
+      "transcript": "fixtures/transcripts/gs39QFYIbBY.json",
+      "lens": "two-lens: investor (edge, fads, markets) + pop-culture (life wisdom, independent thinking)"
+    },
+    {
+      "show": "20VC with Harry Stebbings",
+      "title": "Marc Andreessen on The Future of VC: Will a16z Go Public & Why Introspection is Dangerous?",
+      "author": "20VC",
+      "url": "https://www.youtube.com/watch?v=c4tvVKDhpiY",
+      "video_id": "c4tvVKDhpiY",
+      "transcript": "fixtures/transcripts/c4tvVKDhpiY.json",
+      "lens": "two-lens: investor (VC model, going public) + pop-culture (Andreessen persona, hot takes)"
+    },
+    {
+      "show": "Huberman Lab",
+      "title": "The Art of Learning & Living Life | Josh Waitzkin",
+      "author": "Andrew Huberman",
+      "url": "https://www.youtube.com/watch?v=wAnDWfEIwoE",
+      "video_id": "wAnDWfEIwoE",
+      "transcript": "fixtures/transcripts/wAnDWfEIwoE.json",
+      "lens": "near one-sided pop-culture (learning, performance, life) - investor lens should find little"
+    },
+    {
+      "show": "Jane Street",
+      "title": "Jane Street on GPUs, Trading, and Hiring: A Conversation with Dwarkesh",
+      "author": "Jane Street",
+      "url": "https://www.youtube.com/watch?v=xKZ_8ULR91Y",
+      "video_id": "xKZ_8ULR91Y",
+      "transcript": "fixtures/transcripts/xKZ_8ULR91Y.json",
+      "lens": "investor/technical: markets microstructure, compute, hiring"
+    },
+    {
+      "show": "Sohn Conference Foundation",
+      "title": "Inside the Mind of a Tech Investor with Gavin Baker",
+      "author": "Sohn Conference Foundation",
+      "url": "https://www.youtube.com/watch?v=2Ryr95iiYNk",
+      "video_id": "2Ryr95iiYNk",
+      "transcript": "fixtures/transcripts/2Ryr95iiYNk.json",
+      "lens": "near one-sided investor: positioning, AI winners, capital allocation"
+    }
+  ],
+  "missing_transcript": {
+    "show": "Goldman Sachs",
+    "title": "The New AI Trades",
+    "author": "Goldman Sachs",
+    "url": "https://www.youtube.com/watch?v=KhZfxZ-C-2g",
+    "video_id": "KhZfxZ-C-2g",
+    "transcript": null,
+    "note": "Real video with no available captions. Tests the IDEA_DOC sec6 failure case: skip + structured log, complete the digest on the rest."
+  },
+  "ungrounded": {
+    "show": "Joshua Weissman",
+    "title": "How I make the perfect scrambled eggs",
+    "author": "Joshua Weissman",
+    "url": "https://www.youtube.com/watch?v=IAgmW_gTxls",
+    "video_id": "IAgmW_gTxls",
+    "transcript": "fixtures/transcripts/IAgmW_gTxls.json",
+    "pair_with": "soul_investor + context.md",
+    "note": "Off-topic by design (cooking). Against the investor soul + AI/finance context, nothing should clear the relevance bar -> the service must return the explicit 'nothing cleared the bar' refusal, never an invented reason."
+  }
+}

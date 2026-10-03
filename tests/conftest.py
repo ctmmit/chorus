@@ -109,3 +109,9 @@ def chorus_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Pat
     for sub in ("souls", "artifacts", "backups", "extensions"):
         (home / sub).mkdir()
     yield home
+
+
+@pytest.fixture(autouse=True)
+def _no_update_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests never reach GitHub. Tests of the check itself inject a fetcher."""
+    monkeypatch.setenv("CHORUS_NO_UPDATE_CHECK", "1")

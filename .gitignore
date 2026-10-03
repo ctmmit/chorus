@@ -14,3 +14,7 @@ fixtures/transcripts/*.json
 !fixtures/transcripts/sample_*.json
 requirements-dev.lock
 .claude/worktrees/
+
+# Package builds (uv build / python -m build)
+build/
+dist/

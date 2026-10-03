@@ -15,7 +15,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP  # type: ignore[import-not-found,import-untyped]
 
-from chorus import agent_setup, host_mode
+from chorus import agent_setup, host_mode, version
 from chorus.jobs import JobStore
 from chorus.onboarding import Brain, Voice, load_config
 
@@ -27,11 +27,18 @@ LOCAL_INSTRUCTIONS = (
     "run_my_digest starts this week's digest. If it returns drive='host_next', you do part "
     "of the work: loop on host_next(job_id) and do what each task says (wait, score an "
     "episode, write the script, voice the audio) until it is done. Otherwise poll "
-    "get_digest(job_id) until done or failed."
+    "get_digest(job_id) until done or failed. If onboarding_status carries an `update` "
+    "with an agent_note, follow that note."
 )
 
 
 def register_setup_tools(server: FastMCP, store: JobStore) -> None:
+    def chorus_version(force: bool = False) -> dict[str, Any]:
+        """The installed Chorus version, the newest release, what changed in
+        between, and how this install updates. Cached for a day; force=true
+        checks now."""
+        return version.check(force=force).model_dump(mode="json")
+
     def onboarding_status() -> dict[str, Any]:
         """Where setup stands and, if not ready, the next step to walk the
         principal through (what to ask, the options, and how to proceed)."""
@@ -142,6 +149,7 @@ def register_setup_tools(server: FastMCP, store: JobStore) -> None:
         return host_mode.submit_audio(store, job_id, chunks, skip_reason)
 
     for tool in (
+        chorus_version,
         onboarding_status,
         onboarding_options,
         onboarding_set,

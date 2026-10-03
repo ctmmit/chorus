@@ -19,6 +19,10 @@ The rest of this file is for contributors changing the code.
 - `chorus/agent_setup.py`: transport-neutral onboarding for host agents; `chorus/mcp_setup.py` (local MCP) and `chorus setup` (JSON CLI) expose it.
 - `chorus/wizard.py`, `chorus/cli.py`: the `chorus onboard` terminal wizard and `chorus` command.
 - `chorus/paths.py`: every local state location under `~/.chorus/`.
+- `chorus/host_mode.py`, `chorus/render_plan.py`: the agent as brain (`host_next` tasks) and as voice (render plans, MP3 joining).
+- `chorus/version.py`, `chorus/updater.py`, `chorus/migrations.py`: release checks, `chorus update`, and config migrations.
+- `chorus/_bundled/`: the presets, demo catalog and sample transcript shipped in the wheel; keep them identical to `fixtures/` (a test enforces it).
+- `CHANGELOG.md`, `.github/workflows/release.yml`: bump `chorus/__init__.py:__version__`, add a changelog section, and push a `vX.Y.Z` tag to publish.
 - `fixtures/`: public test inputs; real transcripts are gitignored.
 - `tests/`: offline unit and integration tests.
 - `scripts/golden_path.py`: deterministic end-to-end acceptance path.

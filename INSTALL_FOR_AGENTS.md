@@ -23,8 +23,26 @@ to [Tier C](#tier-c-hosted-chorus).
 
 ## 2. Install (tiers A and B)
 
-Requires Python 3.12 and git. Choose a permanent location, because the MCP
-config will point into it (for example `~/chorus`).
+Requires Python 3.12. Use option 1 if it works, and fall back to option 2.
+
+**Option 1: the published package** (no clone, updates itself). Requires
+[uv](https://docs.astral.sh/uv/). Check that the package is published:
+
+```bash
+uvx --from chorus-agent@latest chorus --help
+```
+
+If that prints the help, there is nothing else to install:
+
+- `<CHORUS_MCP>` is `uvx --from chorus-agent@latest chorus-mcp`
+- `<CHORUS>` is `uvx --from chorus-agent@latest chorus`
+
+uvx resolves the newest release every time your host starts Chorus, so
+updates arrive by restarting your agent.
+
+**Option 2: a clone.** Use this if option 1 fails, or if the principal wants
+to change the code. Choose a permanent location, because the MCP config will
+point into it (for example `~/chorus`). Requires git.
 
 macOS / Linux:
 
@@ -46,14 +64,14 @@ py -3.12 -m venv .venv
 .venv\Scripts\python.exe -m pip install -e . --no-deps
 ```
 
-This puts two commands in the venv, `chorus-mcp` and `chorus`. Below,
-`<CHORUS_MCP>` and `<CHORUS>` mean their absolute paths:
+Then `<CHORUS_MCP>` and `<CHORUS>` are the absolute paths of the two
+commands in the venv:
 
 - macOS / Linux: `~/chorus/.venv/bin/chorus-mcp` and `~/chorus/.venv/bin/chorus`
 - Windows: `%USERPROFILE%\chorus\.venv\Scripts\chorus-mcp.exe` and `chorus.exe`
 
-The principal's settings, keys, soul, and history live in `~/.chorus/`, never
-in the clone, so updating the code can't overwrite them.
+Either way, the principal's settings, keys, soul, and history live in
+`~/.chorus/`, never with the code, so an update can't overwrite them.
 
 ## 3. Connect
 
@@ -103,7 +121,14 @@ mcp_servers:
 ```
 
 **Any other MCP host:** add a stdio server named `chorus` whose command is
-`<CHORUS_MCP>`, with no arguments.
+`<CHORUS_MCP>`.
+
+With option 1, `<CHORUS_MCP>` is a command plus arguments. Config files that
+take them separately need them split:
+
+```json
+{ "command": "uvx", "args": ["--from", "chorus-agent@latest", "chorus-mcp"] }
+```
 
 Reload your host's MCP servers. If it supports Agent Skills, also install
 `skills/chorus-onboard` (and `skills/chorus`) into its skills folder: for
@@ -222,7 +247,24 @@ keep the approved soul, and pass it in every `submit_digest` call.
 
 ## Updating
 
-Run `git pull` in the clone, then
-`.venv/bin/python -m pip install -r requirements.txt` (Windows:
-`.venv\Scripts\python.exe -m pip install -r requirements.txt`), then restart
-your MCP host. The principal's state in `~/.chorus/` is not touched.
+Chorus reports new releases itself. With the principal's update policy set
+to `notify` or `auto`, `onboarding_status` includes an `update` field whenever
+a newer release exists. It lists what changed, says whether the update is
+breaking, and has an `agent_note` saying what that policy allows: under
+`notify` you ask first, and under `auto` you apply non-breaking updates
+yourself. `chorus_version` checks on demand (shell: `chorus update --check`).
+
+How to apply an update depends on how Chorus was installed:
+
+- **Option 1 (uvx):** restart your agent. uvx fetches the newest release on
+  launch.
+- **Option 2 (clone):** run `chorus update`. It refuses if the clone has
+  uncommitted changes, fast-forwards with `git pull --ff-only`, and reinstalls
+  the requirements. If someone changed the core code and the branch has
+  diverged, it prints the rebase steps instead of merging anything. Then
+  restart your agent.
+
+Updates never touch `~/.chorus/`. If a release changes the settings format,
+Chorus migrates `config.toml` when it next starts, after saving a backup in
+`~/.chorus/backups/`. If a release adds a required soul section, onboarding
+reopens at the soul step and shows what's missing.

@@ -582,9 +582,11 @@ def main() -> None:
     an installed package or pulling a clone cannot touch it."""
     from chorus import paths
     from chorus.config import load_env
+    from chorus.migrations import migrate_config
 
     paths.ensure_home()
     load_env()
+    migrate_config()
     store = SqliteJobStore(paths.db_path())
     deps = local_stdio_deps()
     server, tools = create_mcp_server(store, deps, BackgroundRunner(store, deps), local=True)

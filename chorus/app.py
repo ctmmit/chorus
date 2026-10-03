@@ -65,7 +65,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from chorus import catalog, config_env, discovery
+from chorus import __version__, catalog, config_env, discovery
 from chorus.artifacts import job_id_from_artifact_name
 from chorus.email import EmailSender, get_email_sender
 from chorus.jobs import MASTER_OWNER, JobStore, SqliteJobStore
@@ -356,7 +356,7 @@ def create_app(
         if owns_saved_item_store:
             saved_item_store.close()
 
-    app = FastAPI(title="Chorus", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Chorus", version=__version__, lifespan=lifespan)
     app.state.personas = personas
     app.include_router(discovery.router)
 

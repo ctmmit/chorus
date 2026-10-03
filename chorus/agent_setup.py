@@ -59,6 +59,7 @@ from chorus.soul import (
     soul_path,
     validate_soul,
 )
+from chorus.version import UpdateInfo, status_check
 
 SETUP_PROTOCOL = 1
 SETTABLE_KEYS = frozenset(
@@ -83,6 +84,7 @@ class AgentStatus(BaseModel):
     status: Status
     next: StepPrompt | None
     state_dir: str
+    update: UpdateInfo | None = None
 
 
 class SoulDraft(BaseModel):
@@ -270,7 +272,10 @@ def _refresh(config: OnboardingConfig) -> OnboardingConfig:
 
 
 def _load() -> OnboardingConfig:
+    from chorus.migrations import migrate_config
+
     paths.ensure_home()
+    migrate_config()
     config = load_config()
     refreshed = _refresh(config)
     if refreshed != config:
@@ -283,7 +288,11 @@ def agent_status() -> AgentStatus:
     current = status(config)
     next_prompt = step_prompt(current.next_step, config) if current.next_step else None
     return AgentStatus(
-        ready=current.ready, status=current, next=next_prompt, state_dir=str(paths.home())
+        ready=current.ready,
+        status=current,
+        next=next_prompt,
+        state_dir=str(paths.home()),
+        update=status_check(config.updates.value if config.updates else None),
     )
 
 

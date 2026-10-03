@@ -3,6 +3,7 @@
     chorus onboard [--reset STEP ...]   guided setup; resumes where it stopped
     chorus status                       what is configured and what blocks a run
     chorus run [--episode ID ...]       digest this week's episodes (or the given ones)
+    chorus update [--check] [--yes]     check for and apply a new Chorus release
     chorus setup <action> ...           the same onboarding as JSON, for an agent driving
                                         Chorus from a shell (see `chorus setup --help`)
 
@@ -37,6 +38,9 @@ def _parser() -> argparse.ArgumentParser:
         help="redo a step: " + ", ".join(s.value for s in Step),
     )
     commands.add_parser("status", help="show configuration and readiness")
+    update = commands.add_parser("update", help="check for and apply a new Chorus release")
+    update.add_argument("--check", action="store_true", help="only report; change nothing")
+    update.add_argument("--yes", action="store_true", help="apply a breaking update unprompted")
     run = commands.add_parser("run", help="digest this week's episodes")
     run.add_argument(
         "--episode",
@@ -218,6 +222,38 @@ def _host_action(args: argparse.Namespace) -> object:
         store.close()
 
 
+def cmd_update(check_only: bool, assume_yes: bool) -> int:
+    from chorus.updater import apply_update
+    from chorus.version import check
+
+    info = check(force=True)
+    if info.error:
+        print(info.error)
+        return EXIT_FAILED
+    if not info.update_available:
+        latest = f" (latest release: {info.latest})" if info.latest else ""
+        print(f"Chorus {info.installed} is up to date{latest}.")
+        return EXIT_OK
+    kind = "a breaking update" if info.breaking else "an update"
+    print(f"Chorus {info.latest} is {kind} (installed: {info.installed}). What changed:")
+    for release in info.changes:
+        print(f"\n## {release.version}\n{release.notes or '(no notes)'}")
+    if check_only:
+        return EXIT_OK
+    if info.breaking and not assume_yes:
+        if not sys.stdin.isatty():
+            print("\nThis is a breaking update. Rerun with --yes to apply it.")
+            return EXIT_NOT_READY
+        if input("\nApply this breaking update? (y/N): ").strip().lower() not in {"y", "yes"}:
+            print("Not applied.")
+            return EXIT_OK
+    outcome = apply_update(info.install_kind)
+    for step in outcome.steps:
+        print(f"$ {step}")
+    print(outcome.message)
+    return EXIT_OK if outcome.applied or not outcome.steps else EXIT_FAILED
+
+
 def cmd_onboard(resets: list[str]) -> int:
     from chorus.onboarding import Step, load_config, status
     from chorus.wizard import Wizard
@@ -232,6 +268,7 @@ def cmd_onboard(resets: list[str]) -> int:
 
 def cmd_status() -> int:
     from chorus.onboarding import load_config, status
+    from chorus.version import status_check
 
     config = load_config()
     current = status(config)
@@ -241,6 +278,10 @@ def cmd_status() -> int:
         f"Voice: {config.voice or '-'}   Transcripts: {config.transcripts or '-'}"
     )
     print(f"Soul: {config.soul or '-'}   Shows: {len(config.shows)}   Feeds: {len(config.feeds)}")
+    info = status_check(config.updates.value if config.updates else None)
+    if info is not None and info.update_available:
+        kind = "breaking update" if info.breaking else "update"
+        print(f"Chorus {info.latest} is available ({kind}); run `{info.update_command}`.")
     for row in current.steps:
         mark = "x" if row.done else " "
         note = f"  ({row.blocker})" if row.blocker else ""
@@ -277,9 +318,24 @@ def cmd_run(episode_ids: list[str]) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from chorus.migrations import migrate_config
+    from chorus.onboarding import OnboardingError
+
     paths.ensure_home()
     load_env()
+    try:
+        migration = migrate_config()
+    except OnboardingError as err:
+        print(err)
+        return EXIT_NOT_READY
+    if migration is not None:
+        print(
+            f"Upgraded your settings from v{migration.from_version} to v{migration.to_version} "
+            f"(backup: {migration.backup})."
+        )
     args = _parser().parse_args(argv)
+    if args.command == "update":
+        return cmd_update(args.check, args.yes)
     if args.command == "onboard":
         return cmd_onboard(args.reset)
     if args.command == "status":

@@ -68,8 +68,17 @@ def extensions_dir() -> Path:
     return home() / EXTENSIONS_DIRNAME
 
 
+BUNDLED_DIR = Path(__file__).resolve().parent / "_bundled"
+
+
 def fixtures_dir() -> Path:
-    return REPO_ROOT / "fixtures"
+    """The checkout's `fixtures/` in a clone or editable install (it also
+    holds the private show transcripts when synced); otherwise the copies
+    bundled inside the package: the soul presets, the demo catalog and the
+    synthetic sample transcript, which is all a wheel or `uvx` install needs.
+    `tests/test_bundled_data.py` keeps the two byte-identical."""
+    checkout = REPO_ROOT / "fixtures"
+    return checkout if checkout.is_dir() else BUNDLED_DIR
 
 
 def ensure_home() -> Path:
