@@ -42,6 +42,7 @@ from chorus.library_api import (
     LibrarySoul,
     ShareRequest,
     ShareResult,
+    SoulBuilderFactory,
 )
 from chorus.library_inputs import FileFormat
 from chorus.models import (
@@ -147,6 +148,7 @@ class ChorusTools:
         subscription_store: SubscriptionStore | None = None,
         podcasts: PodcastDirectory | None = None,
         library: LibraryService | None = None,
+        soul_builder: SoulBuilderFactory = get_soul_builder,
     ) -> None:
         self._store = store
         self._deps = deps
@@ -158,6 +160,7 @@ class ChorusTools:
         self._podcasts = podcasts or PodcastDirectory()
         self._library = library
         self._owns_library = library is None
+        self._soul_builder = soul_builder
 
     def _subscriptions(self) -> SubscriptionStore:
         """The subscription store: the app's own when injected, else selected
@@ -180,6 +183,7 @@ class ChorusTools:
                 config_env.select_saved_item_store(self._store),
                 self._podcasts,
                 self._subscriptions(),
+                soul_builder=self._soul_builder,
             )
         return self._library
 
@@ -452,7 +456,9 @@ class ChorusTools:
     def soul_from_library(self, ctx: Context | None = None) -> LibrarySoul:
         """Propose a soul.md from the imported library (titles, tags, notes,
         highlights). Nothing is saved: show it to the principal, merge it with
-        their current soul if they have one, then use it in subscribe."""
+        their current soul if they have one, then use it in subscribe. When
+        you are the brain (onboarding brain=host) Chorus calls no model: the
+        reply carries `corpus` and `agent_notes`, and you write the soul."""
         return self._library_service().soul(_owner_from_context(ctx))
 
     def _submit(self, request: DigestRequest, ctx: Context | None) -> dict[str, str]:
@@ -498,7 +504,16 @@ def create_mcp_server(
         host="0.0.0.0",
         json_response=True,
     )
-    tools = ChorusTools(store, deps, runner, subscription_store, podcasts, library)
+    # Locally the onboarding brain decides who writes a library soul (none
+    # with brain=host); the hosted server keeps choosing by key presence.
+    soul_builder: SoulBuilderFactory = get_soul_builder
+    if local:
+        from chorus.agent_setup import library_soul_builder
+
+        soul_builder = library_soul_builder
+    tools = ChorusTools(
+        store, deps, runner, subscription_store, podcasts, library, soul_builder=soul_builder
+    )
     server.add_tool(tools.list_shows)
     server.add_tool(tools.submit_digest)
     server.add_tool(tools.submit_selection)

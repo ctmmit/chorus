@@ -356,6 +356,17 @@ def _builder(config: OnboardingConfig) -> SoulBuilder:
     return MockSoulBuilder()
 
 
+def library_soul_builder() -> SoulBuilder | None:
+    """The soul builder for `soul_from_library` on a local install: None when
+    the principal's agent is the brain, so Chorus calls no model and the agent
+    writes the soul from the library texts. Read per call, so a brain changed
+    mid-session takes effect on the next call."""
+    config = _load()
+    if config.brain is Brain.host:
+        return None
+    return _builder(config)
+
+
 def soul_draft(
     source: str,
     answers: dict[str, str] | None = None,

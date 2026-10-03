@@ -32,12 +32,13 @@ subscription tools.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field, model_validator
 
-from chorus.bootstrap import get_soul_builder
+from chorus.bootstrap import MockSoulBuilder, SoulBuilder, get_soul_builder
 from chorus.jobs import MASTER_OWNER
 from chorus.library import (
     CORPUS_MAX_TEXTS,
@@ -115,6 +116,27 @@ class LibrarySoul(BaseModel):
 
     soul: str = Field(description="The soul.md markdown; a proposal, not saved anywhere.")
     based_on: int = Field(description="Library items the soul was derived from.")
+    corpus: list[str] = Field(
+        default_factory=list,
+        description=(
+            "The library texts, returned only when the caller's own agent is the brain: "
+            "the agent writes the soul from them instead of Chorus calling a model."
+        ),
+    )
+    agent_notes: list[str] = Field(
+        default_factory=list, description="What the calling agent should do with this draft."
+    )
+
+
+# Returns the builder for a soul, or None when the caller's own agent writes it.
+SoulBuilderFactory = Callable[[], SoulBuilder | None]
+
+HOST_SOUL_NOTES = [
+    "Chorus called no model: `soul` is a plain template. Write the real soul yourself from "
+    "`corpus` (what the principal saved), keeping the six section headings.",
+    "Validate your draft with onboarding_soul_draft(source='write', markdown=...), show it to "
+    "the principal in full, and save it only after they approve.",
+]
 
 
 class ShareRequest(BaseModel):
@@ -211,8 +233,10 @@ class LibraryService:
         store: SavedItemStore,
         directory: PodcastDirectory,
         subscriptions: SubscriptionStore | None = None,
+        soul_builder: SoulBuilderFactory = get_soul_builder,
     ) -> None:
         self.store = store
+        self._soul_builder = soul_builder
         self._resolver = LibraryResolver(directory)
         self._subscriptions = subscriptions
 
@@ -300,7 +324,15 @@ class LibraryService:
         if not items:
             raise ValueError("this owner has no imported library items yet; import some first")
         texts = corpus_texts(items)
-        return LibrarySoul(soul=get_soul_builder().derive_from_corpus(texts), based_on=len(texts))
+        builder = self._soul_builder()
+        if builder is None:
+            return LibrarySoul(
+                soul=MockSoulBuilder().derive_from_corpus(texts),
+                based_on=len(texts),
+                corpus=texts,
+                agent_notes=HOST_SOUL_NOTES,
+            )
+        return LibrarySoul(soul=builder.derive_from_corpus(texts), based_on=len(texts))
 
     def _subscribed(self, owner: str) -> list[RssSource | YoutubeSource]:
         if self._subscriptions is None:
