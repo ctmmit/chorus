@@ -514,12 +514,31 @@ def create_mcp_server(
     tools = ChorusTools(
         store, deps, runner, subscription_store, podcasts, library, soul_builder=soul_builder
     )
+    # One call per feature; a new feature adds its own register_*_tools
+    # function and one line here (AGENTS.md, "Working alongside other agents").
+    register_digest_tools(server, tools)
+    register_subscription_tools(server, tools)
+    register_library_tools(server, tools)
+    if local:
+        register_setup_tools(server, store)
+    return server, tools
+
+
+# Tools that fetch feeds or call Apple/YouTube are wrapped in `_in_thread` so
+# they run off the event loop.
+
+
+def register_digest_tools(server: FastMCP, tools: ChorusTools) -> None:
+    """Catalog digests: list shows, submit, poll, and build a soul."""
     server.add_tool(tools.list_shows)
     server.add_tool(tools.submit_digest)
     server.add_tool(tools.submit_selection)
     server.add_tool(tools.get_digest)
     server.add_tool(tools.build_soul_from_interview)
-    # Tools that fetch feeds or call Apple/YouTube run off the event loop.
+
+
+def register_subscription_tools(server: FastMCP, tools: ChorusTools) -> None:
+    """Find podcasts and manage recurring digest subscriptions."""
     server.add_tool(_in_thread(tools.search_podcasts))
     server.add_tool(_in_thread(tools.resolve_podcast))
     server.add_tool(_in_thread(tools.preview_subscription))
@@ -527,15 +546,16 @@ def create_mcp_server(
     server.add_tool(tools.list_subscriptions)
     server.add_tool(tools.update_subscription)
     server.add_tool(tools.unsubscribe)
+
+
+def register_library_tools(server: FastMCP, tools: ChorusTools) -> None:
+    """Import the principal's library (saves, follows, shared links, files)."""
     server.add_tool(_in_thread(tools.share_links))
     server.add_tool(_in_thread(tools.import_file))
     server.add_tool(_in_thread(tools.import_library))
     server.add_tool(tools.import_opml)
     server.add_tool(tools.list_library_items)
     server.add_tool(_in_thread(tools.soul_from_library))
-    if local:
-        register_setup_tools(server, store)
-    return server, tools
 
 
 def mount_mcp(
