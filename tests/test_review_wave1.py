@@ -241,6 +241,7 @@ def test_r2_provider_key_envs_include_every_spend_capable_credential() -> None:
         "ELEVENLABS_API_KEY",
         "TRANSCRIPT_API_KEY",
         "DEEPGRAM_API_KEY",
+        "ASSEMBLYAI_API_KEY",
         "RESEND_API_KEY",
         "BLOB_READ_WRITE_TOKEN",
         "INNGEST_EVENT_KEY",
