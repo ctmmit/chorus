@@ -8,6 +8,7 @@ Data flow (Goal 1 portion):
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime
 from enum import StrEnum
 from typing import Literal
 from urllib.parse import urlsplit
@@ -26,6 +27,9 @@ MAX_VIDEO_ID_CHARS = 64
 MAX_SHOW_CHARS = 200
 MAX_TITLE_CHARS = 500
 MAX_GUID_CHARS = 500
+# Episode show notes are prompt input for the source brief; capped so one
+# verbose feed can't dominate the script stage's context.
+MAX_DESCRIPTION_CHARS = 4_000
 # Length of the sha1 prefix used to build a stable id for RSS episodes
 # (video_id-shaped, short enough to stay under MAX_VIDEO_ID_CHARS everywhere
 # a resolved id is stored/logged).
@@ -120,6 +124,15 @@ class EpisodeInput(BaseModel):
         default=None,
         max_length=MAX_TITLE_CHARS,
         description="Optional episode title used in the digest.",
+    )
+    published_at: datetime | None = Field(
+        default=None,
+        description="Publication time when known (feed pubDate); lets the script say when it aired.",
+    )
+    description: str | None = Field(
+        default=None,
+        max_length=MAX_DESCRIPTION_CHARS,
+        description="Plain-text show notes when known; the script uses them to introduce the source.",
     )
     # RSS / Podcasting 2.0 identification (Phase C): a podcast feed plus the
     # <guid> of one <item>. audio_url may be supplied directly (or resolved
@@ -229,6 +242,9 @@ MIN_SPEAKERS = 1
 MAX_SPEAKERS = 2
 MIN_TARGET_MINUTES = 1
 MAX_TARGET_MINUTES = 20
+# Explicit default for callers that want a number; a profile whose style
+# leaves target_minutes unset gets a length budgeted from how many sources
+# the episode features (chorus/outline.py `budget_minutes`).
 DEFAULT_TARGET_MINUTES = 5
 # Sentinel persona value: "use the soul itself as this speaker's voice"
 # (chorus/script.py resolves it against the request's `soul` text).
@@ -269,11 +285,14 @@ class ConversationStyle(BaseModel):
         max_length=MAX_ENGAGEMENT_TECHNIQUES,
         description='e.g. "interruptions", "callbacks", "disagreement", "concrete numbers".',
     )
-    target_minutes: int = Field(
-        default=DEFAULT_TARGET_MINUTES,
+    target_minutes: int | None = Field(
+        default=None,
         ge=MIN_TARGET_MINUTES,
         le=MAX_TARGET_MINUTES,
-        description="Target spoken length; caps how many turns the composer may write.",
+        description=(
+            "Target spoken length; caps how many turns the composer may write. Unset budgets "
+            "the length from the number of featured sources (about 3-4 minutes each)."
+        ),
     )
 
 
@@ -428,6 +447,14 @@ class Highlight(BaseModel):
     quote: str = Field(description="Verbatim source quote at segment_timestamp.")
     relevance_score: float = Field(description="Lens-conditioned relevance score for the segment.")
     why_surface: str = Field(description="Reason the segment cleared the principal's relevance bar.")
+    show: str | None = Field(default=None, description="Podcast or channel name when known.")
+    excerpt: str = Field(
+        default="",
+        description=(
+            "The whole surfaced window with filler removed and speaker labels kept: what the "
+            "script reads to understand the moment. `quote` stays the verbatim citation."
+        ),
+    )
 
 
 class WindowScore(BaseModel):
@@ -459,6 +486,16 @@ class EpisodeDigest(BaseModel):
         default_factory=list,
         description="Scores for every transcript window, including rejected windows.",
     )
+    show: str | None = Field(default=None, description="Podcast or channel name when known.")
+    published_at: datetime | None = Field(default=None, description="Publication time when known.")
+    description: str | None = Field(default=None, description="Plain-text show notes when known.")
+    intro_excerpt: str = Field(
+        default="",
+        description=(
+            "The cleaned, speaker-labeled opening of the transcript, where hosts usually name "
+            "themselves and their guest. Input to the script stage's source brief."
+        ),
+    )
 
 
 class Digest(BaseModel):
@@ -487,14 +524,98 @@ class Take(BaseModel):
     segment_timestamp: float = Field(description="Timestamp of the supporting highlight in seconds.")
 
 
+class Citation(BaseModel):
+    """What a script line rests on: one surfaced highlight (timestamp set) or
+    a featured source's brief as a whole (timestamp None) — who the people
+    are, what the piece is, when it aired, its thesis."""
+
+    episode_id: str = Field(description="Episode identifier of the cited source.")
+    segment_timestamp: float | None = Field(
+        default=None,
+        description="Timestamp of the cited highlight in seconds; None cites the source brief.",
+    )
+
+
+class Person(BaseModel):
+    """Someone speaking in (or authoring) a source, as named by the source."""
+
+    name: str = Field(description="Name as it appears in the source material.")
+    role: Literal["host", "guest", "author", "other"] = Field(description="Role in the source.")
+    credential: str | None = Field(
+        default=None, description="Why they are worth hearing, as stated in the source material."
+    )
+
+
+class BriefPoint(BaseModel):
+    """One key point the source makes, tied to the highlight that shows it."""
+
+    text: str = Field(description="The point, paraphrased plainly.")
+    segment_timestamp: float = Field(description="Timestamp of the supporting highlight in seconds.")
+
+
+class SourceBrief(BaseModel):
+    """Context the listener needs before any commentary on a source: who is
+    talking, what the piece is, why it exists, and what it argues."""
+
+    episode_id: str = Field(description="Source episode's stable identifier.")
+    show: str | None = Field(default=None, description="Podcast or channel name.")
+    title: str | None = Field(default=None, description="Episode title.")
+    published_at: datetime | None = Field(default=None, description="Publication time when known.")
+    people: list[Person] = Field(default_factory=list, description="Hosts, guests, authors.")
+    context: str = Field(description="Why this conversation exists and what prompted it.")
+    thesis: str = Field(description="The core argument in one or two sentences.")
+    key_points: list[BriefPoint] = Field(
+        default_factory=list, description="The source's key points, each tied to a highlight."
+    )
+
+
+class OutlineSegment(BaseModel):
+    """One planned stretch of the episode. The script is written one segment
+    at a time, in order, each call seeing everything written before it."""
+
+    name: str = Field(description="Short segment label.")
+    kind: Literal["intro", "source", "connection", "close"] = Field(
+        description="intro, one source's walkthrough, a cross-source connection, or the close."
+    )
+    source_ids: list[str] = Field(
+        default_factory=list, description="Episode ids this segment covers."
+    )
+    description: str = Field(description="What the segment must establish and argue, in order.")
+    size: Literal["short", "medium", "long"] = Field(
+        default="medium", description="Relative airtime."
+    )
+
+
+class EpisodeOutline(BaseModel):
+    segments: list[OutlineSegment] = Field(description="Segments in broadcast order.")
+    also_noted: list[str] = Field(
+        default_factory=list,
+        description="Episode ids that had highlights but did not fit; mentioned in the close.",
+    )
+
+
 class Turn(BaseModel):
-    """One line of dialogue in a two-host episode, traceable to a surfaced
-    highlight exactly like `Take` — grounding is per-turn, not per-episode."""
+    """One spoken line. A line that states something about a source carries
+    citations (a highlight or the source brief); a framing or transition line
+    may carry none, and then must not introduce facts (chorus/script.py
+    `validate_line`). `episode_id`/`segment_timestamp` mirror the line's
+    first citation for callers that read a single anchor."""
 
     speaker: Literal["host", "cohost"] = Field(description="Which speaker says this line.")
-    text: str = Field(description="The spoken line, grounded in one highlight.")
-    episode_id: str = Field(description="Episode identifier of the supporting highlight.")
-    segment_timestamp: float = Field(description="Timestamp of the supporting highlight in seconds.")
+    text: str = Field(description="The spoken line.")
+    episode_id: str | None = Field(
+        default=None, description="Episode identifier of the line's first citation, if any."
+    )
+    segment_timestamp: float | None = Field(
+        default=None,
+        description="Timestamp of the line's first highlight citation in seconds, if any.",
+    )
+    citations: list[Citation] = Field(
+        default_factory=list, description="Highlights or source briefs this line rests on."
+    )
+    move: str | None = Field(
+        default=None, description='Rhetorical move: "setup" or one of TAKE_TYPES.'
+    )
 
 
 class Script(BaseModel):
@@ -505,7 +626,7 @@ class Script(BaseModel):
     )
     turns: list[Turn] = Field(
         default_factory=list,
-        description="Dialogue turns (pass 2, dialogue format only). Empty for monologue.",
+        description="Spoken lines in order (host only for monologue), each with its citations.",
     )
     format: Literal["monologue", "dialogue"] = Field(
         default="monologue", description="Episode format the audio renderer dispatches on."
@@ -517,6 +638,12 @@ class Script(BaseModel):
             "rendering honors a per-speaker voice the request asked for instead of the "
             "renderer's env/default voice."
         ),
+    )
+    briefs: list[SourceBrief] = Field(
+        default_factory=list, description="Context for each featured source, in outline order."
+    )
+    outline: EpisodeOutline | None = Field(
+        default=None, description="The segment plan the script was written against."
     )
 
 

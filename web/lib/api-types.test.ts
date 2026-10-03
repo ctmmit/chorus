@@ -13,8 +13,8 @@ describe("TWO_HOST_PROFILE", () => {
     expect(TWO_HOST_PROFILE.format).toBe("dialogue");
     expect(TWO_HOST_PROFILE.speakers.map((s) => s.role).sort()).toEqual(["cohost", "host"]);
     expect(TWO_HOST_PROFILE.speakers.find((s) => s.role === "host")?.persona).toBe(HOST_PERSONA_IS_SOUL);
-    expect(TWO_HOST_PROFILE.style.target_minutes).toBeGreaterThanOrEqual(1);
-    expect(TWO_HOST_PROFILE.style.target_minutes).toBeLessThanOrEqual(20);
+    // Unset, like chorus/models.py: the length is budgeted from the sources.
+    expect(TWO_HOST_PROFILE.style.target_minutes).toBeUndefined();
   });
 
   // Drift guard: runs from a full checkout (the Python source is one level

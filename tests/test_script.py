@@ -52,34 +52,54 @@ def test_refused_episode_yields_no_takes() -> None:
 
 def test_monologue_profile_explicit_matches_default() -> None:
     """Passing MONOLOGUE_PROFILE explicitly must be identical to omitting a
-    profile — single-voice stays the default and unchanged."""
+    profile — single-voice stays the default."""
     digest, soul, context = _digest(ANDREESSEN, "soul_investor.md")
     default_script = MockScriptComposer().write_script(digest, soul, context)
     explicit_script = MockScriptComposer().write_script(digest, soul, context, MONOLOGUE_PROFILE)
     assert default_script == explicit_script
     assert explicit_script.format == "monologue"
-    assert explicit_script.turns == []
+    assert {t.speaker for t in explicit_script.turns} == {"host"}
 
 
-def test_dialogue_mock_alternates_speakers() -> None:
+def test_dialogue_mock_has_both_speakers_and_cohost_follows_host() -> None:
     digest, soul, context = _digest(ANDREESSEN, "soul_investor.md")
     script = MockScriptComposer().write_script(digest, soul, context, TWO_HOST_PROFILE)
 
     assert script.format == "dialogue"
-    assert script.turns, "clean episode should yield dialogue turns"
-    speakers = [t.speaker for t in script.turns]
-    # Deterministic alternation: host states the take, cohost pushes back.
-    assert speakers == ["host", "cohost"] * (len(speakers) // 2)
+    assert {t.speaker for t in script.turns} == {"host", "cohost"}
+    for prev, turn in zip(script.turns, script.turns[1:], strict=False):
+        if turn.speaker == "cohost":
+            # The cohost reacts to the moment the host just raised.
+            assert prev.speaker == "host"
+            assert prev.citations == turn.citations
 
 
-def test_dialogue_every_turn_traceable_to_a_highlight() -> None:
+def test_every_citation_resolves_to_a_highlight_or_a_featured_brief() -> None:
+    digest, soul, context = _digest(ANDREESSEN, "soul_investor.md")
+    for profile in (MONOLOGUE_PROFILE, TWO_HOST_PROFILE):
+        script = MockScriptComposer().write_script(digest, soul, context, profile)
+        valid = {(h.episode_id, round(h.segment_timestamp)) for h in digest.highlights}
+        briefed = {b.episode_id for b in script.briefs}
+        assert script.turns
+        for turn in script.turns:
+            for cite in turn.citations:
+                if cite.segment_timestamp is None:
+                    assert cite.episode_id in briefed
+                else:
+                    assert (cite.episode_id, round(cite.segment_timestamp)) in valid
+
+
+def test_source_is_set_up_before_any_highlight_is_discussed() -> None:
+    """Context before commentary: a source's first line cites its brief, not a moment."""
     digest, soul, context = _digest(ANDREESSEN, "soul_investor.md")
     script = MockScriptComposer().write_script(digest, soul, context, TWO_HOST_PROFILE)
 
-    valid = {(h.episode_id, round(h.segment_timestamp)) for h in digest.highlights}
-    assert script.turns
-    for turn in script.turns:
-        assert (turn.episode_id, round(turn.segment_timestamp)) in valid, "turn not traceable"
+    first_highlight = next(i for i, t in enumerate(script.turns) if t.segment_timestamp is not None)
+    setup = [t for t in script.turns[:first_highlight] if t.move == "setup"]
+    assert any(t.citations and t.citations[0].segment_timestamp is None for t in setup)
+    assert script.outline is not None
+    assert [s.kind for s in script.outline.segments][0] == "intro"
+    assert [s.kind for s in script.outline.segments][-1] == "close"
 
 
 def test_dialogue_monologue_field_contains_readable_transcript_of_every_turn() -> None:
@@ -98,10 +118,8 @@ def test_dialogue_refused_episode_yields_no_turns() -> None:
     assert "Nothing cleared the bar" in script.monologue
 
 
-def test_monologue_format_unchanged_from_before_phase_e() -> None:
-    """No profile passed at all (the pre-Phase-E call shape) must still
-    produce a monologue-format script with empty turns."""
+def test_no_profile_is_a_single_voice_monologue() -> None:
     digest, soul, context = _digest(ANDREESSEN, "soul_investor.md")
     script = MockScriptComposer().write_script(digest, soul, context)
     assert script.format == "monologue"
-    assert script.turns == []
+    assert script.monologue == "\n\n".join(t.text for t in script.turns)

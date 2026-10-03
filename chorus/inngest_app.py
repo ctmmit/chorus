@@ -6,7 +6,8 @@ frozen after responding.
 `run_digest` is triggered by the `chorus/digest.requested` event that
 chorus.runners.InngestRunner.submit sends. Its body calls the SAME stage
 functions from chorus/pipeline.py (`stage_ingest`, `stage_curate_episode`,
-`stage_script`, `stage_audio`) that the BackgroundRunner path calls, one per
+`stage_brief`, `stage_outline`, `stage_script`, `stage_audio`) that the
+BackgroundRunner path calls, one per
 `step.run` — including one `curate:<episode_id>` step PER resolved episode,
 so a single episode's transient failure retries alone rather than re-running
 the whole digest. Between steps the Job is loaded/saved through the store,
@@ -62,6 +63,7 @@ from chorus.models import (
     CurateResult,
     Digest,
     DigestRequest,
+    EpisodeOutline,
     IngestResult,
     Job,
     JobStatus,
@@ -73,10 +75,13 @@ from chorus.pipeline import (
     PLACEHOLDER_AUDIO_WARNING,
     AllEpisodesFailed,
     AudioResult,
+    BriefResult,
     Deps,
     stage_audio,
+    stage_brief,
     stage_curate_episode,
     stage_ingest,
+    stage_outline,
     stage_script,
     sum_llm_tokens,
 )
@@ -189,8 +194,21 @@ async def _execute(step: StepLike, event_data: dict[str, Any], store: JobStore, 
     try:
         digest = job.digest
 
+        # Three steps so a failed segment call retries without re-briefing.
+        async def _brief(digest: Digest = digest) -> dict[str, Any]:
+            return stage_brief(digest, request, deps.composer).model_dump(mode="json")
+
+        briefs = BriefResult.model_validate(await step.run("brief", _brief)).briefs
+
+        async def _outline(digest: Digest = digest) -> dict[str, Any]:
+            return stage_outline(digest, briefs, request, deps.composer).model_dump(mode="json")
+
+        outline = EpisodeOutline.model_validate(await step.run("outline", _outline))
+
         async def _script(digest: Digest = digest) -> dict[str, Any]:
-            return stage_script(digest, request, deps.composer).model_dump(mode="json")
+            return stage_script(digest, request, deps.composer, briefs, outline).model_dump(
+                mode="json"
+            )
 
         script_data = await step.run("script", _script)
         job.script = Script.model_validate(script_data)

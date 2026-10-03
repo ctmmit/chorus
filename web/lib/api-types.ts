@@ -218,7 +218,8 @@ export interface SpeakerProfile {
 export interface ConversationStyle {
   tone: string;
   engagement: string[];
-  target_minutes: number;
+  /** Unset/null: the service budgets ~3-4 minutes per featured source. */
+  target_minutes?: number | null;
 }
 
 export interface EpisodeProfile {
@@ -249,7 +250,6 @@ export const TWO_HOST_PROFILE: EpisodeProfile = {
   style: {
     tone: "sharp, argumentative, fast-paced",
     engagement: ["interruptions", "callbacks", "disagreement", "concrete numbers"],
-    target_minutes: 5,
   },
 };
 

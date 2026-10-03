@@ -43,6 +43,7 @@ other sources produced, so one dead feed never fails a run.
 from __future__ import annotations
 
 import email.utils
+import html
 import logging
 import re
 import xml.etree.ElementTree as ET
@@ -54,6 +55,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from chorus import catalog
 from chorus.models import (
+    MAX_DESCRIPTION_CHARS,
     MAX_GUID_CHARS,
     MAX_SHOW_CHARS,
     MAX_TITLE_CHARS,
@@ -81,6 +83,7 @@ ITUNES_NS = "http://www.itunes.com/dtds/podcast-1.0.dtd"
 ATOM_NS = "http://www.w3.org/2005/Atom"
 YOUTUBE_NS = "http://www.youtube.com/xml/schemas/2015"
 DC_NS = "http://purl.org/dc/elements/1.1/"
+MEDIA_NS = "http://search.yahoo.com/mrss/"
 UNTITLED_EPISODE = "(untitled episode)"
 # Episodes listed per source by the scheduler and the preview before the
 # round-robin cap is applied; comfortably above MAX_EPISODES_PER_RUN (20).
@@ -286,6 +289,18 @@ def parse_datetime(text: str | None) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def plain_description(raw: str | None) -> str | None:
+    """Show notes as plain text: tags stripped, entities decoded, whitespace
+    collapsed, capped at MAX_DESCRIPTION_CHARS. None when nothing is left."""
+    if not raw:
+        return None
+    text = " ".join(html.unescape(_HTML_TAG_RE.sub(" ", raw)).split())
+    return text[:MAX_DESCRIPTION_CHARS] or None
+
+
 # --- RSS ------------------------------------------------------------------------
 
 
@@ -319,16 +334,22 @@ def _rss_item_to_episode(
         guid = None  # fall back to the enclosure URL as the identity
     title = (_text(_child(item, "title", default_ns)) or UNTITLED_EPISODE)[:MAX_TITLE_CHARS]
     show = source_title[:MAX_SHOW_CHARS]
+    description = plain_description(
+        _text(_child(item, "description", default_ns)) or _text(item.find(f"{{{ITUNES_NS}}}summary"))
+    )
+    if not (guid or audio_url):
+        return None  # nothing identifies this item
 
     try:
-        if guid:
-            episode = EpisodeInput(
-                feed_url=feed_url, guid=guid, audio_url=audio_url, show=show, title=title
-            )
-        elif audio_url:
-            episode = EpisodeInput(feed_url=feed_url, audio_url=audio_url, show=show, title=title)
-        else:
-            return None  # nothing identifies this item
+        episode = EpisodeInput(
+            feed_url=feed_url,
+            guid=guid or None,
+            audio_url=audio_url,
+            show=show,
+            title=title,
+            published_at=published,
+            description=description,
+        )
     except ValidationError:
         return None
     return FeedEpisode(
@@ -385,8 +406,17 @@ def parse_youtube_atom(root: ET.Element, *, title_override: str | None = None) -
         if video_id is None or published is None:
             continue
         title = (_text(entry.find(f"{{{ATOM_NS}}}title")) or UNTITLED_EPISODE)[:MAX_TITLE_CHARS]
+        description = plain_description(
+            _text(entry.find(f"{{{MEDIA_NS}}}group/{{{MEDIA_NS}}}description"))
+        )
         try:
-            episode = EpisodeInput(video_id=video_id, show=source_title[:MAX_SHOW_CHARS], title=title)
+            episode = EpisodeInput(
+                video_id=video_id,
+                show=source_title[:MAX_SHOW_CHARS],
+                title=title,
+                published_at=published,
+                description=description,
+            )
         except ValidationError:
             continue
         episodes.append(

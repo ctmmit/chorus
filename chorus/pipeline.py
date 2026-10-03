@@ -12,8 +12,9 @@ Invariant: run_job always leaves the job in a terminal state. A background
 task that raises would otherwise strand the job at queued/digest_ready and a
 caller following SKILL.md would poll forever.
 
-Phase B (docs/DEVELOPMENT_PLAN.md §5): the work below is four stage functions
-(`stage_ingest`, `stage_curate_episode`, `stage_script`, `stage_audio`) that
+Phase B (docs/DEVELOPMENT_PLAN.md §5): the work below is stage functions
+(`stage_ingest`, `stage_curate_episode`, `stage_brief`, `stage_outline`,
+`stage_script`, `stage_audio`) that
 take/return JSON-serializable (Pydantic) values and hold no state of their
 own. `run_job`/`_run` remain the in-process orchestrator (FastAPI
 BackgroundTasks via chorus.runners.BackgroundRunner) that calls them in
@@ -41,6 +42,7 @@ from chorus.models import (
     CurateResult,
     Digest,
     DigestRequest,
+    EpisodeOutline,
     IngestResult,
     Job,
     JobStatus,
@@ -48,6 +50,7 @@ from chorus.models import (
     LLMTokens,
     ResolvedEpisode,
     Script,
+    SourceBrief,
 )
 from chorus.script import ScriptComposer, get_script_composer
 from chorus.transcript_cache import SqliteTranscriptCache
@@ -183,14 +186,45 @@ def stage_curate_episode(
     return CurateResult(digest=digest, tokens=tokens)
 
 
-def stage_script(digest: Digest, request: DigestRequest, composer: ScriptComposer) -> Script:
-    """Compose the opinionated script from the finished digest. Callers treat
-    a raised exception as non-fatal (digest still stands; script degrades).
-    `request.profile` (None -> MONOLOGUE_PROFILE, today's single-voice
-    behavior) picks monologue vs. two-host dialogue (docs/DEVELOPMENT_PLAN.md
-    §4)."""
+class BriefResult(BaseModel):
+    """stage_brief's output, wrapped so an Inngest step returns a JSON object."""
+
+    briefs: list[SourceBrief]
+
+
+def stage_brief(digest: Digest, request: DigestRequest, composer: ScriptComposer) -> BriefResult:
+    """Brief each source the episode will feature: who is speaking, what the
+    piece is, when it aired, why it exists, what it argues (chorus/briefing.py)."""
     profile = request.profile or MONOLOGUE_PROFILE
-    return composer.write_script(digest, request.soul, request.context, profile)
+    return BriefResult(
+        briefs=composer.write_briefs(digest, request.soul, request.context, profile)
+    )
+
+
+def stage_outline(
+    digest: Digest, briefs: list[SourceBrief], request: DigestRequest, composer: ScriptComposer
+) -> EpisodeOutline:
+    """Plan the episode's segments from the briefs (chorus/outline.py)."""
+    profile = request.profile or MONOLOGUE_PROFILE
+    return composer.write_outline(digest, briefs, request.soul, request.context, profile)
+
+
+def stage_script(
+    digest: Digest,
+    request: DigestRequest,
+    composer: ScriptComposer,
+    briefs: list[SourceBrief] | None = None,
+    outline: EpisodeOutline | None = None,
+) -> Script:
+    """Write the script segment by segment against the outline. Callers treat
+    a raised exception as non-fatal (digest still stands; script degrades).
+    `request.profile` (None -> MONOLOGUE_PROFILE, single voice) picks
+    monologue vs. two-host dialogue (docs/DEVELOPMENT_PLAN.md §4). Briefs and
+    outline not supplied are produced here."""
+    profile = request.profile or MONOLOGUE_PROFILE
+    return composer.write_script(
+        digest, request.soul, request.context, profile, briefs=briefs, outline=outline
+    )
 
 
 PLACEHOLDER_AUDIO_WARNING = (
@@ -296,7 +330,9 @@ def _run(
     # From here the digest exists and is the deliverable; the layers degrade.
     t0 = time.perf_counter()
     try:
-        job.script = stage_script(job.digest, request, deps.composer)
+        briefs = stage_brief(job.digest, request, deps.composer).briefs
+        outline = stage_outline(job.digest, briefs, request, deps.composer)
+        job.script = stage_script(job.digest, request, deps.composer, briefs, outline)
     except Exception as err:  # noqa: BLE001 - non-fatal: digest is still valid
         job.script = None
         job.warnings.append(f"script synthesis failed: {type(err).__name__}: {err}")

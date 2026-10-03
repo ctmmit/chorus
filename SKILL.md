@@ -265,8 +265,7 @@ ungrounded take is dropped from the single-voice script today.
     ],
     "style": {
       "tone": "sharp, argumentative, fast-paced",
-      "engagement": ["interruptions", "callbacks", "disagreement", "concrete numbers"],
-      "target_minutes": 5
+      "engagement": ["interruptions", "callbacks", "disagreement", "concrete numbers"]
     }
   }
 }
@@ -281,21 +280,32 @@ ungrounded take is dropped from the single-voice script today.
 - `style.engagement` is explicit config for techniques the dialogue should
   use (interruptions, callbacks, disagreement, pressing for concrete
   numbers) — borrowed structure, not an auto-writer's judgment call.
-- `style.target_minutes` (1–20, default 5) caps how much dialogue gets
-  written, at roughly 150 spoken words/minute.
+- `style.target_minutes` (1–20) is optional. Leave it out and the episode
+  features up to three sources at about 3–4 minutes each (one source: ~6
+  minutes; three: ~14). Set it and the episode features as many sources as
+  fit that length with a proper introduction each, at least one. Sources
+  that don't fit get a one-line mention in the close.
 - `voice_id` per speaker is optional; unset falls back to the service's
   `ELEVENLABS_VOICE_ID` (host) / `ELEVENLABS_COHOST_VOICE_ID` (cohost).
 
-In the response, a dialogue script's `script.turns` is a list of
-`{ "speaker": "host" | "cohost", "text", "episode_id", "segment_timestamp" }`
-— resolve `episode_id` + `segment_timestamp` against `digest` exactly like a
-highlight citation, because that's what grounds it. `script.monologue` still
-exists for a dialogue script too: it's the readable transcript ("HOST:
-...\n\nCOHOST: ...") built from `turns`, so a caller that only reads
-`monologue` (as every caller could before this feature existed) still gets
-something coherent. `script.takes` are the beats the dialogue was built from
-(pass 1 of the two-pass outline-then-dialogue process); `script.format` tells
-you which shape you got.
+Every script is written the same way, for both formats: each featured
+source gets a brief (`script.briefs`: show, title, date, people and their
+credentials, context, thesis, key points), the episode is planned as
+segments (`script.outline`: intro, one segment per source, connections,
+close), and then written one segment at a time so each source is
+introduced before anyone comments on it.
+
+`script.turns` is the spoken script in order:
+`{ "speaker": "host" | "cohost", "text", "citations", "move",
+"episode_id", "segment_timestamp" }`. Each citation is
+`{ "episode_id", "segment_timestamp" }`: with a timestamp it resolves
+against `digest` exactly like a highlight citation; with
+`segment_timestamp: null` it cites that source's brief (who, what, when).
+A line with no citations is framing or a transition and states no facts.
+A monologue's turns are all `"host"`. `script.monologue` is the readable
+text (for a dialogue, "HOST: ...\n\nCOHOST: ..."), and `script.takes` are
+the lines anchored to a specific highlight; `script.format` tells you
+which shape you got.
 
 ## Discovery
 
