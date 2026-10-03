@@ -36,7 +36,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import threading
 import time
 import uuid
@@ -72,7 +71,15 @@ from chorus.models import (
     Take,
     Turn,
 )
-from chorus.onboarding import Brain, OnboardingConfig, OnboardingError, Voice, status
+from chorus.onboarding import (
+    Brain,
+    OnboardingConfig,
+    OnboardingError,
+    Voice,
+    load_config,
+    status,
+    voice_overrides,
+)
 from chorus.pipeline import PLACEHOLDER_AUDIO_WARNING, Deps, run_job, stage_audio, stage_ingest
 from chorus.render_plan import AudioChunkError, RenderPlan, build_plan, join_mp3, read_chunk
 from chorus.script import _max_turns, _speaker_persona, _turns_transcript
@@ -796,19 +803,16 @@ def _complete(
 # --- agent-rendered audio ("host-plugin" voice) ----------------------------
 
 
-def _env_voices() -> dict[str, str]:
-    pairs = {
-        "host": os.environ.get("ELEVENLABS_VOICE_ID"),
-        "cohost": os.environ.get("ELEVENLABS_COHOST_VOICE_ID"),
-    }
-    return {role: voice for role, voice in pairs.items() if voice}
+def principal_voices() -> dict[str, str]:
+    """The voices chosen in onboarding, else ELEVENLABS_*VOICE_ID, per role."""
+    return voice_overrides(load_config())
 
 
 def _plan_for(store: JobStore, job_id: str) -> RenderPlan:
     script = _job(store, job_id).script
     if script is None:
         raise HostModeError(f"run {job_id} has no script to voice")
-    return build_plan(script, _env_voices())
+    return build_plan(script, principal_voices())
 
 
 def _render_task(store: JobStore, state: HostRunState) -> HostTask:

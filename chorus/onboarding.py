@@ -32,6 +32,7 @@ class Step(StrEnum):
     voice = "voice"
     transcripts = "transcripts"
     keys = "keys"
+    voices = "voices"
     soul = "soul"
     shows = "shows"
     updates = "updates"
@@ -46,6 +47,7 @@ STEP_TITLES: dict[Step, str] = {
     Step.voice: "Who voices the episode?",
     Step.transcripts: "Where do transcripts come from?",
     Step.keys: "API keys",
+    Step.voices: "Which voices read your episode (optional)",
     Step.soul: "Your soul: the lens Chorus curates through (required)",
     Step.shows: "Shows and schedule",
     Step.updates: "Updates",
@@ -89,6 +91,13 @@ class OnboardingConfig(BaseModel):
     brain: Brain | None = None
     voice: Voice | None = None
     transcripts: Transcripts | None = None
+    # ElevenLabs voices; None keeps ELEVENLABS_VOICE_ID / _COHOST_VOICE_ID or the defaults.
+    host_voice_id: str | None = None
+    host_voice_name: str | None = None
+    cohost_voice_id: str | None = Field(
+        default=None, description="Second voice, for two-host episodes."
+    )
+    cohost_voice_name: str | None = None
     soul: str | None = Field(default=None, description="Name of the soul in ~/.chorus/souls/.")
     shows: list[str] = Field(default_factory=list, description="Catalog show names.")
     feeds: list[str] = Field(default_factory=list, description="Podcast RSS feed URLs.")
@@ -133,6 +142,11 @@ class Status(BaseModel):
 class OnboardingError(ValueError):
     """A choice that cannot be applied; the message says why."""
 
+
+# Steps a run never waits for: the smoke test is a check, and unchosen voices
+# fall back to the defaults.
+OPTIONAL_STEPS = frozenset({Step.voices, Step.smoke_test})
+VOICE_ENV = {"host": "ELEVENLABS_VOICE_ID", "cohost": "ELEVENLABS_COHOST_VOICE_ID"}
 
 ANTHROPIC_KEY = KeySpec(
     env="ANTHROPIC_API_KEY", label="Anthropic", url="https://console.anthropic.com/settings/keys"
@@ -307,7 +321,31 @@ def reset(config: OnboardingConfig, step: Step) -> OnboardingConfig:
         update[_CHOICE_FIELDS[step][0]] = None
     elif step is Step.soul:
         update["soul"] = None
+    elif step is Step.voices:
+        for field in ("host_voice_id", "host_voice_name", "cohost_voice_id", "cohost_voice_name"):
+            update[field] = None
     return config.model_copy(update=update)
+
+
+# --- voices ----------------------------------------------------------------
+
+
+def voices_apply(config: OnboardingConfig) -> bool:
+    """Whether there are voices to pick: Chorus renders with ElevenLabs, or the
+    principal's agent renders with its own (usually ElevenLabs) tool."""
+    return config.voice in (Voice.elevenlabs_key, Voice.host_plugin)
+
+
+def voice_overrides(
+    config: OnboardingConfig, environ: Mapping[str, str] | None = None
+) -> dict[str, str]:
+    """The voice id per role ("host", "cohost") that replaces a renderer's
+    default: the onboarding choice, else the ELEVENLABS_*VOICE_ID variable.
+    Roles with neither are absent."""
+    env = os.environ if environ is None else environ
+    chosen = {"host": config.host_voice_id, "cohost": config.cohost_voice_id}
+    overrides = {role: chosen[role] or env.get(VOICE_ENV[role], "").strip() for role in VOICE_ENV}
+    return {role: voice for role, voice in overrides.items() if voice}
 
 
 # --- keys ------------------------------------------------------------------
@@ -376,10 +414,11 @@ def status(config: OnboardingConfig, environ: Mapping[str, str] | None = None) -
         elif step in _CHOICE_FIELDS and getattr(config, _CHOICE_FIELDS[step][0]) is None:
             blocker = "not chosen"
         done = step in config.completed and blocker is None
+        if step is Step.voices and not voices_apply(config):
+            done = True
         rows.append(StepStatus(step=step, title=STEP_TITLES[step], done=done, blocker=blocker))
     next_step = next((r.step for r in rows if not r.done), None)
-    # The smoke test is a check, not a precondition: a run needs everything else.
-    ready = all(r.done for r in rows if r.step is not Step.smoke_test)
+    ready = all(r.done for r in rows if r.step not in OPTIONAL_STEPS)
     return Status(
         ready=ready,
         next_step=next_step,

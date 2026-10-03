@@ -46,7 +46,8 @@ def register_setup_tools(server: FastMCP, store: JobStore) -> None:
 
     def onboarding_options(step: str) -> dict[str, Any]:
         """The prompt and options for any step, e.g. to revisit 'brain'.
-        Steps: mode, brain, voice, transcripts, keys, soul, shows, updates, smoke_test."""
+        Steps: mode, brain, voice, transcripts, keys, voices, soul, shows, updates,
+        smoke_test."""
         return agent_setup.step_options(step).model_dump(mode="json")
 
     def onboarding_set(step: str, value: str) -> dict[str, Any]:
@@ -58,6 +59,25 @@ def register_setup_tools(server: FastMCP, store: JobStore) -> None:
         """Store one API key in ~/.chorus/.env on this machine. Never echo the
         value back to the principal."""
         return agent_setup.set_key(env, value).model_dump(mode="json")
+
+    def onboarding_voices() -> dict[str, Any]:
+        """The ElevenLabs voices the principal can pick for their episodes,
+        with the defaults and their current choice. With your own voice tool
+        (voice=host-plugin) you list them yourself; the reply says so."""
+        return agent_setup.list_voices()
+
+    def onboarding_set_voice(
+        host_voice_id: str | None = None,
+        cohost_voice_id: str | None = None,
+        host_name: str | None = None,
+        cohost_name: str | None = None,
+    ) -> dict[str, Any]:
+        """Record the voices the principal picked: the host voice, and a
+        different cohost voice for two-host episodes. No ids keeps the
+        defaults."""
+        return agent_setup.set_voice(
+            host_voice_id, cohost_voice_id, host_name, cohost_name
+        ).model_dump(mode="json")
 
     def onboarding_soul_draft(
         source: str,
@@ -161,6 +181,8 @@ def register_setup_tools(server: FastMCP, store: JobStore) -> None:
         onboarding_options,
         onboarding_set,
         onboarding_set_key,
+        onboarding_voices,
+        onboarding_set_voice,
         onboarding_soul_draft,
         onboarding_soul_save,
         onboarding_soul_show,

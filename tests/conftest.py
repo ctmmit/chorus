@@ -97,6 +97,8 @@ def chorus_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Pat
     for env in (
         "ANTHROPIC_API_KEY",
         "ELEVENLABS_API_KEY",
+        "ELEVENLABS_VOICE_ID",
+        "ELEVENLABS_COHOST_VOICE_ID",
         "ASSEMBLYAI_API_KEY",
         "DEEPGRAM_API_KEY",
         "TRANSCRIPT_API_KEY",

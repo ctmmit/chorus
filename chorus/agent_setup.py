@@ -20,15 +20,19 @@ soul is saved, and `run` refuses until then.
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from typing import Any
 
 from pydantic import BaseModel
 
 from chorus import paths
+from chorus.audio import DEFAULT_COHOST_VOICE_ID, DEFAULT_VOICE_ID
 from chorus.bootstrap import AnthropicSoulBuilder, MockSoulBuilder, SoulBuilder
 from chorus.models import EpisodeInput, Job
 from chorus.onboarding import (
     ANTHROPIC_KEY,
+    ELEVENLABS_KEY,
+    OPTIONAL_STEPS,
     STEP_TITLES,
     TRANSCRIPT_KEYS,
     Brain,
@@ -48,6 +52,7 @@ from chorus.onboarding import (
     save_config,
     set_env_value,
     status,
+    voices_apply,
 )
 from chorus.soul import (
     INTERVIEW_QUESTIONS,
@@ -60,18 +65,33 @@ from chorus.soul import (
     validate_soul,
 )
 from chorus.version import UpdateInfo, status_check
+from chorus.voices import (
+    ElevenLabsVoiceCatalog,
+    InvalidVoiceId,
+    VoiceCatalog,
+    VoiceInfo,
+    VoiceListError,
+    check_voice_id,
+)
 
 SETUP_PROTOCOL = 1
 SETTABLE_KEYS = frozenset(
     [ANTHROPIC_KEY.env, "ELEVENLABS_API_KEY", *(k.env for k in TRANSCRIPT_KEYS.values())]
 )
 SOUL_SOURCES = ("interview", "write", "corpus", "preset", "file")
+DEFAULT_VOICES = {
+    "host": {"voice_id": DEFAULT_VOICE_ID, "name": "Rachel"},
+    "cohost": {"voice_id": DEFAULT_COHOST_VOICE_ID, "name": "Adam"},
+}
+
+# Swapped out in tests; production lists the voices on the principal's account.
+make_voice_catalog: Callable[[str], VoiceCatalog] = ElevenLabsVoiceCatalog
 
 
 class StepPrompt(BaseModel):
     step: Step
     title: str
-    kind: str  # choice | keys | soul | shows | confirm
+    kind: str  # choice | keys | voices | soul | shows | confirm
     ask: str
     options: list[Option] = []
     agent_notes: list[str] = []
@@ -168,6 +188,30 @@ def step_prompt(step: Step, config: OnboardingConfig) -> StepPrompt:
                 "choice to one that needs no key instead.",
             ],
             data={"keys": keys, "env_file": str(paths.env_path())},
+        )
+    if step is Step.voices:
+        own_tool = config.voice is Voice.host_plugin
+        lister = (
+            "you list them with your own text-to-speech tool (e.g. the ElevenLabs MCP "
+            "server's search_voices)"
+            if own_tool
+            else "Chorus lists the voices on the principal's ElevenLabs account"
+        )
+        return StepPrompt(
+            step=step,
+            title=title,
+            kind="voices",
+            ask="Which voice should read your episodes? Two-host episodes also use a second "
+            "voice. You can keep the defaults.",
+            agent_notes=[
+                f"Call onboarding_voices for the voices to offer; {lister}.",
+                "Offer a short list (name plus accent, gender and style), and offer to play "
+                "a voice's preview_url if they want to hear it. Never pick for them.",
+                "Then call onboarding_set_voice with the host voice id and, if they want "
+                "two-host episodes, a different cohost voice id. Call it with no ids to keep "
+                "the defaults.",
+            ],
+            data={"defaults": DEFAULT_VOICES, "current": _current_voices(config)},
         )
     if step is Step.soul:
         return StepPrompt(
@@ -346,6 +390,105 @@ def set_shows(shows: list[str], feeds: list[str], weekly: bool) -> AgentStatus:
     return agent_status()
 
 
+# --- voices ----------------------------------------------------------------
+
+
+def _current_voices(config: OnboardingConfig) -> dict[str, Any]:
+    return {
+        "host": {"voice_id": config.host_voice_id, "name": config.host_voice_name},
+        "cohost": {"voice_id": config.cohost_voice_id, "name": config.cohost_voice_name},
+    }
+
+
+def _account_voices() -> list[VoiceInfo]:
+    """The account's voices; raises VoiceListError when they cannot be listed."""
+    key = os.environ.get(ELEVENLABS_KEY.env, "").strip()
+    if not key:
+        raise VoiceListError(f"{ELEVENLABS_KEY.env} is not set; finish the keys step first")
+    return make_voice_catalog(key).list_voices()
+
+
+def list_voices() -> dict[str, Any]:
+    """The voices the principal can pick from, with the defaults and the
+    current choice. With the agent's own voice tool, the agent lists them."""
+    config = _load()
+    if not voices_apply(config):
+        raise OnboardingError(
+            "the voice choice renders no audio, so there are no voices to pick; choose "
+            "'elevenlabs-key' or 'host-plugin' for the voice step first"
+        )
+    base: dict[str, Any] = {"defaults": DEFAULT_VOICES, "current": _current_voices(config)}
+    if config.voice is Voice.host_plugin:
+        return {
+            **base,
+            "source": "agent",
+            "voices": [],
+            "agent_notes": [
+                "You voice the episodes, so list the voices with your own text-to-speech "
+                "tool (e.g. the ElevenLabs MCP server's search_voices) and offer those.",
+                "Pass the chosen voice ids (and names) to onboarding_set_voice.",
+            ],
+        }
+    try:
+        voices = _account_voices()
+    except VoiceListError as err:
+        return {
+            **base,
+            "source": "chorus",
+            "voices": [],
+            "error": str(err),
+            "agent_notes": [
+                "Chorus could not list the account's voices. Ask the principal for a voice id "
+                "(on the voice's page in ElevenLabs: 'Copy voice ID') and pass it to "
+                "onboarding_set_voice, or keep the defaults.",
+            ],
+        }
+    return {
+        **base,
+        "source": "chorus",
+        "voices": [v.model_dump() | {"summary": v.summary()} for v in voices],
+    }
+
+
+def set_voice(
+    host_voice_id: str | None,
+    cohost_voice_id: str | None = None,
+    host_name: str | None = None,
+    cohost_name: str | None = None,
+) -> AgentStatus:
+    """Record the principal's voices. No ids keeps the defaults; a co-host
+    alone keeps the default host voice."""
+    config = _load()
+    if not voices_apply(config):
+        raise OnboardingError("the voice choice renders no audio; there are no voices to set")
+    try:
+        host = check_voice_id(host_voice_id) if host_voice_id else None
+        cohost = check_voice_id(cohost_voice_id) if cohost_voice_id else None
+    except InvalidVoiceId as err:
+        raise OnboardingError(str(err)) from err
+    if host and host == cohost:
+        raise OnboardingError("the co-host needs a different voice from the host")
+    if (host and not host_name) or (cohost and not cohost_name):
+        # Names only make status readable; an id alone renders fine, so a
+        # listing failure here leaves the name empty rather than failing.
+        try:
+            known = {v.voice_id: v.name for v in _account_voices()}
+        except VoiceListError:
+            known = {}
+        host_name = host_name or (known.get(host) if host else None)
+        cohost_name = cohost_name or (known.get(cohost) if cohost else None)
+    config = config.model_copy(
+        update={
+            "host_voice_id": host,
+            "host_voice_name": host_name if host else None,
+            "cohost_voice_id": cohost,
+            "cohost_voice_name": cohost_name if cohost else None,
+        }
+    )
+    save_config(mark_done(config, Step.voices))
+    return agent_status()
+
+
 # --- soul ------------------------------------------------------------------
 
 
@@ -466,7 +609,7 @@ def smoke_test(
         save_config(mark_done(config, Step.smoke_test))
         return {"skipped": True, "status": agent_status().model_dump(mode="json")}
     unfinished = [
-        r.step for r in status(config).steps if not r.done and r.step is not Step.smoke_test
+        r.step for r in status(config).steps if not r.done and r.step not in OPTIONAL_STEPS
     ]
     if unfinished:
         raise OnboardingError(f"finish these steps first: {', '.join(unfinished)}")

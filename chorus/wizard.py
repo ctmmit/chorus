@@ -13,10 +13,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from chorus import paths
+from chorus.audio import DEFAULT_COHOST_VOICE_ID, DEFAULT_VOICE_ID
 from chorus.bootstrap import AnthropicSoulBuilder, MockSoulBuilder, SoulBuilder
 from chorus.models import Job, JobStatus
 from chorus.onboarding import (
     ANTHROPIC_KEY,
+    ELEVENLABS_KEY,
     STEP_ORDER,
     STEP_TITLES,
     Brain,
@@ -33,6 +35,7 @@ from chorus.onboarding import (
     save_config,
     set_env_value,
     status,
+    voices_apply,
 )
 from chorus.os_schedule import SchedulePlan
 from chorus.registration import Host, RegistrationResult, Target
@@ -46,6 +49,14 @@ from chorus.soul import (
     save_soul,
     soul_path,
     validate_soul,
+)
+from chorus.voices import (
+    ElevenLabsVoiceCatalog,
+    InvalidVoiceId,
+    VoiceCatalog,
+    VoiceInfo,
+    VoiceListError,
+    check_voice_id,
 )
 
 DEFAULT_SOUL_NAME = "me"
@@ -68,6 +79,7 @@ class Wizard:
     scheduler: Callable[[SchedulePlan], str] | None = None
     targets: Callable[[], list[Target]] | None = None
     registrar: Callable[[Host], RegistrationResult] | None = None
+    voice_catalog: Callable[[str], VoiceCatalog] | None = None
 
     # --- prompts -----------------------------------------------------------
 
@@ -127,6 +139,8 @@ class Wizard:
     def _run_step(self, step: Step, config: OnboardingConfig) -> OnboardingConfig:
         if step is Step.keys:
             return self._keys(config)
+        if step is Step.voices:
+            return self._voices(config)
         if step is Step.soul:
             return self._soul(config)
         if step is Step.shows:
@@ -165,6 +179,100 @@ class Wizard:
         if any(not os.environ.get(s.env, "").strip() for s in needed):
             return config
         return mark_done(config, Step.keys)
+
+    def _voices(self, config: OnboardingConfig) -> OnboardingConfig:
+        if not voices_apply(config):
+            self.io.say("  Your voice choice renders no audio, so there are no voices to pick.")
+            return mark_done(config, Step.voices)
+        self.io.say(
+            "  Pick the voice that reads your episodes, and a second one for two-host "
+            "episodes. Enter keeps the defaults (Rachel, and Adam as co-host)."
+        )
+        if config.voice is Voice.host_plugin:
+            self.io.say(
+                "  Your agent voices the episodes with its own tool; paste voice ids from "
+                "your ElevenLabs account, or ask your agent to list them."
+            )
+            return self._pasted_voices(config)
+        key = os.environ.get(ELEVENLABS_KEY.env, "").strip()
+        if not key:
+            self.io.say(f"  Add {ELEVENLABS_KEY.env} first (keys step); default voices for now.")
+            return config
+        make = self.voice_catalog or ElevenLabsVoiceCatalog
+        try:
+            voices = make(key).list_voices()
+        except VoiceListError as err:
+            self.io.say(f"  {err}")
+            return self._pasted_voices(config)
+        if not voices:
+            self.io.say("  Your ElevenLabs account lists no voices.")
+            return self._pasted_voices(config)
+        self.io.say("")
+        for number, voice in enumerate(voices, start=1):
+            self.io.say(f"  {number}. {voice.summary()}")
+        host = self._pick_voice(voices, "Host voice", None)
+        cohost = None
+        if self._confirm("Add a second voice for two-host episodes?", False):
+            cohost = self._pick_voice(voices, "Co-host voice", host)
+        return self._save_voices(config, host, cohost)
+
+    def _pick_voice(
+        self, voices: list[VoiceInfo], prompt: str, taken: VoiceInfo | None
+    ) -> VoiceInfo | None:
+        while True:
+            raw = self._ask(f"{prompt} (number, Enter for the default)")
+            if not raw:
+                return None
+            if raw.isdigit() and 1 <= int(raw) <= len(voices):
+                picked = voices[int(raw) - 1]
+                if taken is not None and picked.voice_id == taken.voice_id:
+                    self.io.say("  The co-host needs a different voice from the host.")
+                    continue
+                return picked
+            self.io.say(f"  Enter a number from 1 to {len(voices)}, or press Enter.")
+
+    def _pasted_voices(self, config: OnboardingConfig) -> OnboardingConfig:
+        host = self._paste_voice_id("Host voice id", DEFAULT_VOICE_ID, None)
+        cohost = self._paste_voice_id("Co-host voice id", DEFAULT_COHOST_VOICE_ID, host)
+        return self._save_voices(
+            config,
+            VoiceInfo(voice_id=host, name=host) if host else None,
+            VoiceInfo(voice_id=cohost, name=cohost) if cohost else None,
+        )
+
+    def _paste_voice_id(self, prompt: str, default: str, taken: str | None) -> str | None:
+        while True:
+            raw = self._ask(f"{prompt} (Enter keeps {default})")
+            if not raw:
+                return None
+            try:
+                voice_id = check_voice_id(raw)
+            except InvalidVoiceId as err:
+                self.io.say(f"  {err}")
+                continue
+            if voice_id == taken:
+                self.io.say("  The co-host needs a different voice from the host.")
+                continue
+            return voice_id
+
+    def _save_voices(
+        self, config: OnboardingConfig, host: VoiceInfo | None, cohost: VoiceInfo | None
+    ) -> OnboardingConfig:
+        def named(voice: VoiceInfo | None) -> str | None:
+            # A pasted id has no known name; keep the name empty rather than the id.
+            return voice.name if voice and voice.name != voice.voice_id else None
+
+        updated = config.model_copy(
+            update={
+                "host_voice_id": host.voice_id if host else None,
+                "host_voice_name": named(host),
+                "cohost_voice_id": cohost.voice_id if cohost else None,
+                "cohost_voice_name": named(cohost),
+            }
+        )
+        chosen = [v.name for v in (host, cohost) if v]
+        self.io.say(f"  Voices: {', '.join(chosen)}." if chosen else "  Keeping the default voices.")
+        return mark_done(updated, Step.voices)
 
     def _builder(self, config: OnboardingConfig) -> SoulBuilder:
         if self.soul_builder is not None:

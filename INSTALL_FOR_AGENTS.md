@@ -206,13 +206,19 @@ Ask, call the matching tool, and repeat. The steps are:
 5. **keys**: whatever API keys those choices need. A key pasted into chat stays
    in the conversation transcript. Tell the principal, and offer the
    alternative of adding `ENV=value` lines to `~/.chorus/.env` themselves.
-6. **soul** (required): the lens Chorus curates through. You can interview
+6. **voices** (optional): which ElevenLabs voice reads the episodes, plus a
+   second voice for two-host episodes. Call `onboarding_voices`: with
+   `elevenlabs-key` Chorus lists the voices on the principal's account; with
+   `host-plugin` you list them with your own tool. Offer a few, play a
+   `preview_url` if they want to hear one, then call `onboarding_set_voice`.
+   No ids keeps the defaults. This step never blocks a run.
+7. **soul** (required): the lens Chorus curates through. You can interview
    them, draft it from what you know about them, derive it from their notes, or
    start from a preset. **Show them the full draft and save it only once they
    approve.**
-7. **shows**: catalog shows and/or RSS feeds, and whether to run weekly
-8. **updates**: notify, automatic, or off
-9. **smoke_test**: one test digest on a bundled sample. Ask first if it's billed.
+8. **shows**: catalog shows and/or RSS feeds, and whether to run weekly
+9. **updates**: notify, automatic, or off
+10. **smoke_test**: one test digest on a bundled sample. Ask first if it's billed.
 
 Chorus won't run a digest until the soul is saved and validated.
 

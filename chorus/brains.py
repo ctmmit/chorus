@@ -63,9 +63,10 @@ def build_thinking(config: OnboardingConfig) -> tuple[LLMClient, ScriptComposer]
 def build_voice(config: OnboardingConfig) -> AudioRenderer:
     if config.voice is Voice.elevenlabs_key:
         key = _key(ELEVENLABS_KEY.env)
+        # Unchosen voices (None) fall back to ELEVENLABS_*VOICE_ID, then the defaults.
         return ProfileAwareRenderer(
-            ElevenLabsRenderer(key, out_dir=paths.artifacts_dir()),
-            ElevenLabsDialogueRenderer(key),
+            ElevenLabsRenderer(key, out_dir=paths.artifacts_dir(), voice_id=config.host_voice_id),
+            ElevenLabsDialogueRenderer(key, config.host_voice_id, config.cohost_voice_id),
         )
     if config.voice is Voice.text_only:
         mock = MockAudioRenderer(out_dir=paths.artifacts_dir())

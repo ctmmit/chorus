@@ -85,6 +85,12 @@ def _add_setup(commands: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     choose.add_argument("value")
     key = actions.add_parser("key", help="store an API key read from stdin (keeps it off argv)")
     key.add_argument("env")
+    actions.add_parser("voices", help="the ElevenLabs voices to pick from")
+    voice = actions.add_parser("voice", help="record the chosen voices (no ids: the defaults)")
+    voice.add_argument("--host", help="host voice id")
+    voice.add_argument("--host-name")
+    voice.add_argument("--cohost", help="second voice id, for two-host episodes")
+    voice.add_argument("--cohost-name")
     draft = actions.add_parser("soul-draft", help="draft and validate a soul without saving")
     draft.add_argument(
         "--source", required=True, choices=["interview", "write", "corpus", "preset", "file"]
@@ -165,6 +171,10 @@ def cmd_setup(args: argparse.Namespace) -> int:
             result = agent_setup.set_choice(args.step, args.value)
         elif action == "key":
             result = agent_setup.set_key(args.env, sys.stdin.readline())
+        elif action == "voices":
+            result = agent_setup.list_voices()
+        elif action == "voice":
+            result = agent_setup.set_voice(args.host, args.cohost, args.host_name, args.cohost_name)
         elif action == "soul-draft":
             answers = json.loads(_read_arg(args.answers)) if args.answers else None
             texts = list(_read_corpus(Path(args.corpus).expanduser())) if args.corpus else None
@@ -283,7 +293,7 @@ def cmd_onboard(resets: list[str]) -> int:
 
 
 def cmd_status() -> int:
-    from chorus.onboarding import load_config, status
+    from chorus.onboarding import load_config, status, voices_apply
     from chorus.version import status_check
 
     config = load_config()
@@ -294,6 +304,10 @@ def cmd_status() -> int:
         f"Voice: {config.voice or '-'}   Transcripts: {config.transcripts or '-'}"
     )
     print(f"Soul: {config.soul or '-'}   Shows: {len(config.shows)}   Feeds: {len(config.feeds)}")
+    if voices_apply(config):
+        host = config.host_voice_name or config.host_voice_id or "default"
+        cohost = config.cohost_voice_name or config.cohost_voice_id or "default"
+        print(f"Voices: host {host}   co-host {cohost}")
     info = status_check(config.updates.value if config.updates else None)
     if info is not None and info.update_available:
         kind = "breaking update" if info.breaking else "update"
