@@ -52,7 +52,7 @@ from chorus.models import (
     JobStatus,
     SelectionRequest,
 )
-from chorus.pipeline import Deps, default_deps
+from chorus.pipeline import Deps
 from chorus.podcasts_api import OpmlImport, PodcastDirectory, PodcastSearchResult, parse_opml
 from chorus.quotas import QuotaExceeded, enforce_job_quota
 from chorus.runners import BackgroundRunner, JobRunner
@@ -541,16 +541,43 @@ def mount_mcp(
     app.state.chorus_mcp_tools = tools
 
 
+def local_stdio_deps() -> Deps:
+    """`default_deps` with every on-disk store under `~/.chorus/`. Providers
+    are still picked by key presence, as for the hosted API; the onboarding
+    choices take over this selection when the MCP onboarding tools land."""
+    from chorus import paths
+    from chorus.artifacts import LocalArtifactStore
+    from chorus.audio import get_audio_renderer
+    from chorus.config_env import build_transcript_chain
+    from chorus.llm import get_llm_client
+    from chorus.script import get_script_composer
+    from chorus.transcript_cache import SqliteTranscriptCache
+
+    return Deps(
+        provider=build_transcript_chain(SqliteTranscriptCache(paths.db_path())),
+        llm=get_llm_client(),
+        composer=get_script_composer(),
+        renderer=get_audio_renderer(),
+        artifacts=LocalArtifactStore(paths.artifacts_dir()),
+    )
+
+
 def main() -> None:
     """Run the local stdio transport used by desktop and CLI agents. No HTTP
     request exists on this transport, so every call runs as MASTER_OWNER
     (see `_owner_from_context`) — equivalent to holding the master token,
-    appropriate for local/dev tooling."""
+    appropriate for local/dev tooling.
+
+    State (job and subscription database, transcript cache, artifacts) lives
+    under `~/.chorus/` (`chorus.paths`), never beside the code, so upgrading
+    an installed package or pulling a clone cannot touch it."""
+    from chorus import paths
     from chorus.config import load_env
 
+    paths.ensure_home()
     load_env()
-    store = SqliteJobStore()
-    deps = default_deps()
+    store = SqliteJobStore(paths.db_path())
+    deps = local_stdio_deps()
     server, tools = create_mcp_server(store, deps, BackgroundRunner(store, deps))
     try:
         server.run(transport="stdio")

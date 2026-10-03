@@ -29,6 +29,7 @@ dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11"]
 [project.scripts]
 chorus-mcp = "chorus.mcp_server:main"
 chorus-api = "chorus.app:serve"
+chorus = "chorus.cli:main"
 
 # The repo root is a flat layout with many top-level folders (tests, scripts,
 # web, fixtures, skills, docs); only `chorus` is the package. Install editable
