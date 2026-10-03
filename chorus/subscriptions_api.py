@@ -31,14 +31,22 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Request, Response
+from pydantic import BaseModel, Field, ValidationError
 
 from chorus.email import EmailSender
+from chorus.feeds import SubscriptionPreview, preview_sources
 from chorus.jobs import JobStore
 from chorus.pipeline import Deps
 from chorus.quotas import QuotaExceeded, enforce_job_quota
 from chorus.scheduler import due_subscriptions, next_run, run_subscription
 from chorus.subscriptions import (
+    DEFAULT_LOOKBACK_DAYS,
+    DEFAULT_MAX_EPISODES_PER_RUN,
     MASTER_OWNER,
+    MAX_EPISODES_PER_RUN,
+    MAX_LOOKBACK_DAYS,
+    MAX_SOURCES,
+    Source,
     Subscription,
     SubscriptionCreate,
     SubscriptionStore,
@@ -81,6 +89,87 @@ def _get_owned_or_404(subscription_store: SubscriptionStore, subscription_id: st
     return sub
 
 
+class PreviewRequest(BaseModel):
+    """POST /subscriptions/preview request body."""
+
+    sources: list[Source] = Field(
+        min_length=1, max_length=MAX_SOURCES, description="Sources to check for recent episodes."
+    )
+    lookback_days: int = Field(
+        default=DEFAULT_LOOKBACK_DAYS,
+        ge=1,
+        le=MAX_LOOKBACK_DAYS,
+        description="Include episodes published within this many days (a first run's window).",
+    )
+    max_episodes_per_run: int = Field(
+        default=DEFAULT_MAX_EPISODES_PER_RUN,
+        ge=1,
+        le=MAX_EPISODES_PER_RUN,
+        description="Per-run episode cap shared round-robin across sources.",
+    )
+
+
+def preview_for(request: PreviewRequest) -> SubscriptionPreview:
+    return preview_sources(
+        request.sources,
+        lookback_days=request.lookback_days,
+        max_episodes_per_run=request.max_episodes_per_run,
+    )
+
+
+def new_subscription(payload: SubscriptionCreate, owner: str, now: datetime) -> Subscription:
+    """The stored Subscription for a create request (shared by the HTTP route
+    and the MCP `subscribe` tool)."""
+    return Subscription(
+        subscription_id=uuid.uuid4().hex,
+        owner=owner,
+        email=payload.email,
+        soul=payload.soul,
+        context=payload.context,
+        episodes=payload.episodes,
+        shows=payload.shows,
+        sources=payload.sources,
+        highlight_count=payload.highlight_count,
+        profile=payload.profile,
+        cadence=payload.cadence,
+        max_episodes_per_run=payload.max_episodes_per_run,
+        lookback_days_first_run=payload.lookback_days_first_run,
+        notify_when_empty=payload.notify_when_empty,
+        next_run_at=next_run(payload.cadence, now),
+        active=True,
+        created_at=now,
+    )
+
+
+def apply_update(sub: Subscription, payload: SubscriptionUpdate) -> Subscription:
+    """`sub` with the supplied fields of `payload` applied. A subscription
+    has exactly one input mode, so setting `sources` clears the legacy
+    episodes/shows (unless the same request sets them) and setting legacy
+    episodes/shows clears `sources`. `seen_episode_ids` and the run cursor
+    are kept. Raises ValueError when the result is invalid."""
+    updates = payload.model_dump(exclude_unset=True)
+    if updates.get("sources"):
+        updates.setdefault("episodes", None)
+        updates.setdefault("shows", None)
+    elif updates.get("episodes") or updates.get("shows"):
+        updates.setdefault("sources", None)
+    merged = sub.model_dump(mode="json")
+    merged.update(updates)
+    try:
+        return Subscription.model_validate(merged)
+    except ValidationError as err:
+        raise ValueError(str(err)) from err
+
+
+def get_owned(subscription_store: SubscriptionStore, subscription_id: str, owner: str) -> Subscription:
+    """Owner-scoped fetch; raises ValueError("unknown subscription_id") for a
+    missing or foreign id alike (no enumeration signal)."""
+    sub = subscription_store.get(subscription_id)
+    if sub is None or (owner != MASTER_OWNER and sub.owner != owner):
+        raise ValueError("unknown subscription_id")
+    return sub
+
+
 def build_subscriptions_router(
     subscription_store: SubscriptionStore,
     store: JobStore,
@@ -92,25 +181,14 @@ def build_subscriptions_router(
 
     @router.post("/subscriptions")
     def create_subscription(payload: SubscriptionCreate, request: Request) -> Subscription:
-        owner = _owner(request)
-        now = datetime.now(UTC)
-        subscription = Subscription(
-            subscription_id=uuid.uuid4().hex,
-            owner=owner,
-            email=payload.email,
-            soul=payload.soul,
-            context=payload.context,
-            episodes=payload.episodes,
-            shows=payload.shows,
-            highlight_count=payload.highlight_count,
-            profile=payload.profile,
-            cadence=payload.cadence,
-            next_run_at=next_run(payload.cadence, now),
-            active=True,
-            created_at=now,
-        )
+        subscription = new_subscription(payload, _owner(request), datetime.now(UTC))
         subscription_store.create(subscription)
         return subscription
+
+    @router.post("/subscriptions/preview")
+    def preview_subscription(payload: PreviewRequest) -> SubscriptionPreview:
+        """What the next run would pick up for these sources; saves nothing."""
+        return preview_for(payload)
 
     @router.get("/subscriptions")
     def list_subscriptions(request: Request) -> list[Subscription]:
@@ -126,12 +204,9 @@ def build_subscriptions_router(
         subscription_id: str, payload: SubscriptionUpdate, request: Request
     ) -> Subscription:
         sub = _get_owned_or_404(subscription_store, subscription_id, _owner(request))
-        updates = payload.model_dump(exclude_unset=True)
-        merged = sub.model_dump(mode="json")
-        merged.update(updates)
         try:
-            updated = Subscription.model_validate(merged)
-        except Exception as err:
+            updated = apply_update(sub, payload)
+        except ValueError as err:
             raise HTTPException(status_code=422, detail=str(err)) from err
         subscription_store.save(updated)
         return updated
@@ -143,7 +218,7 @@ def build_subscriptions_router(
         return Response(status_code=204)
 
     @router.post("/subscriptions/{subscription_id}/run")
-    def run_subscription_now(subscription_id: str, request: Request) -> dict[str, str]:
+    def run_subscription_now(subscription_id: str, request: Request) -> dict[str, str | None]:
         sub = _get_owned_or_404(subscription_store, subscription_id, _owner(request))
         try:
             # R3: quota is the SUBSCRIPTION's owner's, not necessarily the
@@ -156,7 +231,8 @@ def build_subscriptions_router(
         job_id = run_subscription(
             sub, store, deps, subscription_store, email_sender, base_url, datetime.now(UTC)
         )
-        return {"job_id": job_id}
+        summary = sub.last_run_summary
+        return {"job_id": job_id, "skipped_reason": summary.skipped_reason if summary else None}
 
     @router.get("/subscriptions/{subscription_id}/unsubscribe")
     def unsubscribe(subscription_id: str, token: str) -> Response:
@@ -186,7 +262,7 @@ def build_subscriptions_router(
 
         now = datetime.now(UTC)
         base_url = resolve_base_url(request)
-        ran: list[dict[str, str]] = []
+        ran: list[dict[str, str | None]] = []
         for sub in due_subscriptions(subscription_store, now):
             job_id = run_subscription(sub, store, deps, subscription_store, email_sender, base_url, now)
             ran.append({"subscription_id": sub.subscription_id, "job_id": job_id})

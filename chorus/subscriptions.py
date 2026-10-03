@@ -25,7 +25,7 @@ import sqlite3
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, Protocol, runtime_checkable
+from typing import Annotated, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -34,7 +34,10 @@ from chorus.models import (
     MAX_CONTEXT_CHARS,
     MAX_EPISODES,
     MAX_HIGHLIGHTS,
+    MAX_SHOW_CHARS,
     MAX_SOUL_CHARS,
+    MAX_TITLE_CHARS,
+    MAX_URL_CHARS,
     EpisodeInput,
     EpisodeProfile,
 )
@@ -55,12 +58,17 @@ CADENCES = ("weekly", "daily")
 # chorus.subscriptions import MASTER_OWNER`.
 __all__ = [
     "MASTER_OWNER",
+    "LastRunSummary",
+    "RssSource",
+    "ShowSource",
+    "Source",
     "SqliteSubscriptionStore",
     "Subscription",
     "SubscriptionCreate",
     "SubscriptionList",
     "SubscriptionStore",
     "SubscriptionUpdate",
+    "YoutubeSource",
     "unsubscribe_token",
     "verify_unsubscribe_token",
 ]
@@ -99,6 +107,95 @@ def _require_tz_aware(value: datetime, field_name: str) -> datetime:
     if value.tzinfo is None:
         raise ValueError(f"{field_name} must be timezone-aware")
     return value
+
+
+MAX_SOURCES = 50
+DEFAULT_MAX_EPISODES_PER_RUN = 8
+MAX_EPISODES_PER_RUN = 20
+DEFAULT_LOOKBACK_DAYS = 7
+MAX_LOOKBACK_DAYS = 30
+# Most recent episode ids remembered per subscription (kept in the JSON
+# payload, so no schema change). A run adds at most MAX_EPISODES_PER_RUN ids,
+# so 2,000 ids is roughly two years of weekly history.
+SEEN_EPISODE_IDS_MAX = 2_000
+# A YouTube channel id is "UC" plus 22 URL-safe base64 characters.
+YOUTUBE_CHANNEL_ID_PATTERN = r"^UC[A-Za-z0-9_-]{22}$"
+MAX_SKIPPED_REASON_CHARS = 500
+
+
+class RssSource(BaseModel):
+    """A podcast RSS feed, checked for new episodes on every run."""
+
+    kind: Literal["rss"] = Field(description='Source type discriminator: always "rss".')
+    feed_url: str = Field(
+        min_length=8,
+        max_length=MAX_URL_CHARS,
+        pattern=r"^https?://",
+        description="The podcast's RSS feed URL (http or https; fetched through the SSRF guard).",
+    )
+    title: str | None = Field(
+        default=None,
+        max_length=MAX_TITLE_CHARS,
+        description="Show title for display; filled from the feed when omitted.",
+    )
+    artwork_url: str | None = Field(
+        default=None,
+        max_length=MAX_URL_CHARS,
+        description="Cover art URL for display only; the server never fetches it.",
+    )
+
+
+class YoutubeSource(BaseModel):
+    """A YouTube channel, checked through its public Atom feed."""
+
+    kind: Literal["youtube"] = Field(description='Source type discriminator: always "youtube".')
+    channel_id: str = Field(
+        pattern=YOUTUBE_CHANNEL_ID_PATTERN,
+        description='The channel id: "UC" followed by 22 characters (not the @handle).',
+    )
+    title: str | None = Field(
+        default=None,
+        max_length=MAX_TITLE_CHARS,
+        description="Channel name for display; filled from the channel feed when omitted.",
+    )
+
+
+class ShowSource(BaseModel):
+    """A catalog show (the static demo catalog listed by GET /shows)."""
+
+    kind: Literal["show"] = Field(description='Source type discriminator: always "show".')
+    show: str = Field(
+        min_length=1,
+        max_length=MAX_SHOW_CHARS,
+        description="Catalog show name, exactly as GET /shows lists it.",
+    )
+
+
+# Discriminated on `kind`: one JSON shape per source type, which is also what
+# the OpenAPI schema and the MCP tool schemas expose to clients.
+Source = Annotated[RssSource | YoutubeSource | ShowSource, Field(discriminator="kind")]
+
+
+class LastRunSummary(BaseModel):
+    """What the most recent scheduled or run-now attempt did."""
+
+    ran_at: datetime = Field(description="UTC timestamp of the attempt.")
+    new_episodes: int = Field(
+        ge=0, description="Episodes sent to the digest job on this attempt (0 when skipped)."
+    )
+    job_id: str | None = Field(
+        default=None, description="The digest job created, or null when no job was created."
+    )
+    skipped_reason: str | None = Field(
+        default=None,
+        max_length=MAX_SKIPPED_REASON_CHARS,
+        description='Why no digest was delivered, e.g. "no new episodes"; null on success.',
+    )
+
+    @field_validator("ran_at")
+    @classmethod
+    def _validate_tz(cls, value: datetime) -> datetime:
+        return _require_tz_aware(value, "ran_at")
 
 
 class Subscription(BaseModel):
@@ -146,6 +243,41 @@ class Subscription(BaseModel):
     cadence: Literal["weekly", "daily"] = Field(
         default="weekly", description='Run schedule: "weekly" (Friday) or "daily".'
     )
+    sources: list[Source] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=MAX_SOURCES,
+        description=(
+            "Feeds checked for new episodes on every run; takes precedence over the "
+            "legacy episodes/shows fields."
+        ),
+    )
+    max_episodes_per_run: int = Field(
+        default=DEFAULT_MAX_EPISODES_PER_RUN,
+        ge=1,
+        le=MAX_EPISODES_PER_RUN,
+        description="Most new episodes digested per run, shared round-robin across sources.",
+    )
+    lookback_days_first_run: int = Field(
+        default=DEFAULT_LOOKBACK_DAYS,
+        ge=1,
+        le=MAX_LOOKBACK_DAYS,
+        description="On the first run, include episodes published within this many days.",
+    )
+    notify_when_empty: bool = Field(
+        default=True,
+        description='Email a short "nothing new" note when a run finds no new episodes.',
+    )
+    seen_episode_ids: list[str] = Field(
+        default_factory=list,
+        description=(
+            f"Ids of episodes already digested (most recent {SEEN_EPISODE_IDS_MAX} kept); "
+            "an episode is never digested twice."
+        ),
+    )
+    last_run_summary: LastRunSummary | None = Field(
+        default=None, description="Outcome of the most recent run attempt, if any."
+    )
     next_run_at: datetime = Field(description="UTC timestamp of the next scheduled run.")
     active: bool = Field(default=True, description="False once unsubscribed or paused.")
     created_at: datetime = Field(
@@ -155,7 +287,12 @@ class Subscription(BaseModel):
         default=None, description="job_id of the most recent run, if any."
     )
     last_run_at: datetime | None = Field(
-        default=None, description="UTC timestamp of the most recent run, if any."
+        default=None,
+        description=(
+            "UTC timestamp of the most recent completed run, if any. For feed subscriptions "
+            "it is also the cursor: the next run lists episodes published after it, and a "
+            "failed run leaves it unchanged so those episodes are retried."
+        ),
     )
 
     @field_validator("next_run_at", "created_at")
@@ -170,10 +307,16 @@ class Subscription(BaseModel):
             return value
         return _require_tz_aware(value, info.field_name)
 
+    @field_validator("seen_episode_ids")
+    @classmethod
+    def _bound_seen(cls, value: list[str]) -> list[str]:
+        # Trim rather than reject: a stored row must always load.
+        return value[-SEEN_EPISODE_IDS_MAX:]
+
     @model_validator(mode="after")
     def _episodes_or_shows(self) -> Subscription:
-        if not self.episodes and not self.shows:
-            raise ValueError("a subscription requires either episodes or shows")
+        if not self.episodes and not self.shows and not self.sources:
+            raise ValueError("a subscription requires sources, episodes, or shows")
         return self
 
 
@@ -221,11 +364,37 @@ class SubscriptionCreate(BaseModel):
     cadence: Literal["weekly", "daily"] = Field(
         default="weekly", description='Run schedule: "weekly" (Friday) or "daily".'
     )
+    sources: list[Source] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=MAX_SOURCES,
+        description=(
+            "Feeds (RSS, YouTube channel, catalog show) checked for new episodes each run; "
+            "provide exactly one of sources, episodes, or shows."
+        ),
+    )
+    max_episodes_per_run: int = Field(
+        default=DEFAULT_MAX_EPISODES_PER_RUN,
+        ge=1,
+        le=MAX_EPISODES_PER_RUN,
+        description="Most new episodes digested per run, shared round-robin across sources.",
+    )
+    lookback_days_first_run: int = Field(
+        default=DEFAULT_LOOKBACK_DAYS,
+        ge=1,
+        le=MAX_LOOKBACK_DAYS,
+        description="On the first run, include episodes published within this many days.",
+    )
+    notify_when_empty: bool = Field(
+        default=True,
+        description='Email a short "nothing new" note when a run finds no new episodes.',
+    )
 
     @model_validator(mode="after")
-    def _episodes_or_shows(self) -> SubscriptionCreate:
-        if not self.episodes and not self.shows:
-            raise ValueError("a subscription requires either episodes or shows")
+    def _exactly_one_input(self) -> SubscriptionCreate:
+        provided = [bool(self.sources), bool(self.episodes), bool(self.shows)]
+        if sum(provided) != 1:
+            raise ValueError("provide exactly one of sources, episodes, or shows")
         return self
 
 
@@ -250,8 +419,20 @@ class SubscriptionUpdate(BaseModel):
     shows: list[str] | None = Field(
         default=None, max_length=MAX_EPISODES, description="Replace the catalog show list."
     )
+    sources: list[Source] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=MAX_SOURCES,
+        description="Replace the feed sources (clears legacy episodes/shows unless also sent).",
+    )
     highlight_count: int | None = Field(
         default=None, ge=1, le=MAX_HIGHLIGHTS, description="Replace the per-episode highlight cap."
+    )
+    max_episodes_per_run: int | None = Field(
+        default=None, ge=1, le=MAX_EPISODES_PER_RUN, description="Replace the per-run episode cap."
+    )
+    notify_when_empty: bool | None = Field(
+        default=None, description='Turn the "nothing new" email on or off.'
     )
 
 
