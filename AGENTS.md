@@ -37,3 +37,26 @@ All four commands must pass before a commit. Never call live providers in tests.
 - Ruff line length is 100; mypy must remain clean.
 - Do not commit `.env.local`, provider credentials, databases, audio artifacts, or real transcripts.
 - Branch names use `feature/`, `fix/`, or `refactor/`; commits are imperative and under 72 characters.
+
+## Working alongside other agents
+
+Several agent sessions often work in this repository at once. These rules keep
+them from breaking each other's work.
+
+- Work in your own git worktree (`.claude/worktrees/<name>`), never in the main
+  checkout. The main checkout stays on `main` because dev servers run from it;
+  switching its branch changes files under them.
+- Push your feature branch after every commit (`git push -u origin <branch>` the
+  first time). An unpushed commit exists only on one laptop.
+- `main` is protected: changes land through a pull request with the `python` and
+  `web` CI checks green. Do not push to `main` directly.
+- Merge in small pieces. When one part of a feature passes the four commands
+  above, open a pull request for it instead of stacking more commits on the
+  branch. Rebase onto `origin/main` before opening it.
+- CI skips tests that need the private transcripts. Before merging anything that
+  touches transcripts, curation, or scripts, run the four commands locally with
+  the private fixtures present (`scripts/sync_private_fixtures`) and say so in
+  the pull request.
+- Register new MCP tools in your feature's own `register_*_tools(server, ...)`
+  function and call it from `create_mcp_server`, rather than adding lines to the
+  shared tool list. Shared lists are where parallel branches conflict.
