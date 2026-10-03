@@ -33,8 +33,9 @@ def test_sample_resolves_and_surfaces_investor_highlights() -> None:
     assert ep.highlights
     for h in ep.highlights:
         assert citation_resolves(resolved.transcript, h.segment_timestamp, h.quote)
-    # The off-topic chatter window (starts at 90.5s) must never surface.
-    assert all(round(h.segment_timestamp) != 90 for h in ep.highlights)
+    # The off-topic chatter window (90.5s up to the next window at 181s) must
+    # never surface; an excerpt's timestamp can sit anywhere inside its window.
+    assert all(not 90.5 <= h.segment_timestamp < 181.0 for h in ep.highlights)
     # Every window is reported for the viewer, surfaced or not, plus duration.
     assert len(ep.windows) == 3
     assert ep.duration_seconds == 219.0

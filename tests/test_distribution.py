@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import filecmp
 import json
+import re
 import subprocess
 from collections.abc import Sequence
 from pathlib import Path
@@ -301,7 +302,8 @@ def test_each_run_leaves_a_readable_digest() -> None:
     job = run_digest(load_config(), [EpisodeInput(video_id="sample_public")])
     digest = write_digest_markdown(job).read_text(encoding="utf-8")
     assert digest.startswith("# Chorus digest")
-    assert "**0:00**" in digest or "Nothing surfaced" in digest
+    # Highlights are stamped where the quoted claim starts, not at the window start.
+    assert re.search(r"\*\*\d+:\d{2}\*\*", digest) or "Nothing surfaced" in digest
     assert "Episode:" in digest
 
 

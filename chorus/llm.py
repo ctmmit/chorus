@@ -6,6 +6,11 @@ context go in a cached system block, so a five-episode digest costs a handful
 of calls instead of hundreds and returns in seconds instead of minutes.
 `score_segment` remains for single-window callers.
 
+A window's result may carry a third element: a short verbatim excerpt naming
+the span that earned the score. It is a pointer, not a quote: curation uses it
+only if it occurs verbatim in that window's text, and otherwise cuts the quote
+itself (chorus.curation._cite).
+
 Production uses Claude Haiku; with no ANTHROPIC_API_KEY we fall back to a
 deterministic keyword-overlap MockLLMClient so the whole pipeline + path_test
 are buildable and testable offline. The mock honors the soul's Attention
@@ -51,6 +56,9 @@ def _section(markdown: str, *needles: str) -> str:
 
 
 Scored = tuple[float, str]
+# (score, reason) or (score, reason, excerpt). The excerpt is optional so
+# scorers that cannot point at a span (and older test doubles) still fit.
+ScoredWindow = tuple[float, str] | tuple[float, str, str]
 
 
 class LLMError(Exception):
@@ -64,7 +72,7 @@ class LLMClient(Protocol):
 
     def score_windows(
         self, windows: list[str], soul: str, context: str, meter: TokenUsage | None = None
-    ) -> list[Scored]:
+    ) -> list[ScoredWindow]:
         """`meter`, when given, accumulates this call's token spend (R14) —
         callers that need PER-JOB usage (chorus.pipeline.stage_curate_episode)
         pass a fresh TokenUsage() per episode rather than reading a
@@ -95,6 +103,7 @@ class TokenUsage:
 # lens's territory — that is what drives two-soul divergence.
 _POS_WEIGHT = 0.16
 _NEG_WEIGHT = 0.34
+_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 
 
 @lru_cache(maxsize=16)
@@ -107,24 +116,44 @@ def _signal(soul: str, context: str) -> tuple[frozenset[str], frozenset[str]]:
     return frozenset(positive), frozenset(negative)
 
 
+def _net_hits(text: str, positive: frozenset[str], negative: frozenset[str]) -> tuple[int, int]:
+    toks = _keywords(text)
+    return len(toks & positive), len(toks & negative)
+
+
 class MockLLMClient:
     """Deterministic stand-in for Haiku. Same interface, no network."""
 
     def score_segment(self, text: str, soul: str, context: str) -> Scored:
-        positive, negative = _signal(soul, context)
-        toks = _keywords(text)
-        hits = len(toks & positive)
-        anti = len(toks & negative)
+        hits, anti = _net_hits(text, *_signal(soul, context))
         score = max(0.0, min(1.0, _POS_WEIGHT * hits - _NEG_WEIGHT * anti))
         reason = f"{hits} attention-trigger match(es)" + (f"; {anti} ignore-signal" if anti else "")
         return score, reason
 
+    def excerpt(self, text: str, soul: str, context: str) -> str | None:
+        """The window's sentence with the most net attention-trigger matches
+        (earliest wins a tie), or None when no sentence nets a match. Verbatim
+        by construction; curation still verifies it like any model's excerpt."""
+        positive, negative = _signal(soul, context)
+        best: tuple[int, str] | None = None
+        for sentence in _SENTENCE_RE.split(text.strip()):
+            hits, anti = _net_hits(sentence, positive, negative)
+            net = hits - anti
+            if net > 0 and (best is None or net > best[0]):
+                best = (net, sentence)
+        return best[1] if best else None
+
     def score_windows(
         self, windows: list[str], soul: str, context: str, meter: TokenUsage | None = None
-    ) -> list[Scored]:
+    ) -> list[ScoredWindow]:
         # The mock makes no real model calls, so there is nothing to meter;
         # `meter` is accepted (and left untouched) purely for Protocol parity.
-        return [self.score_segment(w, soul, context) for w in windows]
+        out: list[ScoredWindow] = []
+        for w in windows:
+            score, reason = self.score_segment(w, soul, context)
+            excerpt = self.excerpt(w, soul, context)
+            out.append((score, reason, excerpt) if excerpt else (score, reason))
+        return out
 
 
 # Batch sizing: ~40 windows is an hour of audio; keeps the JSON reply well under
@@ -132,6 +161,11 @@ class MockLLMClient:
 BATCH_WINDOWS = 40
 BATCH_MAX_TOKENS = 4_000
 SINGLE_MAX_TOKENS = 120
+# Excerpts are requested only for windows at or above this score, which keeps
+# the batch reply inside BATCH_MAX_TOKENS. Mirrors
+# chorus.curation.RELEVANCE_THRESHOLD (a test pins the two together; curation
+# imports this module, so it cannot import that constant here).
+EXCERPT_SCORE_FLOOR = 0.35
 UNSCORED_REASON = "not scored by model"
 _JSON_ARRAY_RE = re.compile(r"\[.*\]", re.DOTALL)
 
@@ -204,9 +238,9 @@ class AnthropicLLMClient:
 
     def score_windows(
         self, windows: list[str], soul: str, context: str, meter: TokenUsage | None = None
-    ) -> list[Scored]:
+    ) -> list[ScoredWindow]:
         system = self._system(soul, context)
-        out: list[Scored] = []
+        out: list[ScoredWindow] = []
         for start in range(0, len(windows), BATCH_WINDOWS):
             chunk = windows[start : start + BATCH_WINDOWS]
             out.extend(self._score_batch(system, chunk, meter))
@@ -214,12 +248,17 @@ class AnthropicLLMClient:
 
     def _score_batch(
         self, system: list[dict[str, Any]], chunk: list[str], meter: TokenUsage | None = None
-    ) -> list[Scored]:
+    ) -> list[ScoredWindow]:
         listing = "\n\n".join(f"[{i}]\n{text}" for i, text in enumerate(chunk))
         user = (
             f"Score each of the {len(chunk)} windows below. Reply with ONLY a JSON array, one "
             'object per window, in order: [{"i": <index>, "score": <0.0-1.0>, "reason": '
-            '"<one line>"}, ...]. Include every index exactly once.\n\n'
+            '"<one line>", "excerpt": "<see below>"}, ...]. Include every index exactly once.\n'
+            f"For each window you score {EXCERPT_SCORE_FLOOR} or higher, set \"excerpt\" to the "
+            "single most relevant span of that window: one sentence or clause, 6 to 28 words, "
+            "copied character for character from the window text. Do not paraphrase, fix or "
+            "join separate passages; an excerpt not found verbatim in the window is discarded. "
+            "Omit \"excerpt\" for every other window.\n\n"
             f"WINDOWS:\n{listing}"
         )
         body = self._create(system, user, BATCH_MAX_TOKENS, meter)
@@ -239,7 +278,7 @@ def _reject_non_finite_constant(token: str) -> float:
     raise ValueError(f"non-finite JSON constant in model reply: {token}")
 
 
-def _parse_batch(body: str, n: int) -> list[Scored]:
+def _parse_batch(body: str, n: int) -> list[ScoredWindow]:
     match = _JSON_ARRAY_RE.search(body)
     if not match:
         raise LLMError("no JSON array in model reply")
@@ -250,7 +289,7 @@ def _parse_batch(body: str, n: int) -> list[Scored]:
     if not isinstance(items, list):
         raise LLMError("model reply JSON is not an array")
 
-    scored: list[Scored | None] = [None] * n
+    scored: list[ScoredWindow | None] = [None] * n
     for item in items:
         if not isinstance(item, dict):
             continue
@@ -268,7 +307,13 @@ def _parse_batch(body: str, n: int) -> list[Scored]:
             continue
         if 0 <= i < n and scored[i] is None:
             reason = str(item.get("reason") or "no reason").strip()
-            scored[i] = (max(0.0, min(1.0, score)), reason)
+            clamped = max(0.0, min(1.0, score))
+            # Only a candidate: curation decides whether it is verbatim.
+            excerpt = item.get("excerpt")
+            if isinstance(excerpt, str) and excerpt.strip():
+                scored[i] = (clamped, reason, excerpt)
+            else:
+                scored[i] = (clamped, reason)
 
     missing = [i for i, s in enumerate(scored) if s is None]
     if len(missing) > n // 2:
@@ -292,6 +337,8 @@ __all__ = [
     "LLMClient",
     "LLMError",
     "MockLLMClient",
+    "Scored",
+    "ScoredWindow",
     "TokenUsage",
     "get_llm_client",
 ]

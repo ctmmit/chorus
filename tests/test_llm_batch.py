@@ -10,6 +10,7 @@ import pytest
 
 from chorus.llm import (
     BATCH_WINDOWS,
+    EXCERPT_SCORE_FLOOR,
     UNSCORED_REASON,
     AnthropicLLMClient,
     LLMError,
@@ -152,7 +153,50 @@ def test_mock_batch_matches_single() -> None:
     m = MockLLMClient()
     soul = "## Attention triggers\n- margins and moats\n## Ignore\n- celebrity"
     texts = ["margins expand and moats widen", "celebrity gossip", "nothing"]
-    assert m.score_windows(texts, soul, "") == [m.score_segment(t, soul, "") for t in texts]
+    out = m.score_windows(texts, soul, "")
+    assert [r[:2] for r in out] == [m.score_segment(t, soul, "") for t in texts]
+
+
+def test_mock_excerpt_is_the_best_matching_sentence_or_nothing() -> None:
+    m = MockLLMClient()
+    soul = "## Attention triggers\n- margins and moats\n## Ignore\n- celebrity"
+    window = "Welcome back to the show. Margins expand and moats widen. A celebrity spoke."
+    out = m.score_windows([window, "celebrity gossip only", "nothing here"], soul, "")
+    assert out[0] == (*m.score_segment(window, soul, ""), "Margins expand and moats widen.")
+    assert len(out[1]) == 2 and len(out[2]) == 2  # no sentence nets a match: no excerpt
+    assert m.score_windows([window], soul, "") == out[:1]  # deterministic
+
+
+def test_parse_batch_carries_an_excerpt_when_present() -> None:
+    body = json.dumps(
+        [
+            {"i": 0, "score": 0.8, "reason": "a", "excerpt": "the span that earned it"},
+            {"i": 1, "score": 0.1, "reason": "b", "excerpt": "   "},
+            {"i": 2, "score": 0.1, "reason": "c", "excerpt": 42},
+            {"i": 3, "score": 0.1, "reason": "d"},
+        ]
+    )
+    assert _parse_batch(body, 4) == [
+        (0.8, "a", "the span that earned it"),
+        (0.1, "b"),
+        (0.1, "c"),
+        (0.1, "d"),
+    ]
+
+
+def test_batch_prompt_asks_for_a_verbatim_excerpt_above_the_bar() -> None:
+    fake = _FakeClient([_reply(1)])
+    AnthropicLLMClient(client=fake).score_windows(["a"], "s", "c")
+    prompt = fake.messages.requests[0]["messages"][0]["content"]
+    assert '"excerpt"' in prompt
+    assert f"{EXCERPT_SCORE_FLOOR} or higher" in prompt
+    assert "verbatim" in prompt
+
+
+def test_excerpt_floor_tracks_the_relevance_threshold() -> None:
+    from chorus.curation import RELEVANCE_THRESHOLD
+
+    assert EXCERPT_SCORE_FLOOR == RELEVANCE_THRESHOLD
 
 
 def test_job_usage_records_token_delta_per_job(tmp_path) -> None:  # type: ignore[no-untyped-def]
