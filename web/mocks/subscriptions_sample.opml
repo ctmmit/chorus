@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head>
+    <title>Podcast subscriptions</title>
+    <dateCreated>Mon, 28 Sep 2026 09:14:00 GMT</dateCreated>
+  </head>
+  <body>
+    <outline text="Business" title="Business">
+      <outline type="rss" text="Acquired" title="Acquired" xmlUrl="https://feeds.transistor.fm/acquired" htmlUrl="https://www.acquired.fm/"/>
+      <outline type="rss" text="Invest Like the Best" title="Invest Like the Best" xmlUrl="https://feeds.megaphone.fm/investlikethebest" htmlUrl="https://www.joincolossus.com/"/>
+      <outline type="rss" text="Capital Allocators" title="Capital Allocators" xmlUrl="https://feeds.simplecast.com/capitalallocators"/>
+      <outline type="rss" text="Business Breakdowns" xmlUrl="https://feeds.megaphone.fm/business-breakdowns"/>
+    </outline>
+    <outline text="News &amp; Economics" title="News &amp; Economics">
+      <outline type="rss" text="Odd Lots" xmlUrl="https://feeds.bloomberg.fm/BLM2166420187"/>
+      <outline type="rss" text="Planet Money" xmlUrl="https://feeds.npr.org/510289/podcast.xml"/>
+      <outline type="rss" text="Marketplace" xmlUrl="https://www.marketplace.org/feed/podcast/marketplace"/>
+    </outline>
+    <outline text="Misc">
+      <outline type="rss" text="Hidden Forces" xmlUrl="https://feeds.megaphone.fm/hiddenforces"/>
+      <outline type="rss" text="Acquired (duplicate entry)" xmlUrl="https://feeds.transistor.fm/acquired/"/>
+      <outline type="rss" text="Radiolab for Kids &amp; Families" xmlUrl="https://feeds.simplecast.com/EmVW7VGp"/>
+      <outline type="link" text="A saved article, not a podcast" htmlUrl="https://example.com/article"/>
+      <outline type="rss" text="Old private feed" xmlUrl="ftp://feeds.example.com/private.xml"/>
+    </outline>
+  </body>
+</opml>

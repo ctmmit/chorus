@@ -1,0 +1,86 @@
+[
+  {
+    "title": "Acquired",
+    "author": "Ben Gilbert and David Rosenthal",
+    "feed_url": "https://feeds.transistor.fm/acquired",
+    "artwork_url": "/api/mock/artwork?t=Acquired",
+    "apple_id": 1050462261
+  },
+  {
+    "title": "Invest Like the Best",
+    "author": "Patrick O'Shaughnessy",
+    "feed_url": "https://feeds.megaphone.fm/investlikethebest",
+    "artwork_url": "/api/mock/artwork?t=Invest%20Like%20the%20Best",
+    "apple_id": 1154105909
+  },
+  {
+    "title": "Odd Lots",
+    "author": "Joe Weisenthal and Tracy Alloway",
+    "feed_url": "https://feeds.bloomberg.fm/BLM2166420187",
+    "artwork_url": "/api/mock/artwork?t=Odd%20Lots",
+    "apple_id": 1056200096
+  },
+  {
+    "title": "Capital Allocators",
+    "author": "Ted Seides",
+    "feed_url": "https://feeds.simplecast.com/capitalallocators",
+    "artwork_url": "/api/mock/artwork?t=Capital%20Allocators",
+    "apple_id": 1005688132
+  },
+  {
+    "title": "The Knowledge Project with Shane Parrish",
+    "author": "Shane Parrish",
+    "feed_url": "https://feeds.megaphone.fm/the-knowledge-project",
+    "artwork_url": "/api/mock/artwork?t=The%20Knowledge%20Project%20with%20Shane%20Parrish",
+    "apple_id": 990149481
+  },
+  {
+    "title": "Masters of Scale",
+    "author": "Reid Hoffman",
+    "feed_url": "https://rss.art19.com/masters-of-scale",
+    "artwork_url": "/api/mock/artwork?t=Masters%20of%20Scale",
+    "apple_id": 1227971746
+  },
+  {
+    "title": "How I Built This with Guy Raz",
+    "author": "Guy Raz and NPR",
+    "feed_url": "https://feeds.npr.org/510313/podcast.xml",
+    "artwork_url": "/api/mock/artwork?t=How%20I%20Built%20This%20with%20Guy%20Raz",
+    "apple_id": 1150510297
+  },
+  {
+    "title": "Planet Money",
+    "author": "NPR",
+    "feed_url": "https://feeds.npr.org/510289/podcast.xml",
+    "artwork_url": "/api/mock/artwork?t=Planet%20Money",
+    "apple_id": 290783428
+  },
+  {
+    "title": "The Prof G Pod",
+    "author": "Scott Galloway",
+    "feed_url": "https://feeds.megaphone.fm/profgpod",
+    "artwork_url": "/api/mock/artwork?t=The%20Prof%20G%20Pod",
+    "apple_id": 1498802610
+  },
+  {
+    "title": "Business Breakdowns",
+    "author": "Joe Magerman and Matt Reustle",
+    "feed_url": "https://feeds.megaphone.fm/business-breakdowns",
+    "artwork_url": "/api/mock/artwork?t=Business%20Breakdowns",
+    "apple_id": 1531297246
+  },
+  {
+    "title": "Dwarkesh Podcast",
+    "author": "Dwarkesh Patel",
+    "feed_url": "https://api.substack.com/feed/podcast/69345.rss",
+    "artwork_url": "/api/mock/artwork?t=Dwarkesh%20Podcast",
+    "apple_id": 1516093381
+  },
+  {
+    "title": "Hidden Forces",
+    "author": "Demetri Kofinas",
+    "feed_url": "https://feeds.megaphone.fm/hiddenforces",
+    "artwork_url": "/api/mock/artwork?t=Hidden%20Forces",
+    "apple_id": 1117353587
+  }
+]
