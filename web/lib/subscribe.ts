@@ -174,6 +174,53 @@ export function subscriptionSources(sub: Subscription): Source[] {
   return [];
 }
 
+/** RSS sources whose feed address is plain `http://`. The API fetches feeds
+ * over https only, so these fail at fetch time. */
+export function insecureFeedSources(sources: Source[]): Source[] {
+  return sources.filter((s) => s.kind === "rss" && /^http:\/\//i.test(s.feed_url.trim()));
+}
+
+/** What to tell the person after "run now": navigate to the job, or explain
+ * why nothing ran (the API returns job_id null plus a skipped_reason). */
+export type RunOutcome =
+  | { kind: "job"; jobId: string }
+  | { kind: "skipped"; reason: string };
+
+export const DEFAULT_SKIPPED_REASON = "no new episodes";
+
+export function interpretRun(result: { job_id: string | null; skipped_reason: string | null }): RunOutcome {
+  if (result.job_id) return { kind: "job", jobId: result.job_id };
+  const reason = result.skipped_reason?.trim() || DEFAULT_SKIPPED_REASON;
+  return { kind: "skipped", reason };
+}
+
+/** "No digest this time: no new episodes." Sentence-cased for display. */
+export function skippedRunMessage(reason: string): string {
+  const trimmed = reason.trim().replace(/\.$/, "");
+  return `No digest this time: ${trimmed}.`;
+}
+
+/** Up to two initials from a title, skipping a leading "The"; the fallback
+ * mark when a show has no artwork. */
+export function initialsFor(title: string): string {
+  const words = title
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((w, i) => !(i === 0 && /^the$/i.test(w)));
+  const letters = words
+    .slice(0, 2)
+    .map((w) => w.charAt(0).toUpperCase())
+    .join("");
+  return letters || "?";
+}
+
+/** Largest OPML file the browser will read and send (client-side guard). */
+export const MAX_OPML_BYTES = 2_000_000;
+
+/** Search box rules: debounce and minimum query length. */
+export const SEARCH_DEBOUNCE_MS = 300;
+export const SEARCH_MIN_CHARS = 2;
+
 /** "A, B, C +2 more" — a compact one-line summary of a source list. */
 export function summarizeSourceTitles(sources: Source[], limit = 3): string {
   if (sources.length === 0) return "No shows";
@@ -258,6 +305,47 @@ export function clampStep(requested: number, draft: SubscribeDraft, hasToken: bo
   return Math.min(wanted, furthest) as WizardStep;
 }
 
+export interface InterviewQuestion {
+  label: string;
+  hint: string | null;
+  multiline: boolean;
+}
+
+/** The six questions from skills/chorus-soul-bootstrap/SKILL.md, keyed by the
+ * answer keys chorus/bootstrap.py build_from_interview reads. */
+export const INTERVIEW_QUESTIONS: Record<InterviewKey, InterviewQuestion> = {
+  identity: {
+    label: "What is your role, and what decisions are you responsible for?",
+    hint: null,
+    multiline: true,
+  },
+  interests: {
+    label: "Which topics or questions are you actively pursuing?",
+    hint: "Separate with commas.",
+    multiline: false,
+  },
+  triggers: {
+    label: "What would make you stop and save a podcast segment?",
+    hint: "Specific ideas, claims, people, or kinds of evidence. Separate with commas.",
+    multiline: false,
+  },
+  ignore: {
+    label: "What subjects, tropes, or levels of discussion should Chorus skip?",
+    hint: "Separate with commas.",
+    multiline: false,
+  },
+  style: {
+    label: "What intellectual style do you value?",
+    hint: "Empirical, contrarian, technical, practical, narrative, or your own words.",
+    multiline: false,
+  },
+  guidance: {
+    label: "When should Chorus surface a segment, and when should it refuse rather than pad your digest?",
+    hint: "This sets the bar. Be as strict as you want.",
+    multiline: true,
+  },
+};
+
 /** Interview submission needs at least one non-blank answer. */
 export function interviewHasAnswers(answers: Record<string, string>): boolean {
   return INTERVIEW_KEYS.some((key) => (answers[key] ?? "").trim().length > 0);
@@ -293,15 +381,6 @@ export function parseFragmentStep(hash: string): WizardStep | null {
   const n = Number(raw);
   if (!Number.isInteger(n) || n < FIRST_STEP || n > LAST_STEP) return null;
   return n as WizardStep;
-}
-
-/** The fragment to leave in the address bar after consuming a token: every
- * other parameter survives, `token` never does. Returns "" or "#k=v...". */
-export function fragmentWithoutToken(hash: string): string {
-  const params = fragmentParams(hash);
-  params.delete("token");
-  const rest = params.toString();
-  return rest ? `#${rest}` : "";
 }
 
 export function fragmentForStep(step: WizardStep): string {

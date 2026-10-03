@@ -6,6 +6,10 @@
  * in both — research-surface.html reference). */
 :root {
   --navy: #0f2340;
+  /* Navy as text/rule colour. `--navy` is a surface (the masthead) and goes
+   * dark-on-dark in the dark theme, so headings and control outlines use
+   * this readable counterpart instead. */
+  --navy-text: #0f2340;
   --ink: #1c2434;
   --silver: #8b9199;
   --green: #2d7a52;
@@ -23,6 +27,7 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --navy: #17335c;
+    --navy-text: #b4c7e4;
     --ink: #e7e5df;
     --silver: #9aa1ab;
     --green: #4fa87a;
@@ -40,6 +45,7 @@
 
 @theme inline {
   --color-navy: var(--navy);
+  --color-navy-text: var(--navy-text);
   --color-ink: var(--ink);
   --color-silver: var(--silver);
   --color-green: var(--green);

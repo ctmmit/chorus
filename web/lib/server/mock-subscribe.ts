@@ -22,7 +22,7 @@ import type {
   SubscriptionUpdateRequest,
 } from "@/lib/api-types";
 import { MAX_CONTEXT_CHARS, MAX_SOUL_CHARS } from "@/lib/api-types";
-import { isSource, isValidEmail, mergeSources, sourceTitle } from "@/lib/subscribe";
+import { initialsFor, isSource, isValidEmail, mergeSources, sourceTitle } from "@/lib/subscribe";
 
 const HOUR_MS = 3_600_000;
 const DAY_MS = 24 * HOUR_MS;
@@ -331,11 +331,30 @@ export function sourceIdentity(source: Source): string {
   }
 }
 
+/** Why the mock cannot read a source, or null when it can: the real API
+ * fetches feeds over https only, and a feed that does not answer is a source
+ * error rather than an empty result. Addresses containing "unreachable" fake
+ * a dead feed so that path is exercisable. */
+export function sourceReadError(source: Source): string | null {
+  if (source.kind === "rss" && /^http:\/\//i.test(source.feed_url.trim())) {
+    return "Feed addresses must use https:// (http:// feeds are not fetched).";
+  }
+  if (/unreachable/i.test(sourceIdentity(source))) return "The feed did not respond (HTTP 504).";
+  return null;
+}
+
 function episodeFor(source: Source, title: string, guidSeed: string): EpisodeInput {
   const show = sourceTitle(source);
   switch (source.kind) {
-    case "rss":
-      return { feed_url: source.feed_url, guid: fakeId(guidSeed, 16), title, show };
+    case "rss": {
+      // The real API's RSS episodes carry exactly feed_url, guid, audio_url.
+      const guid = fakeId(guidSeed, 16);
+      return {
+        feed_url: source.feed_url,
+        guid,
+        audio_url: `https://media.example.com/${guid}.mp3`,
+      };
+    }
     case "youtube":
       return { video_id: fakeId(guidSeed, 11), title, show };
     case "show":
@@ -359,8 +378,9 @@ export function buildMockPreview(
 
   for (const source of sources) {
     const identity = sourceIdentity(source);
-    if (/unreachable/i.test(identity)) {
-      errors.push({ source, reason: "The feed did not respond (HTTP 504)." });
+    const readError = sourceReadError(source);
+    if (readError) {
+      errors.push({ source, reason: readError });
       continue;
     }
     const h = hashString(identity);
@@ -453,8 +473,10 @@ export function applyUpdate(sub: Subscription, patch: SubscriptionUpdateRequest,
   if (patch.max_episodes_per_run !== undefined) next.max_episodes_per_run = patch.max_episodes_per_run;
   if (patch.notify_when_empty !== undefined) next.notify_when_empty = patch.notify_when_empty;
   if (patch.sources !== undefined) {
+    // Sending sources replaces everything: legacy episodes/shows are cleared.
     next.sources = mergeSources([], patch.sources).merged;
     next.shows = null;
+    next.episodes = null;
   }
   const resumed = patch.active === true && !sub.active;
   if (patch.active !== undefined) next.active = patch.active;
@@ -463,6 +485,39 @@ export function applyUpdate(sub: Subscription, patch: SubscriptionUpdateRequest,
     next.next_run_at = nextRunAt(next.cadence, now).toISOString();
   }
   return next;
+}
+
+/** A manual run within this window of the previous one finds nothing new. */
+export const RERUN_WINDOW_MS = 60_000;
+
+export type RunPlan =
+  | { kind: "job"; newEpisodes: number }
+  | { kind: "skipped"; reason: string };
+
+/** What a mock "run now" does, following the real API: with new episodes it
+ * starts a job; with none it returns a null job and a reason, which names any
+ * sources that could not be read ("no new episodes; 1 of 3 source(s) could
+ * not be read"). */
+export function planRun(sub: Subscription, now: Date): RunPlan {
+  const sources = sub.sources ?? [];
+  const unreadable = sources.filter((s) => sourceReadError(s) !== null).length;
+  const readable = sources.length - unreadable;
+  const ranJustNow =
+    sub.last_run_at !== null && now.getTime() - Date.parse(sub.last_run_at) < RERUN_WINDOW_MS;
+  if (readable === 0 || ranJustNow) {
+    const suffix = unreadable > 0 ? `; ${unreadable} of ${sources.length} source(s) could not be read` : "";
+    return { kind: "skipped", reason: `no new episodes${suffix}` };
+  }
+  return { kind: "job", newEpisodes: Math.min(sub.max_episodes_per_run, readable) };
+}
+
+/** Record a run that found nothing new: no job, the reason on the summary. */
+export function applySkippedRun(sub: Subscription, reason: string, now: Date): Subscription {
+  return {
+    ...sub,
+    last_run_at: now.toISOString(),
+    last_run_summary: { ran_at: now.toISOString(), new_episodes: 0, job_id: null, skipped_reason: reason },
+  };
 }
 
 /** Record a manual "run now": a job id, the episodes it covered, and the
@@ -486,19 +541,6 @@ export function applyRun(sub: Subscription, jobId: string, newEpisodes: number, 
 
 function escapeXml(value: string): string {
   return value.replace(/[<>&"']/g, (c) => `&#${c.charCodeAt(0)};`);
-}
-
-/** Up to two initials from a title, skipping a leading "The". */
-export function initialsFor(title: string): string {
-  const words = title
-    .split(/\s+/)
-    .filter(Boolean)
-    .filter((w, i) => !(i === 0 && /^the$/i.test(w)));
-  const letters = words
-    .slice(0, 2)
-    .map((w) => w.charAt(0).toUpperCase())
-    .join("");
-  return letters || "?";
 }
 
 /** A flat navy square with the show's initials: stands in for cover art in

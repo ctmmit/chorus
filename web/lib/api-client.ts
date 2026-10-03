@@ -10,9 +10,18 @@ import type {
   DigestRequest,
   Job,
   NetworkGraph,
+  OpmlImportResult,
   Persona,
+  PodcastSearchResult,
+  PreviewRequest,
+  PreviewResponse,
+  RunResult,
   SelectionRequest,
   ShowListing,
+  Source,
+  Subscription,
+  SubscriptionCreateRequest,
+  SubscriptionUpdateRequest,
 } from "./api-types";
 
 export class ApiError extends Error {
@@ -42,6 +51,13 @@ function effectiveBaseUrl(baseUrl: string): string {
   return CHORUS_PROXY_ENABLED ? CHORUS_PROXY_BASE_PATH : baseUrl;
 }
 
+/** Parse a success body as JSON; an empty body (202/204) yields `undefined`
+ * rather than a parse error. */
+async function readJson<T>(res: Response): Promise<T> {
+  const text = await res.text();
+  return (text ? JSON.parse(text) : undefined) as T;
+}
+
 async function authedFetch<T>(
   baseUrl: string,
   token: string,
@@ -56,13 +72,29 @@ async function authedFetch<T>(
   }
   const res = await fetch(url, { ...init, headers });
   if (!res.ok) throw new ApiError(res.status, await errorDetail(res));
-  return (await res.json()) as T;
+  return readJson<T>(res);
 }
 
 async function mockFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`/api/mock${path}`, init);
   if (!res.ok) throw new ApiError(res.status, await errorDetail(res));
-  return (await res.json()) as T;
+  return readJson<T>(res);
+}
+
+/** One call site for "live or mock": every subscribe-flow function below
+ * goes through this, so MOCK_MODE is still a single switch. */
+function request<T>(
+  baseUrl: string,
+  token: string,
+  method: "GET" | "POST" | "PATCH" | "DELETE",
+  path: string,
+  body?: unknown,
+  signal?: AbortSignal,
+): Promise<T> {
+  const init: RequestInit = { method, signal };
+  if (body !== undefined) init.body = JSON.stringify(body);
+  if (MOCK_MODE) return mockFetch<T>(path, init);
+  return authedFetch<T>(baseUrl, token, path, init);
 }
 
 export async function listShows(baseUrl: string, token: string): Promise<ShowListing[]> {
@@ -126,6 +158,126 @@ export async function fetchPersona(
 ): Promise<Persona> {
   if (MOCK_MODE) return mockFetch<Persona>(`/personas/${encodeURIComponent(personaId)}`);
   return authedFetch<Persona>(baseUrl, token, `/personas/${encodeURIComponent(personaId)}`);
+}
+
+// --- Human subscribe flow ----------------------------------------------------
+// Everything below needs `Authorization: Bearer <token>` except requestKey
+// (POST /keys is how a person gets a token in the first place). Same-origin
+// proxy mode and the mock switch come from request()/authedFetch above.
+
+/** POST /keys {email}: 202. The email carries the key and, when the operator
+ * set CHORUS_VIEWER_URL on the API, a `<viewer>/subscribe#token=` link. */
+export async function requestKey(baseUrl: string, email: string): Promise<void> {
+  await request<unknown>(baseUrl, "", "POST", "/keys", { email });
+}
+
+export function searchPodcasts(
+  baseUrl: string,
+  token: string,
+  query: string,
+  limit = 10,
+  signal?: AbortSignal,
+): Promise<PodcastSearchResult[]> {
+  const qs = new URLSearchParams({ q: query, limit: String(limit) });
+  return request<PodcastSearchResult[]>(
+    baseUrl,
+    token,
+    "GET",
+    `/podcasts/search?${qs.toString()}`,
+    undefined,
+    signal,
+  );
+}
+
+/** Rejects with ApiError(422, detail) when the link is not an RSS URL, an
+ * Apple Podcasts show URL, or a YouTube channel URL. */
+export function resolvePodcast(baseUrl: string, token: string, url: string): Promise<Source> {
+  return request<Source>(baseUrl, token, "POST", "/podcasts/resolve", { url });
+}
+
+export function importOpml(baseUrl: string, token: string, opml: string): Promise<OpmlImportResult> {
+  return request<OpmlImportResult>(baseUrl, token, "POST", "/podcasts/import-opml", { opml });
+}
+
+export function previewSubscription(
+  baseUrl: string,
+  token: string,
+  body: PreviewRequest,
+): Promise<PreviewResponse> {
+  return request<PreviewResponse>(baseUrl, token, "POST", "/subscriptions/preview", body);
+}
+
+export async function buildSoulFromInterview(
+  baseUrl: string,
+  token: string,
+  answers: Record<string, string>,
+): Promise<string> {
+  const { soul } = await request<{ soul: string }>(baseUrl, token, "POST", "/souls/interview", {
+    answers,
+  });
+  return soul;
+}
+
+export function createSubscription(
+  baseUrl: string,
+  token: string,
+  body: SubscriptionCreateRequest,
+): Promise<Subscription> {
+  return request<Subscription>(baseUrl, token, "POST", "/subscriptions", body);
+}
+
+export function listSubscriptions(baseUrl: string, token: string): Promise<Subscription[]> {
+  return request<Subscription[]>(baseUrl, token, "GET", "/subscriptions");
+}
+
+export function updateSubscription(
+  baseUrl: string,
+  token: string,
+  subscriptionId: string,
+  patch: SubscriptionUpdateRequest,
+): Promise<Subscription> {
+  return request<Subscription>(
+    baseUrl,
+    token,
+    "PATCH",
+    `/subscriptions/${encodeURIComponent(subscriptionId)}`,
+    patch,
+  );
+}
+
+export async function deleteSubscription(
+  baseUrl: string,
+  token: string,
+  subscriptionId: string,
+): Promise<void> {
+  await request<unknown>(
+    baseUrl,
+    token,
+    "DELETE",
+    `/subscriptions/${encodeURIComponent(subscriptionId)}`,
+  );
+}
+
+export function runSubscription(
+  baseUrl: string,
+  token: string,
+  subscriptionId: string,
+): Promise<RunResult> {
+  return request<RunResult>(
+    baseUrl,
+    token,
+    "POST",
+    `/subscriptions/${encodeURIComponent(subscriptionId)}/run`,
+  );
+}
+
+/** The committed sample OPML export, for trying the import without a file
+ * (mock mode only; the route ships in every build but the UI only offers it
+ * in mock mode). */
+export async function fetchSampleOpml(): Promise<string> {
+  const res = await fetch("/api/samples/opml");
+  if (!res.ok) throw new ApiError(res.status, await errorDetail(res));
+  return res.text();
 }
 
 export async function fetchSampleSoul(name: "investor" | "popculture"): Promise<string> {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  INTERVIEW_KEYS,
   TWO_HOST_PROFILE,
   type PreviewEpisode,
   type Source,
@@ -15,9 +16,13 @@ import {
   formatDate,
   formatDateTime,
   fragmentForStep,
-  fragmentWithoutToken,
   furthestReachableStep,
   groupPreviewBySource,
+  initialsFor,
+  insecureFeedSources,
+  interpretRun,
+  skippedRunMessage,
+  INTERVIEW_QUESTIONS,
   interviewHasAnswers,
   isAuthStatus,
   isValidEmail,
@@ -183,6 +188,62 @@ describe("validation", () => {
   });
 });
 
+describe("insecureFeedSources", () => {
+  it("flags only http:// RSS feeds", () => {
+    const http: Source = { kind: "rss", feed_url: "http://feeds.example.com/a", title: "A", artwork_url: null };
+    const upper: Source = { kind: "rss", feed_url: " HTTP://feeds.example.com/b", title: "B", artwork_url: null };
+    expect(insecureFeedSources([ACQUIRED, http, CHANNEL, SHOW, upper])).toEqual([http, upper]);
+    expect(insecureFeedSources([ACQUIRED])).toEqual([]);
+  });
+});
+
+describe("interpretRun", () => {
+  it("navigates when a job started", () => {
+    expect(interpretRun({ job_id: "j1", skipped_reason: null })).toEqual({ kind: "job", jobId: "j1" });
+  });
+
+  it("explains a skipped run, with a default when the reason is missing", () => {
+    expect(interpretRun({ job_id: null, skipped_reason: "no new episodes; 1 of 3 source(s) could not be read" })).toEqual({
+      kind: "skipped",
+      reason: "no new episodes; 1 of 3 source(s) could not be read",
+    });
+    expect(interpretRun({ job_id: null, skipped_reason: null })).toEqual({
+      kind: "skipped",
+      reason: "no new episodes",
+    });
+    expect(interpretRun({ job_id: null, skipped_reason: "  " })).toMatchObject({ reason: "no new episodes" });
+  });
+
+  it("formats the skipped message as a sentence", () => {
+    expect(skippedRunMessage("no new episodes")).toBe("No digest this time: no new episodes.");
+    expect(skippedRunMessage("no new episodes.")).toBe("No digest this time: no new episodes.");
+  });
+});
+
+describe("initialsFor", () => {
+  it("takes up to two initials and skips a leading The", () => {
+    expect(initialsFor("The Knowledge Project")).toBe("KP");
+    expect(initialsFor("Acquired")).toBe("A");
+    expect(initialsFor("Invest Like the Best")).toBe("IL");
+    expect(initialsFor("   ")).toBe("?");
+  });
+});
+
+describe("interview questions", () => {
+  it("cover exactly the six keys build_from_interview reads", () => {
+    expect(Object.keys(INTERVIEW_QUESTIONS).sort()).toEqual(
+      ["guidance", "identity", "ignore", "interests", "style", "triggers"],
+    );
+    expect([...INTERVIEW_KEYS].sort()).toEqual(Object.keys(INTERVIEW_QUESTIONS).sort());
+  });
+
+  it("comma-list questions say so", () => {
+    for (const key of ["interests", "triggers", "ignore"] as const) {
+      expect(INTERVIEW_QUESTIONS[key].hint).toMatch(/comma/i);
+    }
+  });
+});
+
 describe("interview helpers", () => {
   it("detects whether anything was answered", () => {
     expect(interviewHasAnswers({})).toBe(false);
@@ -214,13 +275,6 @@ describe("fragment parsing", () => {
     expect(parseFragmentStep("#step=5")).toBeNull();
     expect(parseFragmentStep("#step=two")).toBeNull();
     expect(parseFragmentStep("#token=x")).toBeNull();
-  });
-
-  it("fragmentWithoutToken removes only the token", () => {
-    expect(fragmentWithoutToken("#token=abc")).toBe("");
-    expect(fragmentWithoutToken("#token=abc&step=2")).toBe("#step=2");
-    expect(fragmentWithoutToken("#step=2")).toBe("#step=2");
-    expect(fragmentWithoutToken("")).toBe("");
   });
 
   it("builds a step fragment", () => {

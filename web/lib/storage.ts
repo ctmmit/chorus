@@ -72,3 +72,27 @@ export function addRecentJob(entry: RecentJob): void {
 export function clearRecentJobs(): void {
   writeLocalStorage(KEY_RECENT_JOBS, JSON.stringify([]));
 }
+
+// --- Subscribe wizard draft ---------------------------------------------------
+// The raw JSON string only; lib/subscribe.ts (parseDraft/serializeDraft) owns
+// its shape and validates it on the way back in. The API token is NOT in the
+// draft; it stays under KEY_TOKEN above.
+
+const KEY_SUBSCRIBE_DRAFT = "chorus.subscribeDraft";
+
+export function getSubscribeDraftRaw(): string | null {
+  return readLocalStorage(KEY_SUBSCRIBE_DRAFT);
+}
+
+export function setSubscribeDraftRaw(raw: string): void {
+  writeLocalStorage(KEY_SUBSCRIBE_DRAFT, raw);
+}
+
+export function clearSubscribeDraft(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(KEY_SUBSCRIBE_DRAFT);
+  } catch {
+    // Storage unavailable — nothing to clear.
+  }
+}

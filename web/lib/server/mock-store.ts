@@ -11,7 +11,7 @@ import type {
   SubscriptionCreateRequest,
   SubscriptionUpdateRequest,
 } from "@/lib/api-types";
-import { applyRun, applyUpdate, nextRunAt, subscriptionFromRequest } from "@/lib/server/mock-subscribe";
+import { applyRun, applySkippedRun, applyUpdate, nextRunAt, subscriptionFromRequest } from "@/lib/server/mock-subscribe";
 
 const MOCK_OWNER = "demo@example.com";
 const STORE_KEY = "__chorusMockSubscriptions";
@@ -163,6 +163,15 @@ export function updateMockSubscription(id: string, patch: SubscriptionUpdateRequ
 
 export function deleteMockSubscription(id: string): boolean {
   return store().subscriptions.delete(id);
+}
+
+export function recordMockSkippedRun(id: string, reason: string): Subscription | null {
+  const s = store();
+  const current = s.subscriptions.get(id);
+  if (!current) return null;
+  const next = applySkippedRun(current, reason, new Date());
+  s.subscriptions.set(id, next);
+  return next;
 }
 
 export function recordMockRun(id: string, jobId: string, newEpisodes: number): Subscription | null {

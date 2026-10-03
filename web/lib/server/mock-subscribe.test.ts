@@ -6,15 +6,17 @@ import { describe, expect, it } from "vitest";
 import type { PodcastSearchResult, Source, Subscription, SubscriptionCreateRequest } from "@/lib/api-types";
 import {
   applyRun,
+  applySkippedRun,
   applyUpdate,
   buildMockPreview,
   decodeXmlEntities,
   fakeId,
-  initialsFor,
   looksLikeOpml,
   nextRunAt,
   parseOpml,
   placeholderArtworkSvg,
+  planRun,
+  sourceReadError,
   renderSoulFromInterview,
   resolveLink,
   searchCatalog,
@@ -52,7 +54,7 @@ describe("searchCatalog", () => {
       expect(entry.title).toBeTruthy();
       expect(entry.feed_url).toMatch(/^https:\/\//);
       expect(entry).toHaveProperty("artwork_url");
-      expect(entry).toHaveProperty("apple_id");
+      expect(typeof entry.apple_id).toBe("number");
     }
   });
 });
@@ -276,6 +278,88 @@ describe("buildMockPreview", () => {
   });
 });
 
+describe("source read errors", () => {
+  const http: Source = { kind: "rss", feed_url: "http://feeds.example.com/plain", title: "Plain", artwork_url: null };
+
+  it("http:// feeds are reported per source in the preview, not fetched", () => {
+    const ok: Source = { kind: "rss", feed_url: "https://feeds.transistor.fm/acquired", title: "Acquired", artwork_url: null };
+    const result = buildMockPreview([http, ok], 7, 20, NOW);
+    expect(result.errors).toEqual([{ source: http, reason: expect.stringContaining("https://") }]);
+    expect(result.episodes.every((e) => e.source_title === "Acquired")).toBe(true);
+  });
+
+  it("sourceReadError is null for a healthy https feed and a youtube channel", () => {
+    expect(sourceReadError({ ...http, feed_url: "https://feeds.example.com/ok" })).toBeNull();
+    expect(sourceReadError({ kind: "youtube", channel_id: "UCabc", title: null })).toBeNull();
+    expect(sourceReadError(http)).not.toBeNull();
+  });
+
+  it("rss preview episodes carry exactly feed_url, guid, audio_url", () => {
+    const ok: Source = { kind: "rss", feed_url: "https://feeds.transistor.fm/acquired", title: "Acquired", artwork_url: null };
+    const { episodes } = buildMockPreview([ok], 7, 20, NOW);
+    expect(episodes.length).toBeGreaterThan(0);
+    for (const ep of episodes) {
+      expect(Object.keys(ep.episode).sort()).toEqual(["audio_url", "feed_url", "guid"]);
+      expect(ep.episode.audio_url).toMatch(/^https:\/\//);
+    }
+  });
+});
+
+describe("planRun", () => {
+  const ok: Source = { kind: "rss", feed_url: "https://feeds.transistor.fm/acquired", title: "Acquired", artwork_url: null };
+  const bad: Source = { kind: "rss", feed_url: "http://feeds.example.com/x", title: "Bad", artwork_url: null };
+  const make = (sources: Source[]): Subscription =>
+    subscriptionFromRequest(
+      {
+        email: "a@b.co",
+        soul: "# Soul",
+        context: "",
+        sources,
+        cadence: "weekly",
+        highlight_count: 4,
+        profile: null,
+        max_episodes_per_run: 5,
+        notify_when_empty: false,
+      },
+      "s",
+      "o",
+      NOW,
+    );
+
+  it("starts a job for a subscription that has not run", () => {
+    expect(planRun(make([ok]), NOW)).toEqual({ kind: "job", newEpisodes: 1 });
+  });
+
+  it("returns a null-job reason when the last run was seconds ago", () => {
+    const ran = applyRun(make([ok]), "j", 1, NOW);
+    expect(planRun(ran, new Date(NOW.getTime() + 5_000))).toEqual({ kind: "skipped", reason: "no new episodes" });
+    expect(planRun(ran, new Date(NOW.getTime() + 120_000)).kind).toBe("job");
+  });
+
+  it("names unreadable sources in the reason, and skips when none can be read", () => {
+    const ran = applyRun(make([ok, bad]), "j", 1, NOW);
+    expect(planRun(ran, new Date(NOW.getTime() + 5_000))).toEqual({
+      kind: "skipped",
+      reason: "no new episodes; 1 of 2 source(s) could not be read",
+    });
+    expect(planRun(make([bad]), NOW)).toEqual({
+      kind: "skipped",
+      reason: "no new episodes; 1 of 1 source(s) could not be read",
+    });
+  });
+
+  it("records a skipped run without a job", () => {
+    const skipped = applySkippedRun(make([ok]), "no new episodes", NOW);
+    expect(skipped.last_run_summary).toEqual({
+      ran_at: NOW.toISOString(),
+      new_episodes: 0,
+      job_id: null,
+      skipped_reason: "no new episodes",
+    });
+    expect(skipped.last_job_id).toBeNull();
+  });
+});
+
 describe("nextRunAt", () => {
   it("weekly lands on a Friday 12:00 UTC strictly after now", () => {
     // NOW is Friday 15:30 UTC, past noon, so the next one is a week out.
@@ -353,12 +437,30 @@ describe("subscriptions", () => {
     expect(daily).toMatchObject({ cadence: "daily", context: "new", next_run_at: "2026-10-03T12:00:00.000Z" });
   });
 
-  it("replacing sources clears legacy shows and de-duplicates", () => {
-    const sub: Subscription = { ...subscriptionFromRequest(body, "s", "o", NOW), shows: ["Legacy"], sources: null };
+  it("replacing sources clears legacy shows and episodes and de-duplicates", () => {
+    const sub: Subscription = {
+      ...subscriptionFromRequest(body, "s", "o", NOW),
+      shows: ["Legacy"],
+      episodes: [{ video_id: "abc" }],
+      sources: null,
+    };
     const dup = body.sources[0];
     const next = applyUpdate(sub, { sources: [dup, { ...dup }] }, NOW);
     expect(next.shows).toBeNull();
+    expect(next.episodes).toBeNull();
     expect(next.sources).toHaveLength(1);
+  });
+
+  it("only changes the fields that were sent", () => {
+    const sub: Subscription = {
+      ...subscriptionFromRequest(body, "s", "o", NOW),
+      shows: ["Legacy"],
+      episodes: [{ video_id: "abc" }],
+    };
+    const next = applyUpdate(sub, { context: "new" }, NOW);
+    expect(next.shows).toEqual(["Legacy"]);
+    expect(next.episodes).toEqual([{ video_id: "abc" }]);
+    expect(next.sources).toEqual(sub.sources);
   });
 
   it("records a run", () => {
@@ -375,12 +477,6 @@ describe("subscriptions", () => {
 });
 
 describe("artwork placeholder", () => {
-  it("takes up to two initials and skips a leading The", () => {
-    expect(initialsFor("The Knowledge Project")).toBe("KP");
-    expect(initialsFor("Acquired")).toBe("A");
-    expect(initialsFor("   ")).toBe("?");
-  });
-
   it("escapes markup in the title", () => {
     expect(placeholderArtworkSvg("<script>")).not.toContain("<script>");
     expect(placeholderArtworkSvg("Odd Lots")).toContain(">OL<");

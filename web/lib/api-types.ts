@@ -298,7 +298,15 @@ export interface PodcastSearchResult {
   author: string | null;
   feed_url: string;
   artwork_url: string | null;
-  apple_id: string | number | null;
+  apple_id: number | null;
+}
+
+/** POST /subscriptions/{id}/run: `job_id` is null when there were no new
+ * episodes, and `skipped_reason` then says why (e.g. "no new episodes" or
+ * "no new episodes; 1 of 3 source(s) could not be read"). */
+export interface RunResult {
+  job_id: string | null;
+  skipped_reason: string | null;
 }
 
 /** POST /podcasts/import-opml -> sources plus the lines it could not use. */
