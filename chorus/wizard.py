@@ -130,8 +130,8 @@ class Wizard:
             return self._smoke(config)
         if step is Step.brain and config.mode is Mode.host_agent:
             self.io.say(
-                "  Letting your coding agent do the thinking is coming in a later release. "
-                "For now choose a key or the demo; you can switch later."
+                "  'Your agent's own model' means the agent you connect Chorus to does the "
+                "scoring and writing; Chorus checks every citation it produces."
             )
         while True:
             try:
@@ -277,6 +277,12 @@ class Wizard:
         return mark_done(updated, Step.shows)
 
     def _smoke(self, config: OnboardingConfig) -> OnboardingConfig:
+        if config.brain is Brain.host:
+            self.io.say(
+                "  Your agent is the brain, so it runs the test digest. Connect Chorus to it "
+                "(below) and ask it to finish your Chorus setup."
+            )
+            return config
         # The sample transcript is a bundled fixture, so transcript keys are
         # never touched; only the brain and the voice can spend money here.
         billed = config.brain is Brain.anthropic or config.voice is Voice.elevenlabs_key

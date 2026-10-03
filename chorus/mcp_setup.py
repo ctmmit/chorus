@@ -15,15 +15,18 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP  # type: ignore[import-not-found,import-untyped]
 
-from chorus import agent_setup
+from chorus import agent_setup, host_mode
 from chorus.jobs import JobStore
+from chorus.onboarding import Brain, load_config
 
 LOCAL_INSTRUCTIONS = (
     "Chorus curates the podcasts a principal cannot get to and returns cited highlights plus a "
     "short voiced episode. Start every session with onboarding_status. If ready is false, walk "
     "the principal through `next`: ask them its `ask` text, follow its agent_notes, call the "
     "matching onboarding_* tool, and repeat until ready. The soul step is required. Once ready, "
-    "run_my_digest starts this week's digest; poll get_digest(job_id) until done or failed."
+    "run_my_digest starts this week's digest. If it returns brain='host', you are the brain: "
+    "loop on host_next(job_id) and do what each task says (wait, score an episode, write the "
+    "script) until it is done. Otherwise poll get_digest(job_id) until done or failed."
 )
 
 
@@ -76,16 +79,53 @@ def register_setup_tools(server: FastMCP, store: JobStore) -> None:
         """Set followed catalog shows and RSS feed URLs, and whether to digest weekly."""
         return agent_setup.set_shows(shows or [], feeds or [], weekly).model_dump(mode="json")
 
-    def onboarding_smoke_test(run: bool = True) -> dict[str, Any]:
+    def onboarding_smoke_test(run: bool = True, agent_model: str | None = None) -> dict[str, Any]:
         """Run (or skip) one test digest over a bundled sample transcript with
-        the chosen brain and voice. May make billed calls; ask first."""
-        return agent_setup.smoke_test(run)
+        the chosen brain and voice. May make billed calls; ask first. With the
+        host brain it returns a host_job_id you drive with host_next; pass
+        agent_model (the model you are)."""
+        return agent_setup.smoke_test(run, agent_model=agent_model)
 
-    def run_my_digest(episode_ids: list[str] | None = None) -> dict[str, str]:
+    def run_my_digest(
+        episode_ids: list[str] | None = None,
+        format: str = "monologue",
+        agent_model: str | None = None,
+    ) -> dict[str, str]:
         """Start a digest with the principal's saved soul and choices, over this
-        week's shows and feeds (or the given episode ids). Returns {"job_id"}
-        immediately; poll get_digest. Refuses until onboarding is complete."""
-        return submit_configured_digest(store, episode_ids)
+        week's shows and feeds (or the given episode ids). Returns {"job_id",
+        "brain"} immediately. brain='host' means you do the thinking: loop on
+        host_next(job_id). Otherwise poll get_digest. format: 'monologue' or
+        'dialogue' (two hosts; host brain only). agent_model: the model you are
+        (host brain only; recorded with the run). Refuses until setup is done."""
+        return submit_configured_digest(store, episode_ids, format, agent_model)
+
+    def host_next(job_id: str) -> dict[str, Any]:
+        """Host brain: what to do now for this run. kind is wait (call again
+        after wait_seconds), score (score episode windows, then
+        host_submit_scores), script (write takes/turns, then
+        host_submit_script), done (deliver `result`), or failed."""
+        return host_mode.next_task(store, job_id).model_dump(mode="json")
+
+    def host_episode(job_id: str, episode_id: str) -> dict[str, Any]:
+        """Host brain: one episode's windows, for a subagent scoring it in
+        parallel with the others listed in pending_episodes."""
+        return host_mode.episode_windows(job_id, episode_id)
+
+    def host_submit_scores(
+        job_id: str, episode_id: str, scores: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Host brain: submit one episode's window scores as
+        [{"i": <window index>, "score": <0.0-1.0>, "reason": "<one line>"}].
+        Returns the episode outcome and the next task."""
+        return host_mode.submit_scores(store, job_id, episode_id, scores)
+
+    def host_submit_script(
+        job_id: str, takes: list[dict[str, Any]], turns: list[dict[str, Any]] | None = None
+    ) -> dict[str, Any]:
+        """Host brain: submit the script. takes: [{"ref", "take_type", "text"}];
+        turns (two-host only): [{"ref", "speaker", "text"}]. Items without a
+        valid highlight ref are dropped and listed. Renders the episode."""
+        return host_mode.submit_script(store, load_config(), job_id, takes, turns)
 
     for tool in (
         onboarding_status,
@@ -98,11 +138,20 @@ def register_setup_tools(server: FastMCP, store: JobStore) -> None:
         onboarding_set_shows,
         onboarding_smoke_test,
         run_my_digest,
+        host_next,
+        host_episode,
+        host_submit_scores,
+        host_submit_script,
     ):
         server.add_tool(tool)
 
 
-def submit_configured_digest(store: JobStore, episode_ids: list[str] | None) -> dict[str, str]:
+def submit_configured_digest(
+    store: JobStore,
+    episode_ids: list[str] | None,
+    episode_format: str = "monologue",
+    agent_model: str | None = None,
+) -> dict[str, str]:
     from chorus.brains import BrainConfigError, build_local_deps
     from chorus.local_run import (
         HIGHLIGHTS_PER_EPISODE,
@@ -110,7 +159,7 @@ def submit_configured_digest(store: JobStore, episode_ids: list[str] | None) -> 
         recent_episodes,
     )
     from chorus.models import DigestRequest, EpisodeInput
-    from chorus.onboarding import OnboardingError, load_config, status
+    from chorus.onboarding import OnboardingError, status
     from chorus.pipeline import run_job
     from chorus.soul import load_soul
 
@@ -125,6 +174,11 @@ def submit_configured_digest(store: JobStore, episode_ids: list[str] | None) -> 
     )
     if not episodes:
         raise OnboardingError("no new episodes in the past week from the followed shows and feeds")
+    if config.brain is Brain.host:
+        job_id = host_mode.start(
+            store, config, episodes, episode_format=episode_format, brain_model=agent_model
+        )
+        return {"job_id": job_id, "brain": "host"}
     try:
         deps = build_local_deps(config)
     except BrainConfigError as err:
@@ -136,6 +190,7 @@ def submit_configured_digest(store: JobStore, episode_ids: list[str] | None) -> 
         highlight_count=HIGHLIGHTS_PER_EPISODE,
     )
     job_id = store.create()
+    brain = config.brain.value if config.brain else "unknown"
 
     def work() -> None:
         # Unlike the shared server deps, these were built for this run alone.
@@ -145,4 +200,4 @@ def submit_configured_digest(store: JobStore, episode_ids: list[str] | None) -> 
             deps.close()
 
     threading.Thread(target=work, name=f"chorus-run-my-digest-{job_id}", daemon=True).start()
-    return {"job_id": job_id}
+    return {"job_id": job_id, "brain": brain}

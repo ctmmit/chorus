@@ -96,6 +96,9 @@ class OnboardingConfig(BaseModel):
     weekly: bool = False
     updates: UpdatePolicy | None = None
     channel: str = "stable"
+    smoke_job: str | None = Field(
+        default=None, description="Job id of a host-brain smoke test the agent is driving."
+    )
     completed: list[Step] = Field(default_factory=list)
 
 
@@ -172,14 +175,12 @@ def options(step: Step, config: OnboardingConfig) -> list[Option]:
         return [
             Option(
                 value=Brain.host,
-                label="The agent's own model",
-                detail="Codex/Claude/Grok scores segments and writes the script. No Anthropic key.",
-                available=False,
-                reason=(
-                    "needs mode 'host-agent'"
-                    if config.mode is not Mode.host_agent
-                    else LATER_RELEASE
-                ),
+                label="Your agent's own model",
+                detail="The agent you set Chorus up with (Claude, Codex, Grok, ...) scores "
+                "segments and writes the script. No Anthropic key; Chorus still checks every "
+                "citation.",
+                available=config.mode is Mode.host_agent,
+                reason=None if config.mode is Mode.host_agent else "needs mode 'host-agent'",
             ),
             Option(
                 value=Brain.anthropic,

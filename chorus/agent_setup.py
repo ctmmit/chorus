@@ -120,6 +120,12 @@ def step_prompt(step: Step, config: OnboardingConfig) -> StepPrompt:
             )
         if step is Step.brain and config.mode is Mode.host_agent:
             notes.append(
+                "'host' means you, this agent, do the scoring and script writing with your own "
+                "model; Chorus serves the instructions and checks every citation. Say which "
+                "model you are, so the principal knows who will be judging their podcasts."
+            )
+        if step in (Step.brain, Step.voice):
+            notes.append(
                 "Options marked unavailable are on the roadmap. Mention them, but only offer "
                 "the available ones."
             )
@@ -209,7 +215,17 @@ def step_prompt(step: Step, config: OnboardingConfig) -> StepPrompt:
         ask="Run one test digest on a bundled sample transcript to check everything works?"
         + (" It makes real, billed API calls (a few cents)." if billed else ""),
         agent_notes=[
-            "Call onboarding_smoke_test(run=true) on yes, or run=false to skip.",
+            "Call onboarding_smoke_test(run=true) on yes, or run=false to skip. With the host "
+            "brain, pass agent_model (the model you are) so the run records who judged it.",
+            *(
+                [
+                    "With the host brain, that starts a run you drive yourself: follow "
+                    "host_next(job_id) through scoring and the script until it is done. The "
+                    "step completes when that run finishes."
+                ]
+                if config.brain is Brain.host
+                else []
+            ),
             "Share the highlights it returns, and where the episode file was saved.",
         ],
         data={"billed": billed},
@@ -220,10 +236,22 @@ def step_prompt(step: Step, config: OnboardingConfig) -> StepPrompt:
 
 
 def _refresh(config: OnboardingConfig) -> OnboardingConfig:
-    """The keys step completes itself once nothing required is missing."""
+    """Steps that complete themselves: keys, once nothing required is
+    missing; a host-brain smoke test, once the run the agent drove is done."""
     chosen = config.brain and config.voice and config.transcripts
     if chosen and Step.keys not in config.completed and not missing_keys(config):
-        return mark_done(config, Step.keys)
+        config = mark_done(config, Step.keys)
+    if config.smoke_job and Step.smoke_test not in config.completed:
+        from chorus.jobs import SqliteJobStore
+        from chorus.models import JobStatus
+
+        store = SqliteJobStore(paths.db_path())
+        try:
+            job = store.get(config.smoke_job)
+        finally:
+            store.close()
+        if job is not None and job.status is JobStatus.done:
+            config = mark_done(config, Step.smoke_test)
     return config
 
 
@@ -378,7 +406,11 @@ def job_summary(job: Job) -> dict[str, Any]:
     }
 
 
-def smoke_test(run: bool = True) -> dict[str, Any]:
+def smoke_test(
+    run: bool = True, background: bool = True, agent_model: str | None = None
+) -> dict[str, Any]:
+    """`background=False` (the CLI) ingests inline: its process exits after
+    the command, which would kill a background ingest thread."""
     from chorus.local_run import smoke_test as run_smoke
     from chorus.models import JobStatus
 
@@ -391,10 +423,41 @@ def smoke_test(run: bool = True) -> dict[str, Any]:
     ]
     if unfinished:
         raise OnboardingError(f"finish these steps first: {', '.join(unfinished)}")
+    if config.brain is Brain.host:
+        return _start_host_smoke(config, background, agent_model)
     job = run_smoke(config)
     if job.status is JobStatus.done:
         save_config(mark_done(config, Step.smoke_test))
     return {"result": job_summary(job), "status": agent_status().model_dump(mode="json")}
+
+
+def _start_host_smoke(
+    config: OnboardingConfig, background: bool = True, agent_model: str | None = None
+) -> dict[str, Any]:
+    from chorus import host_mode
+    from chorus.jobs import SqliteJobStore
+    from chorus.local_run import SMOKE_EPISODE
+
+    store = SqliteJobStore(paths.db_path())
+    try:
+        job_id = host_mode.start(
+            store,
+            config,
+            [EpisodeInput(video_id=SMOKE_EPISODE)],
+            brain_model=agent_model,
+            require_ready=False,
+            background=background,
+        )
+        task = host_mode.next_task(store, job_id)
+    finally:
+        store.close()
+    save_config(config.model_copy(update={"smoke_job": job_id}))
+    return {
+        "host_job_id": job_id,
+        "instructions": "Drive this run yourself: follow host_next(job_id) through scoring and "
+        "the script. The smoke test completes when the run is done.",
+        "next": task.model_dump(mode="json"),
+    }
 
 
 def run_digest(episode_ids: list[str] | None = None) -> dict[str, Any]:

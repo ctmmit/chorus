@@ -548,6 +548,18 @@ class JobUsage(BaseModel):
         default=None,
         description="Model tokens spent by curation, when the client meters them.",
     )
+    brain: str | None = Field(
+        default=None,
+        description='Who scored and scripted: "host" (the calling agent\'s own model) or unset.',
+    )
+    brain_model: str | None = Field(
+        default=None,
+        description="The model the host agent reported using, when brain is host.",
+    )
+    rubric_version: str | None = Field(
+        default=None,
+        description="Version of the scoring and script instructions Chorus served to the brain.",
+    )
 
 
 class LLMTokens(BaseModel):

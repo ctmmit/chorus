@@ -141,7 +141,11 @@ false, it returns `next`, the step to take the principal through:
 Ask, call the matching tool, and repeat. The steps are:
 
 1. **mode**: does Chorus run on its own on this machine, or through you
-2. **brain**: who does the thinking (an Anthropic key, or the free demo)
+2. **brain**: who does the thinking. The options are:
+   - `host`: you, the agent, score the segments and write the script with your own
+     model. No Anthropic key is needed, and Chorus checks every citation.
+   - `anthropic`: Chorus calls Claude itself, using an Anthropic API key.
+   - `mock`: the free demo.
 3. **voice**: who voices the episode (an ElevenLabs key, or text only)
 4. **transcripts**: where transcripts come from
 5. **keys**: whatever API keys those choices need. A key pasted into chat stays
@@ -159,9 +163,29 @@ Chorus won't run a digest until the soul is saved and validated.
 
 ## 5. Run
 
-Tier A: `run_my_digest` returns a `job_id`. Poll `get_digest(job_id)` until it
-reports `done` or `failed`. Tier B: `chorus setup run` waits and prints the
-result.
+Tier A: `run_my_digest` returns a `job_id` and a `brain`.
+
+- **If `brain` is `host`, you are the brain.** Loop on `host_next(job_id)` and
+  do what each task says:
+  - `wait`: call `host_next` again after `wait_seconds`.
+  - `score`: score the episode's windows against the lens, following the
+    task's `instructions`, then call `host_submit_scores`. If you can run
+    subagents, give each episode in `pending_episodes` to its own subagent;
+    `host_episode` returns any one episode's windows.
+  - `script`: write the takes (plus turns for a two-host episode), each citing
+    a highlight by `ref`, then call `host_submit_script`.
+  - `done`: deliver `result`.
+
+  Pass `agent_model` (the model you are) to `run_my_digest`, so the run
+  records who judged it.
+- **Otherwise,** poll `get_digest(job_id)` until it reports `done` or `failed`.
+
+Tier B: `chorus setup run` waits and prints the result. With the host brain,
+use `chorus setup host-start`, `host-next`, `host-scores` and `host-script`
+instead.
+
+Chorus never takes a quote from you. It cuts every quote from the
+transcript, so highlights stay verifiable whichever model scored them.
 
 Give the principal:
 

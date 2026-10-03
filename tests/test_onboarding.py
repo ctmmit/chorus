@@ -154,14 +154,17 @@ def test_legacy_state_is_copied_once(tmp_path: Path) -> None:
 # --- state machine ---------------------------------------------------------
 
 
-def test_host_brain_and_plugin_voice_are_not_offered_yet() -> None:
+def test_plugin_voice_is_not_offered_yet() -> None:
     config = OnboardingConfig(mode=Mode.host_agent)
-    brain = {o.value: o for o in options(Step.brain, config)}
     voice = {o.value: o for o in options(Step.voice, config)}
-    assert not brain[Brain.host].available
     assert not voice[Voice.host_plugin].available
     with pytest.raises(OnboardingError, match="unavailable"):
-        apply(Step.brain, Brain.host, config)
+        apply(Step.voice, Voice.host_plugin, config)
+
+
+def test_host_brain_is_refused_outside_host_agent_mode() -> None:
+    with pytest.raises(OnboardingError, match="needs mode 'host-agent'"):
+        apply(Step.brain, Brain.host, OnboardingConfig(mode=Mode.local_agent))
 
 
 def test_apply_rejects_unknown_value() -> None:

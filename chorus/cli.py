@@ -83,8 +83,30 @@ def _add_setup(commands: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     shows.add_argument("--weekly", action="store_true")
     smoke = actions.add_parser("smoke", help="run (or --skip) the test digest")
     smoke.add_argument("--skip", action="store_true")
+    smoke.add_argument("--agent-model", help="host brain: the model you are")
     run = actions.add_parser("run", help="digest this week's episodes; waits for the result")
     run.add_argument("--episode", action="append", default=[])
+    # Host brain: the calling agent scores and scripts; Chorus validates.
+    host_start = actions.add_parser(
+        "host-start", help="host brain: fetch transcripts and open a run you drive"
+    )
+    host_start.add_argument("--episode", action="append", default=[])
+    host_start.add_argument("--format", default="monologue", choices=["monologue", "dialogue"])
+    host_start.add_argument("--agent-model", help="the model you are, recorded with the run")
+    host_next = actions.add_parser("host-next", help="host brain: what to do now for a run")
+    host_next.add_argument("job_id")
+    host_episode = actions.add_parser("host-episode", help="host brain: one episode's windows")
+    host_episode.add_argument("job_id")
+    host_episode.add_argument("episode_id")
+    host_scores = actions.add_parser("host-scores", help="host brain: submit an episode's scores")
+    host_scores.add_argument("job_id")
+    host_scores.add_argument("episode_id")
+    host_scores.add_argument("--file", required=True, help='{"scores": [...]} JSON (- for stdin)')
+    host_script = actions.add_parser("host-script", help="host brain: submit the script")
+    host_script.add_argument("job_id")
+    host_script.add_argument(
+        "--file", required=True, help='{"takes": [...], "turns": [...]} JSON (- for stdin)'
+    )
 
 
 def _read_arg(value: str) -> str:
@@ -128,15 +150,60 @@ def cmd_setup(args: argparse.Namespace) -> int:
         elif action == "shows":
             result = agent_setup.set_shows(args.show, args.feed, args.weekly)
         elif action == "smoke":
-            result = agent_setup.smoke_test(run=not args.skip)
-        else:
+            result = agent_setup.smoke_test(
+                run=not args.skip, background=False, agent_model=args.agent_model
+            )
+        elif action == "run":
             result = agent_setup.run_digest(args.episode or None)
-    except (ValueError, BrainConfigError, OSError) as err:
+        else:
+            result = _host_action(args)
+    except (ValueError, KeyError, BrainConfigError, OSError) as err:
         print(json.dumps({"error": str(err)}))
         return EXIT_NOT_READY
     payload = result.model_dump(mode="json") if isinstance(result, BaseModel) else result
     print(json.dumps(payload, indent=2, ensure_ascii=False))
     return EXIT_OK
+
+
+def _host_action(args: argparse.Namespace) -> object:
+    import json
+
+    from chorus import host_mode, paths
+    from chorus.jobs import SqliteJobStore
+    from chorus.local_run import recent_episodes
+    from chorus.models import EpisodeInput
+    from chorus.onboarding import load_config
+
+    store = SqliteJobStore(paths.db_path())
+    try:
+        if args.action == "host-start":
+            config = load_config()
+            episodes = (
+                [EpisodeInput(video_id=i) for i in args.episode]
+                if args.episode
+                else recent_episodes(config)
+            )
+            job_id = host_mode.start(
+                store,
+                config,
+                episodes,
+                episode_format=args.format,
+                brain_model=args.agent_model,
+                background=False,
+            )
+            return host_mode.next_task(store, job_id)
+        if args.action == "host-next":
+            return host_mode.next_task(store, args.job_id)
+        if args.action == "host-episode":
+            return host_mode.episode_windows(args.job_id, args.episode_id)
+        body = json.loads(_read_arg(args.file))
+        if args.action == "host-scores":
+            return host_mode.submit_scores(store, args.job_id, args.episode_id, body["scores"])
+        return host_mode.submit_script(
+            store, load_config(), args.job_id, body.get("takes", []), body.get("turns")
+        )
+    finally:
+        store.close()
 
 
 def cmd_onboard(resets: list[str]) -> int:

@@ -32,6 +32,7 @@ from chorus.onboarding import (
 from chorus.pipeline import Deps
 from chorus.script import AnthropicScriptComposer, MockScriptComposer, ScriptComposer
 from chorus.transcript_cache import SqliteTranscriptCache
+from chorus.transcripts import TranscriptProvider
 
 
 class BrainConfigError(RuntimeError):
@@ -53,7 +54,8 @@ def build_thinking(config: OnboardingConfig) -> tuple[LLMClient, ScriptComposer]
         return MockLLMClient(), MockScriptComposer()
     if config.brain is Brain.host:
         raise BrainConfigError(
-            "the 'host' brain runs inside your coding agent over MCP, not from `chorus run`"
+            "the 'host' brain is your agent's own model: ask your agent to run the digest "
+            "(MCP host_start, or `chorus setup host-start`); `chorus run` cannot do it alone"
         )
     raise BrainConfigError("no brain chosen; run `chorus onboard`")
 
@@ -89,15 +91,21 @@ def restrict_transcript_env(config: OnboardingConfig) -> list[str]:
     return removed
 
 
-def build_local_deps(config: OnboardingConfig) -> Deps:
+def build_provider(config: OnboardingConfig) -> TranscriptProvider:
+    """The transcript ladder for the principal's choices, cached under
+    `~/.chorus/`. Shared by the in-process pipeline and the host-brain runs."""
     # Imported here: build_transcript_chain pulls in the whole provider stack.
     from chorus.config_env import build_transcript_chain
 
     restrict_transcript_env(config)
+    return build_transcript_chain(SqliteTranscriptCache(paths.db_path()))
+
+
+def build_local_deps(config: OnboardingConfig) -> Deps:
     llm, composer = build_thinking(config)
     renderer = build_voice(config)
     return Deps(
-        provider=build_transcript_chain(SqliteTranscriptCache(paths.db_path())),
+        provider=build_provider(config),
         llm=llm,
         composer=composer,
         renderer=renderer,
