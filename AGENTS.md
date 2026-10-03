@@ -19,6 +19,7 @@ The rest of this file is for contributors changing the code.
 - `chorus/agent_setup.py`: transport-neutral onboarding for host agents; `chorus/mcp_setup.py` (local MCP) and `chorus setup` (JSON CLI) expose it.
 - `chorus/wizard.py`, `chorus/cli.py`: the `chorus onboard` terminal wizard and `chorus` command.
 - `chorus/paths.py`: every local state location under `~/.chorus/`.
+- `chorus/voices.py`: lists the ElevenLabs account's voices for the onboarding voices step.
 - `chorus/host_mode.py`, `chorus/render_plan.py`: the agent as brain (`host_next` tasks) and as voice (render plans, MP3 joining).
 - `chorus/version.py`, `chorus/updater.py`, `chorus/migrations.py`: release checks, `chorus update`, and config migrations.
 - `chorus/registration.py`, `chorus/os_schedule.py`: `chorus register` (MCP registration with local agents) and `chorus schedule` (weekly OS task).

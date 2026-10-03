@@ -16,9 +16,15 @@ The principal's own agent can install, set up, and run Chorus.
 - **Onboarding.** `chorus onboard` for a person in a terminal, and the same
   steps for any agent: `onboarding_*` tools on the local MCP server, or
   `chorus setup` JSON commands for shell-only hosts. The steps are mode,
-  brain, voice, transcripts, keys, soul (required), shows, updates, and a
-  smoke test. `INSTALL_FOR_AGENTS.md` is the entry point for an agent handed
+  brain, voice, transcripts, keys, voices, soul (required), shows, updates,
+  and a smoke test. `INSTALL_FOR_AGENTS.md` is the entry point for an agent handed
   the repository link.
+- **Choose your voices.** The optional voices step lists the voices on the
+  principal's ElevenLabs account (or asks for a voice id when the key cannot
+  list them) and records a host voice and a co-host voice for two-host
+  episodes. Chorus's own renderer and the agent's voice tool both use them;
+  unchosen voices fall back to `ELEVENLABS_VOICE_ID` /
+  `ELEVENLABS_COHOST_VOICE_ID`, then the defaults.
 - **Your agent as the brain** (`brain = host`). The agent scores transcript
   windows and writes the script with its own model, driven by `host_next`.
   Chorus cuts every quote from the transcript and drops script beats that

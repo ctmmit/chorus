@@ -73,6 +73,8 @@ def _setup(brain: str = "host", voice: str = "host-plugin") -> OnboardingConfig:
     agent_setup.set_choice("brain", brain)
     agent_setup.set_choice("voice", voice)
     agent_setup.set_choice("transcripts", "free")
+    if voice in ("host-plugin", "elevenlabs-key"):
+        agent_setup.set_voice(None)  # the principal keeps the default voices
     agent_setup.soul_save("me", agent_setup.soul_draft("interview", answers=INTERVIEW).markdown)
     agent_setup.set_shows([], [], weekly=False)
     agent_setup.set_choice("updates", "notify")

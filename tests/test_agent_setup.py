@@ -45,6 +45,8 @@ SETUP_TOOLS = {
     "onboarding_options",
     "onboarding_set",
     "onboarding_set_key",
+    "onboarding_voices",
+    "onboarding_set_voice",
     "onboarding_soul_draft",
     "onboarding_soul_save",
     "onboarding_soul_show",
