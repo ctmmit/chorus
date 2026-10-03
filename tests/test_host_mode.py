@@ -142,6 +142,38 @@ def test_quotes_come_from_the_transcript_not_the_agent(store: Any) -> None:
     assert [h["ref"] for h in task["highlights"]] == [0, 1]
 
 
+MARGINS = "Gross margins went from forty percent to seventy percent in two quarters."
+
+
+def test_a_verbatim_agent_excerpt_becomes_the_quote(store: Any) -> None:
+    _setup_host()
+    job_id = _start(store)
+    scores = _strong_first_and_last()
+    scores[0]["excerpt"] = MARGINS
+    task = host_mode.submit_scores(store, job_id, SAMPLE, scores)["next"]
+    first = next(h for h in task["highlights"] if h["at_seconds"] < 90)
+    assert first["quote"] == MARGINS
+    assert first["at_seconds"] == 20.4  # the segment the excerpt starts in
+    assert citation_resolves(_sample(), first["at_seconds"], first["quote"])
+
+
+def test_a_fabricated_agent_excerpt_is_ignored(store: Any) -> None:
+    _setup_host()
+    job_id = _start(store)
+    scores = _strong_first_and_last()
+    scores[0]["excerpt"] = "Margins went from 40% to 70% once inference got cheap."
+    task = host_mode.submit_scores(store, job_id, SAMPLE, scores)["next"]
+    first = next(h for h in task["highlights"] if h["at_seconds"] < 90)
+    assert first["at_seconds"] == 0.0
+    assert first["quote"].startswith("Welcome back")
+    assert citation_resolves(_sample(), first["at_seconds"], first["quote"])
+
+
+def test_scoring_instructions_describe_the_excerpt() -> None:
+    assert "excerpt" in host_mode.SCORING_INSTRUCTIONS
+    assert "verbatim" in host_mode.SCORING_INSTRUCTIONS
+
+
 def test_scores_are_clamped_like_the_model_path(store: Any) -> None:
     _setup_host()
     job_id = _start(store)

@@ -5,14 +5,20 @@ via the LLM client, and surfaces those clearing the relevance threshold as
 Highlights whose timestamp + quote resolve against the source transcript. An
 episode where nothing clears the bar is REFUSED ("nothing cleared the relevance
 bar"), never given an invented reason.
+
+A highlight's quote is the scorer's excerpt when that excerpt occurs verbatim
+in the window (whitespace-normalised), timestamped at the segment where it
+starts; otherwise it is the window's opening words. Either way the quote is
+cut from transcript text, so it stays verifiable.
 """
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 from typing import Any
 
-from chorus.llm import LLMClient, TokenUsage
+from chorus.llm import LLMClient, ScoredWindow, TokenUsage
 from chorus.models import (
     Digest,
     EpisodeDigest,
@@ -27,7 +33,20 @@ from chorus.models import (
 RELEVANCE_THRESHOLD = 0.35
 WINDOW_SECONDS = 90
 QUOTE_WORDS = 28
+# citation_resolves matches a quote by its opening words, so an excerpt shorter
+# than that is too weak a pointer to trust.
+CITATION_HEAD_WORDS = 6
+EXCERPT_MIN_WORDS = CITATION_HEAD_WORDS
 REFUSAL = "nothing cleared the relevance bar"
+ELLIPSIS = "..."
+
+log = logging.getLogger("chorus.curation")
+
+# Wrapping a model may add around an otherwise verbatim span: quote marks and
+# ellipses. Stripped before matching; never stripped from inside the span.
+_EXCERPT_EDGES = re.compile(r"^(?:\.\.\.|…|[\"'“”‘’\s])+|(?:\.\.\.|…|[\"'“”‘’\s])+$")
+
+
 # The opening of an episode is where hosts name themselves and their guest;
 # the script stage's source brief reads this much of it.
 BRIEF_INTRO_SECONDS = 300
@@ -100,20 +119,71 @@ def soul_version(soul: str) -> str:
     return hashlib.sha1(soul.encode("utf-8")).hexdigest()[:8]
 
 
+def _normalise(text: str) -> str:
+    return " ".join(text.split())
+
+
 def _quote(text: str) -> str:
     words = text.split()
     q = " ".join(words[:QUOTE_WORDS])
-    return q + ("..." if len(words) > QUOTE_WORDS else "")
+    return q + (ELLIPSIS if len(words) > QUOTE_WORDS else "")
+
+
+def grounded_excerpt(window: _Window, excerpt: str) -> tuple[float, str] | None:
+    """`(segment_timestamp, quote)` when `excerpt` occurs verbatim in the
+    window, else None.
+
+    Verbatim means a case-sensitive match after whitespace normalisation that
+    starts on a word boundary and does not end mid-word. The timestamp is the
+    start of the segment the excerpt begins in; the quote is the excerpt capped
+    at QUOTE_WORDS like any other quote."""
+    needle = _normalise(_EXCERPT_EDGES.sub("", excerpt))
+    if len(needle.split()) < EXCERPT_MIN_WORDS:
+        return None
+    pieces = [(s.start, text) for s in window.segments if (text := _normalise(s.text))]
+    match = re.search(r"(?<!\S)" + re.escape(needle) + r"(?!\w)", " ".join(t for _, t in pieces))
+    if match is None:
+        return None
+    offset = 0
+    for start, text in pieces:
+        offset += len(text) + 1  # the joining space
+        if match.start() < offset:
+            return start, _quote(needle)
+    raise AssertionError("match offset past the end of the window")  # unreachable
+
+
+def _cite(window: _Window, excerpt: str | None) -> tuple[float, str]:
+    """The highlight's timestamp and quote: the scorer's excerpt if it is
+    grounded in this window, the window's opening words otherwise."""
+    if excerpt is not None:
+        grounded = grounded_excerpt(window, excerpt)
+        if grounded is not None:
+            return grounded
+        log.info("curation: excerpt not verbatim in window at %.1fs; using its opening", window.start)
+    return window.start, _quote(window.text)
+
+
+def _unpack(result: ScoredWindow) -> tuple[float, str, str | None]:
+    if len(result) == 3:
+        return result[0], result[1], result[2]
+    return result[0], result[1], None
 
 
 def citation_resolves(transcript: Transcript, timestamp: float, quote: str, tol: float = 1.0) -> bool:
     """A highlight resolves if a segment at ~timestamp exists and the quote's
-    opening words appear in the transcript text near it."""
-    head = " ".join(quote.replace("...", "").split()[:6]).lower()
+    opening words appear in the transcript text from there on.
+
+    Only a trailing ellipsis is ours (the QUOTE_WORDS cap); one inside the quote
+    is transcript text and must match as such."""
+    head = " ".join(quote.removesuffix(ELLIPSIS).split()[:CITATION_HEAD_WORDS]).lower()
     for s in transcript.segments:
         if abs(s.start - timestamp) <= tol:
-            window_text = " ".join(
-                seg.text for seg in transcript.segments if timestamp <= seg.start < timestamp + WINDOW_SECONDS
+            window_text = _normalise(
+                " ".join(
+                    seg.text
+                    for seg in transcript.segments
+                    if timestamp <= seg.start < timestamp + WINDOW_SECONDS
+                )
             ).lower()
             return head in window_text
     return False
@@ -135,7 +205,7 @@ def curate_episode(
     title = resolved.episode.title
     show = resolved.episode.show
     duration = transcript.segments[-1].start if transcript.segments else None
-    scored: list[tuple[float, str, _Window]] = []
+    scored: list[tuple[float, str, _Window, str | None]] = []
     windows: list[WindowScore] = []
     spans = window_segments(transcript.segments)
     # One model call per episode (batched), not one per window. `meter`
@@ -144,10 +214,11 @@ def curate_episode(
     results = client.score_windows([w.text for w in spans], soul, context, meter=meter)
     if len(results) != len(spans):
         raise ValueError(f"scorer returned {len(results)} scores for {len(spans)} windows")
-    for w, (score, reason) in zip(spans, results, strict=True):
+    for w, result in zip(spans, results, strict=True):
+        score, reason, excerpt = _unpack(result)
         windows.append(WindowScore(start=w.start, score=round(score, 3)))
         if score >= threshold:
-            scored.append((score, reason, w))
+            scored.append((score, reason, w, excerpt))
 
     if not scored:
         return EpisodeDigest(
@@ -162,19 +233,21 @@ def curate_episode(
         )
 
     scored.sort(key=lambda t: t[0], reverse=True)
-    highlights = [
-        Highlight(
-            episode_id=transcript.video_id,
-            episode_title=title,
-            segment_timestamp=w.start,
-            quote=_quote(w.text),
-            relevance_score=round(score, 3),
-            why_surface=reason,
-            show=show,
-            excerpt=labeled_text(w.segments),
+    highlights: list[Highlight] = []
+    for score, reason, w, excerpt in scored[:max_highlights]:
+        timestamp, quote = _cite(w, excerpt)
+        highlights.append(
+            Highlight(
+                episode_id=transcript.video_id,
+                episode_title=title,
+                segment_timestamp=timestamp,
+                quote=quote,
+                relevance_score=round(score, 3),
+                why_surface=reason,
+                show=show,
+                excerpt=labeled_text(w.segments),
+            )
         )
-        for score, reason, w in scored[:max_highlights]
-    ]
     return EpisodeDigest(
         episode_id=transcript.video_id,
         episode_title=title,

@@ -151,8 +151,10 @@ def register_setup_tools(server: FastMCP, store: JobStore) -> None:
         job_id: str, episode_id: str, scores: list[dict[str, Any]]
     ) -> dict[str, Any]:
         """Host brain: submit one episode's window scores as
-        [{"i": <window index>, "score": <0.0-1.0>, "reason": "<one line>"}].
-        Returns the episode outcome and the next task."""
+        [{"i": <window index>, "score": <0.0-1.0>, "reason": "<one line>",
+        "excerpt": "<optional verbatim span of that window>"}]. An excerpt
+        not found verbatim in its window is ignored. Returns the episode
+        outcome and the next task."""
         return host_mode.submit_scores(store, job_id, episode_id, scores)
 
     def host_submit_script(

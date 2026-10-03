@@ -8,15 +8,17 @@ trustworthy:
     Chorus                                  the host agent
     ------                                  --------------
     ingest transcripts, cut 90 s windows -> score each window against the soul
-    threshold, quote, refuse honestly    <- (scores only; never quotes)
+    threshold, quote, refuse honestly    <- (scores, plus an optional excerpt)
     hand over the surfaced highlights    -> write takes / dialogue turns,
     drop any beat that cites nothing     <-   each citing a highlight by ref
     render audio, finish the job
 
 Grounding holds no matter which model scored, by construction:
-- A highlight's quote is cut from the window text by `chorus.curation`, never
-  supplied by the agent. The agent's scores pass through the same
-  `curate_episode` code the Haiku path uses, via `_ProvidedScores`.
+- A highlight's quote is cut from the window text by `chorus.curation`. The
+  agent may name the span that earned a score (`excerpt`), but Chorus uses it
+  only if it occurs verbatim in that window, and otherwise quotes the window's
+  opening. The agent's scores pass through the same `curate_episode` code the
+  Haiku path uses, via `_ProvidedScores`.
 - A script beat names a highlight by index (`ref`), and Chorus fills in the
   episode and timestamp. A beat without a valid ref is dropped.
 
@@ -49,10 +51,17 @@ from chorus import paths
 from chorus.artifacts import LocalArtifactStore, artifact_stem
 from chorus.audio import MockAudioRenderer
 from chorus.brains import BrainConfigError, build_provider, build_thinking, build_voice
-from chorus.curation import RELEVANCE_THRESHOLD, curate_episode, soul_version, window_segments
+from chorus.curation import (
+    EXCERPT_MIN_WORDS,
+    QUOTE_WORDS,
+    RELEVANCE_THRESHOLD,
+    curate_episode,
+    soul_version,
+    window_segments,
+)
 from chorus.ingest import AllEpisodesFailed
 from chorus.jobs import JobStore, SqliteJobStore
-from chorus.llm import LLMError, Scored, TokenUsage, _parse_batch
+from chorus.llm import LLMError, Scored, ScoredWindow, TokenUsage, _parse_batch
 from chorus.local_run import HIGHLIGHTS_PER_EPISODE, read_context
 from chorus.models import (
     MONOLOGUE_PROFILE,
@@ -88,7 +97,7 @@ from chorus.soul import load_soul
 log = logging.getLogger("chorus.host_mode")
 
 HOST_PROTOCOL = 1
-RUBRIC_VERSION = "host-1"
+RUBRIC_VERSION = "host-2"  # host-2: optional verbatim excerpt
 RUNS_DIRNAME = "runs"
 WAIT_SECONDS = 3
 SHARING_RETRIES = 20
@@ -110,11 +119,15 @@ Score how strongly each transcript window below matches the principal's lens.
 - Score every window index exactly once.
 - `reason` is one line naming the specific claim, number or mechanism that earned
   the score. The principal sees it as "why this was surfaced".
-- Do not quote the transcript back. Chorus cuts the quote from the window itself,
-  so every highlight stays verifiable.
+- For a window you score {RELEVANCE_THRESHOLD} or higher, you may add `excerpt`: the single
+  most relevant span of that window, one sentence or clause of {EXCERPT_MIN_WORDS} to {QUOTE_WORDS} words,
+  copied character for character from the window text. Chorus quotes it only if it
+  occurs verbatim in the window; anything paraphrased, corrected or joined from
+  separate passages is discarded and the window's opening words are quoted instead.
+  Omit `excerpt` for other windows.
 
 Submit with host_submit_scores (shell: `chorus setup host-scores`) as
-  {{"scores": [{{"i": 0, "score": 0.0, "reason": "..."}}, ...]}}
+  {{"scores": [{{"i": 0, "score": 0.0, "reason": "...", "excerpt": "..."}}, ...]}}
 
 If you can run subagents, give each pending episode to its own subagent along with
 the lens; fetch an episode's windows with host_episode(job_id, episode_id).
@@ -204,7 +217,7 @@ class _ProvidedScores:
     """An `LLMClient` whose 'model' is the host agent: it returns the scores
     the agent submitted, so curation runs through the one code path."""
 
-    def __init__(self, scores: list[Scored]) -> None:
+    def __init__(self, scores: list[ScoredWindow]) -> None:
         self._scores = scores
 
     def score_segment(self, text: str, soul: str, context: str) -> Scored:
@@ -212,7 +225,7 @@ class _ProvidedScores:
 
     def score_windows(
         self, windows: list[str], soul: str, context: str, meter: TokenUsage | None = None
-    ) -> list[Scored]:
+    ) -> list[ScoredWindow]:
         if len(windows) != len(self._scores):
             raise HostModeError(f"{len(self._scores)} scores for {len(windows)} windows")
         return self._scores
@@ -594,9 +607,10 @@ def _job_digest(store: JobStore, job_id: str) -> Digest:
 # --- submissions -----------------------------------------------------------
 
 
-def _parse_scores(scores: list[dict[str, Any]], window_count: int) -> list[Scored]:
+def _parse_scores(scores: list[dict[str, Any]], window_count: int) -> list[ScoredWindow]:
     """Same tolerance as the Haiku path: clamp to [0, 1], reject non-finite,
-    treat a few missing indices as 0.0, and refuse when most are missing."""
+    treat a few missing indices as 0.0, and refuse when most are missing. An
+    `excerpt` rides along as a candidate; curation verifies it."""
     try:
         return _parse_batch(json.dumps(scores), window_count)
     except (LLMError, TypeError, ValueError) as err:
