@@ -9,6 +9,17 @@ Each release is a `vX.Y.Z` tag. The release workflow publishes it to PyPI as
 `chorus-agent` and to GitHub Releases, using the section below that matches
 the version.
 
+## Unreleased
+
+- **The writer picks its sources.** An episode is no longer limited to the
+  three best-scored sources with a fixed walkthrough each. Every source with
+  highlights (up to 12, the brief budget) is a candidate, and the writer
+  decides what gets airtime, how much, and in what order. With no
+  `target_minutes` set, it also chooses the length, from 4 to 15 minutes. The
+  remaining rules are about being easy to follow by ear (an intro, a close,
+  each source introduced the first time it comes up) and about grounding.
+  Host mode gives the principal's agent the same latitude.
+
 ## 0.2.0
 
 The principal's own agent can install, set up, and run Chorus.

@@ -11,11 +11,11 @@ segments, then one model call per segment, in order. Each call sees the full
 outline, every line written so far, the current segment, whether it is the
 last one, and how many lines to aim for. Chorus adds two things on top:
 
-1. A `SourceBrief` per featured source (chorus/briefing.py), so the script
-   can introduce each source accurately.
-2. An outline whose structure is enforced in code (chorus/outline.py): intro,
-   one segment per source, connections only after the sources they connect,
-   then the close.
+1. A `SourceBrief` per candidate source (chorus/briefing.py), so the script
+   can introduce whichever sources it uses accurately.
+2. An outline in which the writer chooses which sources get airtime, how
+   much, and the episode's length (chorus/outline.py). Code enforces only
+   what keeps it followable by ear: an intro, body segments, a close.
 
 Grounding (ENGINEERING_REVIEW §9.2) now has two kinds. A line that states
 something about a source cites either a surfaced highlight (timestamp) or the
@@ -47,7 +47,6 @@ from pydantic import BaseModel, ValidationError
 
 from chorus.briefing import (
     BRIEF_SYSTEM,
-    MAX_SOURCES_PER_EPISODE,
     BriefError,
     brief_prompt,
     format_timestamp,
@@ -58,7 +57,6 @@ from chorus.briefing import (
 )
 from chorus.errors import TerminalError
 from chorus.models import (
-    DEFAULT_TARGET_MINUTES,
     HOST_PERSONA_IS_SOUL,
     MONOLOGUE_PROFILE,
     TAKE_TYPES,
@@ -76,15 +74,17 @@ from chorus.models import (
     Turn,
 )
 from chorus.outline import (
+    BODY_KINDS,
     SPOKEN_WORDS_PER_MINUTE,
     WORDS_PER_TURN,
     OutlineError,
-    budget_minutes,
+    covered_ids,
+    episode_minutes,
+    length_bounds,
     mock_outline,
     outline_prompt,
     parse_outline,
     segment_turn_targets,
-    sources_for_budget,
 )
 
 log = logging.getLogger("chorus.script")
@@ -116,6 +116,12 @@ _CLAUSE_SPLIT_RE = re.compile(r"(?<=[.!?:;])\s+|[\"“”(—]")
 def _max_turns(target_minutes: int) -> int:
     """~150 wpm / ~35 words-per-turn, so a 5-minute episode is about 21 lines."""
     return max(1, round(target_minutes * SPOKEN_WORDS_PER_MINUTE / WORDS_PER_TURN))
+
+
+def max_turns_for(profile: EpisodeProfile) -> int:
+    """The most lines an episode under `profile` may run: its fixed length,
+    or the longest the writer may choose."""
+    return _max_turns(length_bounds(profile.style.target_minutes)[1])
 
 
 def _speaker(profile: EpisodeProfile, role: str) -> SpeakerProfile:
@@ -159,26 +165,41 @@ def _turns_transcript(turns: list[Turn]) -> str:
 
 @dataclass(frozen=True)
 class EpisodePlan:
-    """Which sources the episode features, which it only mentions, and how long it runs."""
+    """The sources the writer may draw on (briefed, best first), those past
+    the brief budget, and the principal's fixed length if they set one. Which
+    candidates make the episode, and its length otherwise, is the outline's call."""
+
+    candidates: list[EpisodeDigest]
+    overflow: list[EpisodeDigest]
+    fixed_minutes: int | None
+
+
+def plan_episode(digest: Digest, profile: EpisodeProfile) -> EpisodePlan:
+    """Pure."""
+    candidates, overflow = select_sources(digest)
+    return EpisodePlan(
+        candidates=candidates, overflow=overflow, fixed_minutes=profile.style.target_minutes
+    )
+
+
+@dataclass(frozen=True)
+class EpisodeCast:
+    """What the outline chose: the sources it discusses (in order of first
+    appearance), the ones it only mentions, and the length to write to."""
 
     featured: list[EpisodeDigest]
     also_noted: list[EpisodeDigest]
     target_minutes: int
 
 
-def plan_episode(digest: Digest, profile: EpisodeProfile) -> EpisodePlan:
-    """Pure. An unset `target_minutes` budgets the length from the sources
-    (up to MAX_SOURCES_PER_EPISODE); an explicit one caps how many sources fit."""
-    explicit = profile.style.target_minutes
-    if explicit is None:
-        featured, also_noted = select_sources(digest, MAX_SOURCES_PER_EPISODE)
-        target = budget_minutes(len(featured)) if featured else DEFAULT_TARGET_MINUTES
-    else:
-        featured, also_noted = select_sources(
-            digest, sources_for_budget(explicit, MAX_SOURCES_PER_EPISODE)
-        )
-        target = explicit
-    return EpisodePlan(featured=featured, also_noted=also_noted, target_minutes=target)
+def cast_episode(plan: EpisodePlan, outline: EpisodeOutline) -> EpisodeCast:
+    """Pure."""
+    by_id = {ep.episode_id: ep for ep in [*plan.candidates, *plan.overflow]}
+    return EpisodeCast(
+        featured=[by_id[sid] for sid in covered_ids(outline) if sid in by_id],
+        also_noted=[by_id[sid] for sid in outline.also_noted if sid in by_id],
+        target_minutes=episode_minutes(outline, plan.fixed_minutes),
+    )
 
 
 # --- Line validation ----------------------------------------------------------------
@@ -339,7 +360,7 @@ def _source_label(brief: SourceBrief) -> str:
 
 
 def segment_system(
-    plan: EpisodePlan,
+    cast: EpisodeCast,
     briefs: list[SourceBrief],
     outline: EpisodeOutline,
     profile: EpisodeProfile,
@@ -352,11 +373,10 @@ def segment_system(
     if profile.format == "dialogue":
         cohost = _speaker(profile, "cohost")
         voices = (
-            f'Two voices. "host" ({host.name}) carries the structure: introductions, '
-            "transitions, the take. "
-            f'"cohost" ({cohost.name}) reacts, presses for specifics and pushes back where the '
-            "material supports it. Alternate naturally; no one speaks more than four sentences "
-            "in a row.\n\n"
+            f'Two voices. "host" ({host.name}) and "cohost" ({cohost.name}) are both real '
+            "people with views. Let them react to each other, press for specifics, disagree "
+            "where the material supports it, and hand the thread back and forth naturally; "
+            "no one speaks more than four sentences in a row.\n\n"
             f"HOST PERSONA:\n{_host_persona(host)}\n\n"
             f"COHOST PERSONA:\n{_speaker_persona(cohost, soul)}"
         )
@@ -366,16 +386,16 @@ def segment_system(
             f"HOST PERSONA:\n{_host_persona(host)}"
         )
     briefs_json = json.dumps([b.model_dump(mode="json", exclude_none=True) for b in briefs], indent=2)
-    material = "\n\n".join(source_material(ep) for ep in plan.featured)
+    material = "\n\n".join(source_material(ep) for ep in cast.featured)
     noted = "\n".join(
         f"- episode_id: {ep.episode_id} | {ep.show or 'unknown show'}: {ep.episode_title or ''}"
-        for ep in plan.also_noted
+        for ep in cast.also_noted
     ) or "(none)"
     outline_json = json.dumps(outline.model_dump(mode="json"), indent=2)
     return f"""\
 You write a podcast episode for an audience of one listener, one segment at a \
-time. The listener has heard none of the sources. Your job is to make each \
-source clear first and then say something worth hearing about it.
+time. The outline below is your own plan. Within it you decide what to linger \
+on, what to skip, where to start and how to get from one idea to the next.
 
 LISTENER LENS (who this is for and how they think):
 {soul}
@@ -387,7 +407,7 @@ VOICES:
 {voices}
 
 STYLE:
-{_style_block(profile.style, plan.target_minutes)}
+{_style_block(profile.style, cast.target_minutes)}
 
 SOURCE BRIEFS:
 {briefs_json}
@@ -395,33 +415,43 @@ SOURCE BRIEFS:
 SOURCE MATERIAL (excerpts are cleaned transcript; speaker labels in brackets):
 {material}
 
-ALSO NOTED (mention in the close only, by show and title):
+ALSO NOTED (worth a passing mention in the close at most, by show and title):
 {noted}
 
 EPISODE OUTLINE:
 {outline_json}
 
-RULES
-1. Context before commentary. The first time a source comes up, before any \
-opinion, tell the listener: the show, who is speaking and why they are worth \
-hearing, when it aired, what the conversation is about, and its core point. \
-Then walk through its key moments in the order they happen. Then give the take.
-2. Name things the way a listener would: by show, person and title. Never say \
-an episode id, a timestamp, "segment" or "highlight".
-3. Paraphrase. Quote only a short, clean sentence that appears in an excerpt, \
-and say who said it.
-4. One idea at a time. Signpost every turn in the argument ("That's the bull \
-case. Here's where it breaks.") so a listener who drifted can rejoin.
-5. Continue from where the transcript stops. Don't reintroduce a source or a \
+WHAT MAKES IT WORTH HEARING
+- Have a point of view. React, connect, disagree, notice what is surprising or \
+funny. A tangent is fine if it earns its place.
+- Not everything gets the same treatment. A deep dive can sit next to a quick \
+aside; go where the material is richest for this listener.
+- Sound like a person talking, not a summary being read.
+
+WHAT KEEPS IT EASY TO FOLLOW BY EAR
+1. The listener has heard none of these sources. The first time one comes up, \
+give them enough to follow it: who is talking and what the piece is. A passing \
+mention needs a clause; a deep dive earns more (why the speaker is worth \
+hearing, when it aired, what prompted it). Never react to something the \
+listener hasn't been given.
+2. One thread at a time. Make each turn in the conversation audible, so a \
+listener who drifted can rejoin.
+3. Continue from where the transcript stops. Don't reintroduce a source or a \
 speaker who has already been introduced, and don't repeat a point already made.
-6. Stay inside the current segment; later segments are written separately.
-7. Citations. A line that states anything about a source cites it: \
+4. Stay inside the current segment; later segments are written separately.
+5. Write for the ear: plain spoken sentences, no lists, no markdown, no stage \
+directions, no sound effects.
+
+GROUNDING (what the listener hears must be what the sources said)
+6. Name things the way a listener would: by show, person and title. Never say \
+an episode id, a timestamp, "segment" or "highlight".
+7. Paraphrase. Quote only a short, clean sentence that appears in an excerpt, \
+and say who said it.
+8. Citations. A line that states anything about a source cites it: \
 {{"episode_id": "...", "timestamp": <seconds>}} for a specific moment (use a \
 listed timestamp exactly), or "timestamp": null for facts from its brief \
 (who, what, when, context, thesis). A line with no citations is for framing, \
-transitions and opinion only: it may not contain a number or a name.
-8. Write for the ear: plain spoken sentences, no lists, no markdown, no stage \
-directions, no sound effects."""
+transitions and opinion only: it may not contain a number or a name."""
 
 
 def _host_persona(host: SpeakerProfile) -> str:
@@ -430,19 +460,23 @@ def _host_persona(host: SpeakerProfile) -> str:
     return host.persona
 
 
+def introduced_before(outline: EpisodeOutline, index: int) -> set[str]:
+    """Source ids some body segment before `index` has discussed. A passing
+    mention in the intro doesn't introduce a source."""
+    return {
+        sid
+        for seg in outline.segments[:index]
+        if seg.kind in BODY_KINDS
+        for sid in seg.source_ids
+    }
+
+
 def segment_prompt(req: SegmentRequest) -> str:
     if req.transcript:
         so_far = "\n".join(f"{t.speaker.upper()}: {t.text}" for t in req.transcript)
     else:
         so_far = "(nothing yet: this segment opens the episode)"
-    # A source is introduced by its own source segment, not by a passing
-    # mention in the intro.
-    introduced = {
-        sid
-        for seg in req.outline.segments[: req.index]
-        if seg.kind == "source"
-        for sid in seg.source_ids
-    }
+    introduced = introduced_before(req.outline, req.index)
     notes: list[str] = []
     for sid in req.segment.source_ids:
         brief = req.briefs.get(sid)
@@ -450,10 +484,11 @@ def segment_prompt(req: SegmentRequest) -> str:
             continue
         if sid in introduced:
             notes.append(f"{_source_label(brief)} has already been introduced; don't reintroduce it.")
-        elif req.segment.kind == "source":
+        elif req.segment.kind in BODY_KINDS:
             notes.append(
-                f"{_source_label(brief)} has not been introduced yet. Open with who is speaking, "
-                "what the piece is, when it aired, the context and the core point, before any take."
+                f"{_source_label(brief)} has not been introduced yet. The first time it comes up, "
+                "make sure the listener knows who is talking and what the piece is before your "
+                "take; how much setup it needs is your call."
             )
     if req.is_final:
         notes.append("This is the final segment: close the episode.")
@@ -483,9 +518,9 @@ def repair_prompt(problems: list[str]) -> str:
 
 
 def line_context(
-    plan: EpisodePlan, briefs: list[SourceBrief], profile: EpisodeProfile, soul: str, context: str
+    cast: EpisodeCast, briefs: list[SourceBrief], profile: EpisodeProfile, soul: str, context: str
 ) -> LineContext:
-    sources = [*plan.featured, *plan.also_noted]
+    sources = [*cast.featured, *cast.also_noted]
     highlights = {
         (h.episode_id, round(h.segment_timestamp)): h.segment_timestamp
         for ep in sources
@@ -522,10 +557,10 @@ def _takes_from(turns: list[Turn]) -> list[Take]:
     ]
 
 
-def _briefs_in_outline_order(briefs: list[SourceBrief], outline: EpisodeOutline) -> list[SourceBrief]:
-    order = [s.source_ids[0] for s in outline.segments if s.kind == "source" and s.source_ids]
-    rank = {sid: i for i, sid in enumerate(order)}
-    return sorted(briefs, key=lambda b: rank.get(b.episode_id, len(rank)))
+def _briefs_on_air(briefs: list[SourceBrief], outline: EpisodeOutline) -> list[SourceBrief]:
+    """The briefs of the sources the outline discusses, in the order they first come up."""
+    by_id = {b.episode_id: b for b in briefs}
+    return [by_id[sid] for sid in covered_ids(outline) if sid in by_id]
 
 
 # --- Composers ----------------------------------------------------------------------
@@ -588,7 +623,7 @@ class _SegmentedComposer:
         self, digest: Digest, soul: str, context: str, profile: EpisodeProfile | None = None
     ) -> list[SourceBrief]:
         plan = plan_episode(digest, profile or MONOLOGUE_PROFILE)
-        return [self._brief(ep) for ep in plan.featured]
+        return [self._brief(ep) for ep in plan.candidates]
 
     def write_outline(
         self,
@@ -601,7 +636,10 @@ class _SegmentedComposer:
         profile = profile or MONOLOGUE_PROFILE
         plan = plan_episode(digest, profile)
         if not briefs:
-            return EpisodeOutline(segments=[], also_noted=[ep.episode_id for ep in plan.also_noted])
+            return EpisodeOutline(
+                segments=[],
+                also_noted=[ep.episode_id for ep in [*plan.candidates, *plan.overflow]],
+            )
         return self._outline(briefs, plan, soul, context, profile)
 
     def write_script(
@@ -617,7 +655,7 @@ class _SegmentedComposer:
         profile = profile or MONOLOGUE_PROFILE
         voices = _voices_for(profile)
         plan = plan_episode(digest, profile)
-        if not plan.featured:
+        if not plan.candidates:
             return Script(
                 soul_version=digest.soul_version,
                 takes=[],
@@ -629,12 +667,13 @@ class _SegmentedComposer:
             briefs = self.write_briefs(digest, soul, context, profile)
         if outline is None:
             outline = self.write_outline(digest, briefs, soul, context, profile)
-        briefs = _briefs_in_outline_order(briefs, outline)
+        cast = cast_episode(plan, outline)
+        briefs = _briefs_on_air(briefs, outline)
 
-        ctx = line_context(plan, briefs, profile, soul, context)
-        system = segment_system(plan, briefs, outline, profile, soul, context)
+        ctx = line_context(cast, briefs, profile, soul, context)
+        system = segment_system(cast, briefs, outline, profile, soul, context)
         by_id = {b.episode_id: b for b in briefs}
-        targets = segment_turn_targets(outline, plan.target_minutes)
+        targets = segment_turn_targets(outline, cast.target_minutes)
         turns: list[Turn] = []
         for i, (segment, target) in enumerate(zip(outline.segments, targets, strict=True)):
             req = SegmentRequest(
@@ -672,9 +711,10 @@ class _SegmentedComposer:
 
 
 class MockScriptComposer(_SegmentedComposer):
-    """Deterministic, offline. Same structure as the real composer: an intro,
-    a setup line per source citing its brief, one line per highlight citing
-    it (a cohost follow-up on each in dialogue), a connection line and a close."""
+    """Deterministic, offline. Same loop as the real composer: an intro, a
+    setup line the first time each source comes up citing its brief, one line
+    per highlight citing it (a cohost follow-up on each in dialogue), a
+    connection line where a segment spans sources, and a close."""
 
     def _brief(self, episode: EpisodeDigest) -> SourceBrief:
         return mock_brief(episode)
@@ -687,7 +727,7 @@ class MockScriptComposer(_SegmentedComposer):
         context: str,
         profile: EpisodeProfile,
     ) -> EpisodeOutline:
-        return mock_outline(briefs, [ep.episode_id for ep in plan.also_noted])
+        return mock_outline(briefs, [ep.episode_id for ep in plan.overflow], plan.fixed_minutes)
 
     def _segment(self, req: SegmentRequest, system: str, ctx: LineContext) -> list[Turn]:
         seg = req.segment
@@ -697,24 +737,36 @@ class MockScriptComposer(_SegmentedComposer):
             labels = "; ".join(_source_label(b) for b in briefs)
             return [Turn(speaker="host", text=f"Today: {labels}.", citations=brief_cites, move="setup",
                          episode_id=briefs[0].episode_id if briefs else None)]
-        if seg.kind == "connection":
-            return [Turn(speaker="host", text="What connects these is worth a minute.",
-                         citations=brief_cites, move="connection",
-                         episode_id=briefs[0].episode_id if briefs else None)]
         if seg.kind == "close":
             return [Turn(speaker="host", text="That's the episode.")]
-        brief = briefs[0]
+        introduced = introduced_before(req.outline, req.index)
+        connection = [Turn(speaker="host", text="What connects these is worth a minute.",
+                           citations=brief_cites, move="connection",
+                           episode_id=briefs[0].episode_id if briefs else None)]
+        if len(briefs) >= 2 and all(b.episode_id in introduced for b in briefs):
+            return connection
+        out: list[Turn] = []
+        for brief in briefs:
+            if brief.episode_id not in introduced:
+                out.append(self._setup_line(brief))
+            out += self._moments(brief, req.profile)
+        return out + (connection if len(briefs) >= 2 else [])
+
+    @staticmethod
+    def _setup_line(brief: SourceBrief) -> Turn:
         published = brief.published_at.strftime("%d %b %Y") if brief.published_at else "recently"
-        out = [
-            Turn(
-                speaker="host",
-                text=f"From {_source_label(brief)}, published {published}. {brief.context} "
-                f"The core point: {brief.thesis}",
-                episode_id=brief.episode_id,
-                citations=[Citation(episode_id=brief.episode_id)],
-                move="setup",
-            )
-        ]
+        return Turn(
+            speaker="host",
+            text=f"From {_source_label(brief)}, published {published}. {brief.context} "
+            f"The core point: {brief.thesis}",
+            episode_id=brief.episode_id,
+            citations=[Citation(episode_id=brief.episode_id)],
+            move="setup",
+        )
+
+    @staticmethod
+    def _moments(brief: SourceBrief, profile: EpisodeProfile) -> list[Turn]:
+        out: list[Turn] = []
         for i, point in enumerate(brief.key_points):
             take_type = TAKE_TYPES[i % len(TAKE_TYPES)]
             cite = Citation(episode_id=brief.episode_id, segment_timestamp=point.segment_timestamp)
@@ -728,7 +780,7 @@ class MockScriptComposer(_SegmentedComposer):
                     move=take_type,
                 )
             )
-            if req.profile.format == "dialogue":
+            if profile.format == "dialogue":
                 out.append(
                     Turn(
                         speaker="cohost",
@@ -809,26 +861,27 @@ class AnthropicScriptComposer(_SegmentedComposer):
         context: str,
         profile: EpisodeProfile,
     ) -> EpisodeOutline:
-        featured_ids = [b.episode_id for b in briefs]
-        also_noted = [ep.episode_id for ep in plan.also_noted]
+        candidate_ids = [b.episode_id for b in briefs]
+        overflow_ids = [ep.episode_id for ep in plan.overflow]
         system = (
-            "You plan podcast episodes for an audience of one listener. You decide what each "
-            "segment must establish and in what order, so the episode is linear: every source "
-            "is introduced before it is discussed, and every connection comes after the "
-            f"sources it connects.\n\nLISTENER LENS:\n{soul}\n\nLISTENER'S CURRENT CONTEXT:\n"
+            "You are the editor of a podcast for an audience of one listener. From this week's "
+            "sources you decide what is worth their time, how much of it, and in what order. "
+            "Nothing has to make it in and nothing has to get equal time. The plan only has to "
+            "make an episode that is easy to follow by ear and good to listen to."
+            f"\n\nLISTENER LENS:\n{soul}\n\nLISTENER'S CURRENT CONTEXT:\n"
             f"{context or '(none given)'}"
         )
         try:
             outline: EpisodeOutline = self._ask_with_retry(
                 system,
-                outline_prompt(briefs, plan.also_noted, plan.target_minutes),
+                outline_prompt(briefs, plan.overflow, plan.fixed_minutes),
                 self.OUTLINE_MAX_TOKENS,
-                lambda data: parse_outline(data, featured_ids, also_noted),
+                lambda data: parse_outline(data, candidate_ids, overflow_ids, plan.fixed_minutes),
             )
             return outline
         except (ValueError, OutlineError) as err:
             log.warning("script: outline unusable twice (%s); using the default structure", err)
-            return mock_outline(briefs, also_noted)
+            return mock_outline(briefs, overflow_ids, plan.fixed_minutes)
 
     def _segment(self, req: SegmentRequest, system: str, ctx: LineContext) -> list[Turn]:
         messages = [{"role": "user", "content": segment_prompt(req)}]

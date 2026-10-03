@@ -7,8 +7,8 @@ built from its title, show, publication date, show notes, the opening of the
 transcript (where hosts name themselves and their guest) and its surfaced
 excerpts.
 
-This module holds the pure parts: choosing which sources an episode features,
-building the brief prompt, validating a model's brief against the material it
+This module holds the pure parts: choosing which sources the writer may draw
+on, building the brief prompt, validating a model's brief against the material it
 was given, and the deterministic mock brief. The model call itself lives in
 chorus/script.py next to the other script-stage calls.
 """
@@ -21,9 +21,10 @@ from pydantic import ValidationError
 
 from chorus.models import BriefPoint, Digest, EpisodeDigest, Person, SourceBrief
 
-# Depth over breadth: an episode features at most this many sources, each
-# introduced properly; the rest get a one-line mention in the close.
-MAX_SOURCES_PER_EPISODE = 3
+# Every source with highlights is a candidate the writer may use, and the
+# writer decides which ones get airtime (chorus/outline.py). This caps how many
+# are briefed, one model call each; it is a cost guard, not an editorial limit.
+MAX_CANDIDATE_SOURCES = 12
 # A source's rank is the sum of its best few highlight scores, so one lucky
 # window doesn't outrank an episode that is on-lens throughout.
 RANK_TOP_HIGHLIGHTS = 3
@@ -40,11 +41,11 @@ def source_rank(episode: EpisodeDigest) -> float:
 
 
 def select_sources(
-    digest: Digest, max_sources: int = MAX_SOURCES_PER_EPISODE
+    digest: Digest, max_sources: int = MAX_CANDIDATE_SOURCES
 ) -> tuple[list[EpisodeDigest], list[EpisodeDigest]]:
-    """(featured, also_noted): episodes with highlights, best first. Refused
-    episodes are in neither list. Ties keep digest order, so the result is
-    deterministic."""
+    """(candidates, overflow): episodes with highlights, best first, split at
+    `max_sources`. Refused episodes are in neither list. Ties keep digest
+    order, so the result is deterministic."""
     if max_sources < 1:
         raise ValueError(f"max_sources must be >= 1, got {max_sources}")
     candidates = [ep for ep in digest.episodes if ep.highlights and not ep.refused]

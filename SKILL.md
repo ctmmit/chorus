@@ -288,12 +288,15 @@ ungrounded take is dropped from the single-voice script today.
 - `voice_id` per speaker is optional; unset falls back to the service's
   `ELEVENLABS_VOICE_ID` (host) / `ELEVENLABS_COHOST_VOICE_ID` (cohost).
 
-Every script is written the same way, for both formats: each featured
-source gets a brief (`script.briefs`: show, title, date, people and their
-credentials, context, thesis, key points), the episode is planned as
-segments (`script.outline`: intro, one segment per source, connections,
-close), and then written one segment at a time so each source is
-introduced before anyone comments on it.
+Every script is written the same way, for both formats: each candidate
+source gets a brief (show, title, date, people and their credentials,
+context, thesis, key points), then the writer plans the episode as segments
+(`script.outline`: an intro, body segments, a close, and the length it
+chose in `target_minutes`). The writer decides which sources get airtime
+and how much: one in depth, several in one segment, or a quick run through
+many. Sources it leaves out are listed in `script.outline.also_noted`, and
+`script.briefs` holds the ones it discussed. The script is written one
+segment at a time, so each source is introduced the first time it comes up.
 
 `script.turns` is the spoken script in order:
 `{ "speaker": "host" | "cohost", "text", "citations", "move",

@@ -31,8 +31,7 @@
       "Bash(powershell:*)"
     ],
     "deny": [
-      "Bash(rm -rf:*)",
-      "Bash(git push:*)"
+      "Bash(rm -rf:*)"
     ]
   }
 }
