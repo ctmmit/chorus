@@ -1,5 +1,12 @@
 # Chorus
 
+> **Setting Chorus up for someone?** If you are an AI agent (Claude Code,
+> Claude Cowork, Codex, Grok Build, Muse Code, OpenClaw, Hermes, or any
+> other) and your principal handed you this repository, follow
+> [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md). If you are a person
+> installing it yourself, clone it, install it (step 2 below), and run
+> `chorus onboard`.
+
 ## Build a Chorus agent for your principal
 
 You are the agent. Complete these steps in order:

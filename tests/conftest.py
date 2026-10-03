@@ -14,6 +14,7 @@ and only its fixture-backed cases skip.
 from __future__ import annotations
 
 import inspect
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -83,3 +84,28 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     for item in items:
         if _uses_private_fixtures(item):
             item.add_marker(requires_private_fixtures)
+
+
+@pytest.fixture
+def chorus_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """An isolated ~/.chorus with no provider keys. The checkout's real
+    .env.local and chorus.db are never read or copied."""
+    from chorus import paths
+
+    home = tmp_path / "chorus-home"
+    monkeypatch.setenv(paths.CHORUS_HOME_ENV, str(home))
+    for env in (
+        "ANTHROPIC_API_KEY",
+        "ELEVENLABS_API_KEY",
+        "ASSEMBLYAI_API_KEY",
+        "DEEPGRAM_API_KEY",
+        "TRANSCRIPT_API_KEY",
+    ):
+        monkeypatch.delenv(env, raising=False)
+    # Never read or copy the checkout's real .env.local / chorus.db in tests.
+    monkeypatch.setattr(paths, "_copy_legacy", lambda source, target: None)
+    monkeypatch.setattr("chorus.cli.load_env", lambda: None)
+    home.mkdir()
+    for sub in ("souls", "artifacts", "backups", "extensions"):
+        (home / sub).mkdir()
+    yield home

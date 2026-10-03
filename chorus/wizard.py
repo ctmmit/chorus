@@ -176,7 +176,8 @@ class Wizard:
         )
         while True:
             try:
-                name = check_name(self._ask("  Name for this soul", config.soul or DEFAULT_SOUL_NAME))
+                default_name = config.soul or DEFAULT_SOUL_NAME
+                name = check_name(self._ask("  Name for this soul", default_name))
                 break
             except SoulError as err:
                 self.io.say(f"  {err}")

@@ -1,5 +1,11 @@
 # AGENTS.md
 
+## Setting Chorus up for a principal
+
+If a principal handed you this repository to set Chorus up for them (not to
+develop it), stop here and follow [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md).
+The rest of this file is for contributors changing the code.
+
 ## Repository map
 
 - `chorus/app.py`: FastAPI routes, auth, request limits, and mounted MCP transport.
@@ -9,6 +15,10 @@
 - `chorus/jobs.py`, `chorus/stores/postgres.py`: SQLite and Postgres persistence behind one Protocol.
 - `chorus/pipeline.py`: ingest → curate → script → audio orchestration.
 - `chorus/bootstrap.py`: source-agnostic soul builders.
+- `chorus/onboarding.py`, `chorus/soul.py`: onboarding steps and soul validation (`~/.chorus/config.toml`).
+- `chorus/agent_setup.py`: transport-neutral onboarding for host agents; `chorus/mcp_setup.py` (local MCP) and `chorus setup` (JSON CLI) expose it.
+- `chorus/wizard.py`, `chorus/cli.py`: the `chorus onboard` terminal wizard and `chorus` command.
+- `chorus/paths.py`: every local state location under `~/.chorus/`.
 - `fixtures/`: public test inputs; real transcripts are gitignored.
 - `tests/`: offline unit and integration tests.
 - `scripts/golden_path.py`: deterministic end-to-end acceptance path.

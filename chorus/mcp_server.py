@@ -481,11 +481,18 @@ def create_mcp_server(
     subscription_store: SubscriptionStore | None = None,
     podcasts: PodcastDirectory | None = None,
     library: LibraryService | None = None,
+    local: bool = False,
 ) -> tuple[FastMCP, ChorusTools]:
-    """Create one MCP server and expose its direct-call implementation for tests."""
+    """Create one MCP server and expose its direct-call implementation for tests.
+
+    `local=True` (the stdio server on the principal's machine only) adds the
+    onboarding and configured-run tools from `chorus.mcp_setup`. They write
+    keys and souls to local disk, so the hosted HTTP mount never gets them."""
+    from chorus.mcp_setup import LOCAL_INSTRUCTIONS, register_setup_tools
+
     server = FastMCP(
         MCP_NAME,
-        instructions=MCP_INSTRUCTIONS,
+        instructions=f"{LOCAL_INSTRUCTIONS} {MCP_INSTRUCTIONS}" if local else MCP_INSTRUCTIONS,
         # This value does not bind a socket for a mounted ASGI app. It prevents
         # FastMCP from applying its localhost-only Host allowlist in production.
         host="0.0.0.0",
@@ -511,6 +518,8 @@ def create_mcp_server(
     server.add_tool(tools.import_opml)
     server.add_tool(tools.list_library_items)
     server.add_tool(_in_thread(tools.soul_from_library))
+    if local:
+        register_setup_tools(server, store)
     return server, tools
 
 
@@ -578,7 +587,7 @@ def main() -> None:
     load_env()
     store = SqliteJobStore(paths.db_path())
     deps = local_stdio_deps()
-    server, tools = create_mcp_server(store, deps, BackgroundRunner(store, deps))
+    server, tools = create_mcp_server(store, deps, BackgroundRunner(store, deps), local=True)
     try:
         server.run(transport="stdio")
     finally:

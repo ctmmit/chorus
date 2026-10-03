@@ -7,7 +7,6 @@ the bundled synthetic transcript).
 """
 from __future__ import annotations
 
-from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -71,25 +70,7 @@ Surface only falsifiable claims with a mechanism; refuse rather than pad.
 """
 
 
-@pytest.fixture(autouse=True)
-def chorus_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
-    home = tmp_path / "chorus-home"
-    monkeypatch.setenv(paths.CHORUS_HOME_ENV, str(home))
-    for env in (
-        "ANTHROPIC_API_KEY",
-        "ELEVENLABS_API_KEY",
-        "ASSEMBLYAI_API_KEY",
-        "DEEPGRAM_API_KEY",
-        "TRANSCRIPT_API_KEY",
-    ):
-        monkeypatch.delenv(env, raising=False)
-    # Never read or copy the checkout's real .env.local / chorus.db in tests.
-    monkeypatch.setattr(paths, "_copy_legacy", lambda source, target: None)
-    monkeypatch.setattr("chorus.cli.load_env", lambda: None)
-    home.mkdir()
-    for sub in ("souls", "artifacts", "backups", "extensions"):
-        (home / sub).mkdir()
-    yield home
+pytestmark = pytest.mark.usefixtures("chorus_home")
 
 
 def _ready_config(**overrides: object) -> OnboardingConfig:
