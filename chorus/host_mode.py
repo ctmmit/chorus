@@ -82,7 +82,7 @@ from chorus.onboarding import (
 )
 from chorus.pipeline import PLACEHOLDER_AUDIO_WARNING, Deps, run_job, stage_audio, stage_ingest
 from chorus.render_plan import AudioChunkError, RenderPlan, build_plan, join_mp3, read_chunk
-from chorus.script import _max_turns, _speaker_persona, _turns_transcript
+from chorus.script import _max_turns, _speaker_persona, _turns_transcript, plan_episode
 from chorus.soul import load_soul
 
 log = logging.getLogger("chorus.host_mode")
@@ -504,7 +504,8 @@ def _highlight_refs(digest: Digest) -> list[dict[str, Any]]:
 def _script_task(state: HostRunState, digest: Digest) -> HostTask:
     profile = _profile(state.request)
     dialogue = profile.format == "dialogue"
-    max_turns = _max_turns(profile.style.target_minutes) if dialogue else None
+    # plan_episode budgets an unset length from the featured sources, as Chorus's own writer does.
+    max_turns = _max_turns(plan_episode(digest, profile).target_minutes) if dialogue else None
     rules = _DIALOGUE_RULES.format(max_turns=max_turns) if dialogue else _MONOLOGUE_RULES
     instructions = SCRIPT_INSTRUCTIONS.format(
         take_types=", ".join(TAKE_TYPES),
@@ -734,7 +735,7 @@ def submit_script(
         if profile.format == "dialogue":
             kept_turns, dropped_turns = _grounded(turns or [], digest, _turn)
             dropped += [f"turn {d}" for d in dropped_turns]
-            max_turns = _max_turns(profile.style.target_minutes)
+            max_turns = _max_turns(plan_episode(digest, profile).target_minutes)
             if len(kept_turns) > max_turns:
                 dropped.append(f"{len(kept_turns) - max_turns} turn(s) over the {max_turns} cap")
                 kept_turns = kept_turns[:max_turns]
