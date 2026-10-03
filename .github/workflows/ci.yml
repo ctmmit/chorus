@@ -6,7 +6,7 @@ on:
     branches: [master, main, staging]
 
 jobs:
-  test:
+  python:
     runs-on: ubuntu-latest
     env:
       # The secrets context is not usable in a step `if`; expose it as env.
@@ -49,3 +49,33 @@ jobs:
       - name: Golden path
         if: ${{ env.PRIVATE_FIXTURES_TOKEN != '' }}
         run: python scripts/golden_path.py
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm run test -- --run
+
+      # Mock mode is the committed default (web/.env), so the build needs no API.
+      - name: Build
+        run: npm run build
