@@ -32,6 +32,18 @@ from chorus import catalog
 from chorus.bootstrap import get_soul_builder
 from chorus.feeds import SubscriptionPreview
 from chorus.jobs import MASTER_OWNER, JobStore, SqliteJobStore
+from chorus.library import LibraryImport, LibraryItem, ResolutionStatus, SavedItem
+from chorus.library_api import (
+    LIST_DEFAULT_LIMIT,
+    FileImportResult,
+    ImportFileRequest,
+    ImportPreview,
+    LibraryService,
+    LibrarySoul,
+    ShareRequest,
+    ShareResult,
+)
+from chorus.library_inputs import FileFormat
 from chorus.models import (
     DigestRequest,
     EpisodeInput,
@@ -41,7 +53,7 @@ from chorus.models import (
     SelectionRequest,
 )
 from chorus.pipeline import Deps, default_deps
-from chorus.podcasts_api import PodcastDirectory, PodcastSearchResult
+from chorus.podcasts_api import OpmlImport, PodcastDirectory, PodcastSearchResult, parse_opml
 from chorus.quotas import QuotaExceeded, enforce_job_quota
 from chorus.runners import BackgroundRunner, JobRunner
 from chorus.subscriptions import (
@@ -68,7 +80,13 @@ MCP_INSTRUCTIONS = (
     "returns immediately and does not itself wait for the pipeline to finish. For a recurring "
     "weekly email digest, find shows with search_podcasts (or resolve_podcast for a pasted "
     "URL), check preview_subscription, then subscribe; the service checks each feed for new "
-    "episodes on every run and never repeats one."
+    "episodes on every run and never repeats one. To start from what the principal already "
+    "listens to: pass any Apple Podcasts, Spotify or YouTube episode or show link they share "
+    "with you to share_links (Chorus becomes their save-for-later queue); import a YouTube "
+    "Takeout subscriptions.csv or a podcast-app OPML with import_file; or, if you have your "
+    "own connector to their library (e.g. a Readwise MCP), push its items with "
+    "import_library. Each returns ranked shows to subscribe to and a saved-queue source that "
+    "makes each run draw from unheard saves."
 )
 
 def _in_thread[T](fn: Callable[..., T]) -> Callable[..., Any]:
@@ -128,6 +146,7 @@ class ChorusTools:
         runner: JobRunner | None = None,
         subscription_store: SubscriptionStore | None = None,
         podcasts: PodcastDirectory | None = None,
+        library: LibraryService | None = None,
     ) -> None:
         self._store = store
         self._deps = deps
@@ -137,6 +156,8 @@ class ChorusTools:
         self._runner = runner or BackgroundRunner(store, deps)
         self._subscription_store = subscription_store
         self._podcasts = podcasts or PodcastDirectory()
+        self._library = library
+        self._owns_library = library is None
 
     def _subscriptions(self) -> SubscriptionStore:
         """The subscription store: the app's own when injected, else selected
@@ -148,6 +169,24 @@ class ChorusTools:
 
             self._subscription_store = config_env.select_subscription_store(self._store)
         return self._subscription_store
+
+    def _library_service(self) -> LibraryService:
+        """The library service: the app's own when injected, else built
+        lazily over the environment-selected saved-item store."""
+        if self._library is None:
+            from chorus import config_env
+
+            self._library = LibraryService(
+                config_env.select_saved_item_store(self._store),
+                self._podcasts,
+                self._subscriptions(),
+            )
+        return self._library
+
+    def close(self) -> None:
+        """Close stores this instance opened itself (never injected ones)."""
+        if self._owns_library and self._library is not None:
+            self._library.store.close()
 
     def list_shows(self) -> list[dict[str, object]]:
         """List catalog shows and their currently selectable episodes."""
@@ -246,6 +285,7 @@ class ChorusTools:
         sources: list[Source],
         lookback_days: int = DEFAULT_LOOKBACK_DAYS,
         max_episodes_per_run: int = DEFAULT_MAX_EPISODES_PER_RUN,
+        ctx: Context | None = None,
     ) -> SubscriptionPreview:
         """Step 2 of subscribing: show exactly which episodes the first run
         would digest for these sources (published within `lookback_days`,
@@ -257,7 +297,9 @@ class ChorusTools:
                 sources=sources,
                 lookback_days=lookback_days,
                 max_episodes_per_run=max_episodes_per_run,
-            )
+            ),
+            _owner_from_context(ctx),
+            self._library_service().store,
         )
 
     def subscribe(
@@ -343,6 +385,76 @@ class ChorusTools:
         store.delete(subscription_id)
         return {"unsubscribed": subscription_id}
 
+    # --- Library import: what the principal follows and has saved ------------
+
+    def share_links(
+        self,
+        links: list[str] | None = None,
+        text: str | None = None,
+        ctx: Context | None = None,
+    ) -> ShareResult:
+        """Save episodes or shows the principal shared: Apple Podcasts,
+        Spotify or YouTube links (open.spotify.com/episode/..., youtu.be/...,
+        podcasts.apple.com/...?i=...), passed as `links` or inside free
+        `text`. No sign-in anywhere: titles come from the links and Spotify
+        episodes are matched to the show's public feed. Saved episodes join
+        the saved queue; shared shows become suggestions. Returns each link's
+        status, unrecognized links with reasons, and the library preview."""
+        request = ShareRequest(links=links or [], text=text)
+        return self._library_service().share(_owner_from_context(ctx), request)
+
+    def import_file(
+        self, format: FileFormat, content: str, ctx: Context | None = None
+    ) -> FileImportResult:
+        """Import followed shows from an export file's text: "youtube_takeout"
+        (Google Takeout > YouTube > subscriptions/subscriptions.csv) or "opml"
+        (Overcast, Pocket Casts, Castro, an Apple Podcasts Shortcut). Every
+        followed show or channel becomes an explicit suggestion in the
+        returned preview."""
+        request = ImportFileRequest(format=format, content=content)
+        return self._library_service().import_file(_owner_from_context(ctx), request)
+
+    def import_library(self, items: list[LibraryItem], ctx: Context | None = None) -> ImportPreview:
+        """Import shows and saved episodes the principal already has in other
+        apps, fetched with YOUR OWN connectors (Chorus holds no token for
+        them). Each item: {"provider": "readwise"|"spotify"|"apple"|
+        "instapaper"|"opml"|"pushed", "item_kind": "episode"|"show"|"document",
+        "title", optional "show_title", "url", "feed_url", "guid", "saved_at"
+        (ISO 8601 with offset), "consumed", "tags", "highlights", "notes",
+        "external_id"}. For a Readwise Reader podcast document: title=title,
+        show_title=the show name, url=source_url, external_id=id,
+        saved_at=saved_at, tags=tag names, consumed=(location == "archive" or
+        reading_progress >= 0.9). Apple Podcasts links are resolved to the
+        show's feed and the exact episode. Up to 500 items per call;
+        re-importing is idempotent. Returns ranked suggested_sources, a
+        saved_queue_source to add to a subscription's sources, and anything
+        still pending (call again to finish)."""
+        return self._library_service().import_items(
+            _owner_from_context(ctx), LibraryImport(items=items)
+        )
+
+    def import_opml(self, opml: str) -> OpmlImport:
+        """Turn an OPML subscription export (Overcast, Pocket Casts, Castro,
+        an Apple Podcasts Shortcut) into RSS sources ready for
+        preview_subscription and subscribe, plus the outlines it skipped."""
+        return parse_opml(opml)
+
+    def list_library_items(
+        self,
+        status: ResolutionStatus | None = None,
+        limit: int = LIST_DEFAULT_LIMIT,
+        ctx: Context | None = None,
+    ) -> list[SavedItem]:
+        """List imported library items newest first, optionally only one
+        status: "resolved", "pending", "unresolved" or "corpus"."""
+        return self._library_service().list_items(_owner_from_context(ctx), status, limit)
+
+    def soul_from_library(self, ctx: Context | None = None) -> LibrarySoul:
+        """Propose a soul.md from the imported library (titles, tags, notes,
+        highlights). Nothing is saved: show it to the principal, merge it with
+        their current soul if they have one, then use it in subscribe."""
+        return self._library_service().soul(_owner_from_context(ctx))
+
     def _submit(self, request: DigestRequest, ctx: Context | None) -> dict[str, str]:
         owner = _owner_from_context(ctx)
         try:
@@ -368,6 +480,7 @@ def create_mcp_server(
     runner: JobRunner | None = None,
     subscription_store: SubscriptionStore | None = None,
     podcasts: PodcastDirectory | None = None,
+    library: LibraryService | None = None,
 ) -> tuple[FastMCP, ChorusTools]:
     """Create one MCP server and expose its direct-call implementation for tests."""
     server = FastMCP(
@@ -378,7 +491,7 @@ def create_mcp_server(
         host="0.0.0.0",
         json_response=True,
     )
-    tools = ChorusTools(store, deps, runner, subscription_store, podcasts)
+    tools = ChorusTools(store, deps, runner, subscription_store, podcasts, library)
     server.add_tool(tools.list_shows)
     server.add_tool(tools.submit_digest)
     server.add_tool(tools.submit_selection)
@@ -392,6 +505,12 @@ def create_mcp_server(
     server.add_tool(tools.list_subscriptions)
     server.add_tool(tools.update_subscription)
     server.add_tool(tools.unsubscribe)
+    server.add_tool(_in_thread(tools.share_links))
+    server.add_tool(_in_thread(tools.import_file))
+    server.add_tool(_in_thread(tools.import_library))
+    server.add_tool(tools.import_opml)
+    server.add_tool(tools.list_library_items)
+    server.add_tool(_in_thread(tools.soul_from_library))
     return server, tools
 
 
@@ -402,9 +521,10 @@ def mount_mcp(
     runner: JobRunner | None = None,
     subscription_store: SubscriptionStore | None = None,
     podcasts: PodcastDirectory | None = None,
+    library: LibraryService | None = None,
 ) -> None:
     """Mount Streamable HTTP at /mcp and compose its lifespan into FastAPI."""
-    server, tools = create_mcp_server(store, deps, runner, subscription_store, podcasts)
+    server, tools = create_mcp_server(store, deps, runner, subscription_store, podcasts, library)
     mcp_app = server.streamable_http_app()
     parent_lifespan = app.router.lifespan_context
 
@@ -437,6 +557,7 @@ def main() -> None:
     finally:
         deps.close()
         store.close()
+        tools.close()
         if tools._subscription_store is not None:
             tools._subscription_store.close()
 

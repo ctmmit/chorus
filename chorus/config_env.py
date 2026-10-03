@@ -4,8 +4,8 @@ and tests need zero configuration — SQLite, local disk, in-process
 BackgroundTasks. On Vercel, each backend flips to its cloud equivalent purely
 by which env var is present:
 
-    DATABASE_URL              -> Postgres (Neon) job/key/subscription/persona
-                                  store + transcript cache
+    DATABASE_URL              -> Postgres (Neon) job/key/subscription/persona/
+                                  saved-item store + transcript cache
     BLOB_READ_WRITE_TOKEN      -> Vercel Blob artifact store
     INNGEST_EVENT_KEY +
     INNGEST_SIGNING_KEY        -> Inngest job runner (durable steps)
@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from chorus.personas import PersonaRegistry
     from chorus.pipeline import Deps
     from chorus.runners import JobRunner
+    from chorus.saved_items import SavedItemStore
     from chorus.subscriptions import SubscriptionStore
     from chorus.transcript_cache import TranscriptCache
     from chorus.transcripts import TranscriptProvider
@@ -101,6 +102,21 @@ def select_subscription_store(store: JobStore | None = None) -> SubscriptionStor
 
     db_path = getattr(store, "db_path", None) or DEFAULT_DB
     return SqliteSubscriptionStore(db_path)
+
+
+def select_saved_item_store(store: JobStore | None = None) -> SavedItemStore:
+    """Imported library items (chorus.library): the same selection rule as
+    select_subscription_store."""
+    dsn = _dsn()
+    if dsn:
+        from chorus.stores.postgres import PostgresSavedItemStore
+
+        log.info("saved items: %s set — using PostgresSavedItemStore", DATABASE_URL_ENV)
+        return PostgresSavedItemStore(dsn)
+    from chorus.saved_items import SqliteSavedItemStore
+
+    db_path = getattr(store, "db_path", None) or DEFAULT_DB
+    return SqliteSavedItemStore(db_path)
 
 
 def select_persona_registry(store: JobStore | None = None) -> PersonaRegistry:
@@ -268,6 +284,7 @@ __all__ = [
     "select_key_store",
     "select_persona_registry",
     "select_runner",
+    "select_saved_item_store",
     "select_subscription_store",
     "select_transcript_cache",
 ]

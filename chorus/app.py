@@ -75,6 +75,7 @@ from chorus.keys import (
     KeyStore,
     email_domain_allowed,
 )
+from chorus.library_api import LibraryService, build_library_router
 from chorus.mcp_server import mount_mcp
 from chorus.models import DigestRequest, Job, JobStatus, KeyRequest, SelectionRequest
 from chorus.personas import PersonaRegistry
@@ -82,6 +83,7 @@ from chorus.pipeline import Deps
 from chorus.podcasts_api import PodcastDirectory, build_podcasts_router
 from chorus.quotas import QuotaExceeded, enforce_job_quota
 from chorus.runners import InngestRunner, JobRunner
+from chorus.saved_items import SavedItemStore
 from chorus.scheduler import CRON_SECRET_ENV
 from chorus.subscriptions import SubscriptionStore
 from chorus.subscriptions_api import build_subscriptions_router
@@ -288,6 +290,7 @@ def create_app(
     email_sender: EmailSender | None = None,
     personas: PersonaRegistry | None = None,
     subscription_store: SubscriptionStore | None = None,
+    saved_item_store: SavedItemStore | None = None,
 ) -> FastAPI:
     """`api_token=None` reads CHORUS_API_TOKEN; unset means open access, which
     the lifespan check allows only when no real provider key is configured
@@ -301,10 +304,12 @@ def create_app(
     token = api_token if api_token is not None else os.environ.get(API_TOKEN_ENV) or None
     owns_key_store = key_store is None
     owns_subscription_store = subscription_store is None
+    owns_saved_item_store = saved_item_store is None
     # SQLite: co-located with `store`'s file (chorus/config_env.py). Postgres
     # (DATABASE_URL set): survives across Vercel invocations, unlike SQLite.
     key_store = key_store or config_env.select_key_store(store)
     subscription_store = subscription_store or config_env.select_subscription_store(store)
+    saved_item_store = saved_item_store or config_env.select_saved_item_store(store)
     email_sender = email_sender or get_email_sender()
     cron_secret = os.environ.get(CRON_SECRET_ENV) or None
     key_ip_limiter = IpIssueRateLimiter()
@@ -348,6 +353,8 @@ def create_app(
             personas.close()
         if owns_subscription_store and hasattr(subscription_store, "close"):
             subscription_store.close()
+        if owns_saved_item_store:
+            saved_item_store.close()
 
     app = FastAPI(title="Chorus", version="0.1.0", lifespan=lifespan)
     app.state.personas = personas
@@ -480,26 +487,34 @@ def create_app(
     # Subscriptions (Phase F): CRUD + unsubscribe + POST /internal/cron/tick,
     # all defined in chorus/subscriptions_api.py.
     app.include_router(
-        build_subscriptions_router(subscription_store, store, deps, email_sender, cron_secret)
+        build_subscriptions_router(
+            subscription_store, store, deps, email_sender, cron_secret, saved_item_store
+        )
     )
     # Podcast search/resolve/OPML import and POST /souls/interview, sharing
     # one cache and throttle with the MCP tools.
     podcasts = PodcastDirectory()
     app.include_router(build_podcasts_router(podcasts))
+    # Library import (chorus/library_api.py): saved episodes and followed
+    # shows from Readwise, Apple, Spotify, OPML, pushed by the agent.
+    library = LibraryService(saved_item_store, podcasts, subscription_store)
+    app.include_router(build_library_router(library))
 
     # Inngest only when it is actually the active runner (a durable-step
     # invocation needs the same store/deps every step reads and writes).
     if isinstance(runner, InngestRunner):
         from chorus.inngest_app import register
 
-        register(app, runner.client, store, deps, subscription_store, email_sender)
+        register(
+            app, runner.client, store, deps, subscription_store, email_sender, saved_item_store
+        )
 
     # MCP submissions go through this SAME runner (R9) so hosted (Inngest)
     # deployments get the same durable-step semantics an HTTP submit gets,
     # rather than awaiting the whole pipeline inline within one MCP call.
     # Mounts at / internally so its own route stays exactly /mcp. Keep last:
     # Starlette resolves routes in order and this mount is intentionally catch-all.
-    mount_mcp(app, store, deps, runner, subscription_store, podcasts)
+    mount_mcp(app, store, deps, runner, subscription_store, podcasts, library)
     return app
 
 

@@ -35,6 +35,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from chorus import catalog, feeds
 from chorus.digest_email import (
@@ -56,6 +57,9 @@ from chorus.subscriptions import (
     SubscriptionStore,
     unsubscribe_token,
 )
+
+if TYPE_CHECKING:
+    from chorus.saved_items import SavedItemStore
 
 log = logging.getLogger("chorus.scheduler")
 
@@ -222,15 +226,27 @@ def _run_feed_subscription(
     now: datetime,
     lister: FeedLister | None,
     resolver: Resolver | None,
+    saved_items: SavedItemStore | None,
 ) -> str | None:
     sources = subscription.sources
     assert sources, "feed subscription requires sources"
     since = subscription.last_run_at or now - timedelta(days=subscription.lookback_days_first_run)
+    seen = set(subscription.seen_episode_ids)
+    saved = None
+    if saved_items is not None:
+        from chorus.saved_items import saved_queue_lister
+
+        saved = saved_queue_lister(saved_items, subscription.owner, now)
 
     gathered = feeds.gather_episodes(
-        sources, since, PER_SOURCE_LIST_LIMIT, resolver=resolver, lister=lister
+        sources,
+        since,
+        PER_SOURCE_LIST_LIMIT,
+        resolver=resolver,
+        lister=lister,
+        saved=saved,
+        exclude_ids=frozenset(seen),
     )
-    seen = set(subscription.seen_episode_ids)
     fresh = [
         [e for e in listed if e.episode.resolved_id() not in seen] for listed in gathered.per_source
     ]
@@ -346,6 +362,7 @@ def run_subscription(
     *,
     lister: FeedLister | None = None,
     resolver: Resolver | None = None,
+    saved_items: SavedItemStore | None = None,
 ) -> str | None:
     """Run one due subscription and return the digest job_id, or None when a
     feed subscription found no new episodes (no job is created then).
@@ -356,7 +373,9 @@ def run_subscription(
     subscription is never left due forever. Feed subscriptions follow the
     same schedule guarantee; see the module docstring for the cursor rules.
 
-    `lister`/`resolver` are test seams for feed listing and DNS."""
+    `lister`/`resolver` are test seams for feed listing and DNS.
+    `saved_items` backs any SavedQueueSource (without it those sources
+    report as unavailable and the rest of the run proceeds)."""
     if subscription.sources:
         return _run_feed_subscription(
             subscription,
@@ -368,6 +387,7 @@ def run_subscription(
             now,
             lister,
             resolver,
+            saved_items,
         )
 
     job = _execute_and_deliver(
