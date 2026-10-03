@@ -24,6 +24,8 @@ from chorus.jobs import SqliteJobStore
 from chorus.mcp_setup import submit_configured_digest
 from chorus.models import EpisodeInput, JobStatus, Transcript
 from chorus.onboarding import Brain, Mode, OnboardingConfig, Step, load_config, options
+from chorus.outline import WRITER_MAX_MINUTES, WRITER_MIN_MINUTES
+from chorus.script import _max_turns
 from chorus.transcripts import FixtureTranscriptProvider
 
 pytestmark = pytest.mark.usefixtures("chorus_home")
@@ -268,7 +270,10 @@ def test_script_with_no_grounded_take_is_rejected_and_can_be_retried(store: Any)
 def test_dialogue_needs_grounded_turns_and_is_capped(store: Any) -> None:
     job_id = _to_script(store, "dialogue")
     task = host_mode.next_task(store, job_id)
-    assert task.episode_format == "dialogue" and task.max_turns
+    assert task.episode_format == "dialogue"
+    # No fixed length: the agent chooses within the writer's range, capped at its longest.
+    assert task.max_turns == _max_turns(WRITER_MAX_MINUTES)
+    assert f"{WRITER_MIN_MINUTES} to {WRITER_MAX_MINUTES} spoken minutes" in task.instructions
     assert {s["role"] for s in task.speakers or []} == {"host", "cohost"}
     takes = [{"ref": 0, "take_type": "idea", "text": "Beat."}]
     with pytest.raises(HostModeError, match="no grounded turns"):

@@ -2,15 +2,21 @@
 
 The shape follows open-notebook's podcast-creator (an outline of named
 segments with a description and a relative size, then one script call per
-segment), with the structure Chorus needs enforced in code rather than left
-to the prompt:
+segment). The writer is the editor: from every candidate source it decides
+which ones get airtime, how much, and in what order. One source explored in
+depth, several woven into one thread, or a quick run through a handful are
+all valid plans.
 
-    intro -> one `source` segment per featured source -> connection(s) -> close
+Code enforces only what keeps an episode easy to follow by ear:
 
-A connection may only come after every source it connects has had its own
-segment, so the listener always hears what a source says before hearing how
-it relates to anything else. `validate_outline` returns the violations as
-plain sentences, which the composer feeds back to the model on its one retry.
+    intro -> one or more body segments -> close
+
+The intro tells the listener what is coming, the close ends on purpose, at
+least one body segment discusses a real source, and the plan stays short
+enough to hold together. Whether a source is introduced before it is argued
+with is a per-segment concern (chorus/script.py `segment_prompt`).
+`validate_outline` returns violations as plain sentences, which the composer
+feeds back to the model on its one retry.
 """
 from __future__ import annotations
 
@@ -28,17 +34,26 @@ from chorus.models import (
     SourceBrief,
 )
 
-# Length budget (minutes). A featured source needs room for its setup (who,
-# what, context, point), its key moments and the take.
+# Fallback length budget (minutes), used when the writer names no length and
+# by the offline mock: room for a source's setup, its moments and the take.
 INTRO_MINUTES = 1.0
 MINUTES_PER_SOURCE = 3.5
 CONNECTION_MINUTES = 1.5
 CLOSE_MINUTES = 1.0
 
+# The range the writer chooses a length from when the principal set none.
+WRITER_MIN_MINUTES = 4
+WRITER_MAX_MINUTES = 15
+# Each segment is one model call, and past this many the thread fragments.
+MAX_SEGMENTS = 10
+
 SPOKEN_WORDS_PER_MINUTE = 150
 WORDS_PER_TURN = 35
 MIN_TURNS_PER_SEGMENT = 2
 SIZE_WEIGHTS = {"short": 1, "medium": 2, "long": 3}
+# Segment kinds that carry the episode's substance. "source" and
+# "connection" are the earlier fixed structure, still accepted.
+BODY_KINDS = frozenset({"body", "source", "connection"})
 
 
 class OutlineError(ValueError):
@@ -46,7 +61,7 @@ class OutlineError(ValueError):
 
 
 def budget_minutes(n_sources: int) -> int:
-    """Spoken minutes an episode featuring `n_sources` sources needs."""
+    """Spoken minutes an episode giving `n_sources` sources a full segment each needs."""
     if n_sources < 1:
         raise ValueError(f"n_sources must be >= 1, got {n_sources}")
     connection = CONNECTION_MINUTES if n_sources >= 2 else 0.0
@@ -54,11 +69,32 @@ def budget_minutes(n_sources: int) -> int:
     return min(MAX_TARGET_MINUTES, math.ceil(total))
 
 
-def sources_for_budget(target_minutes: int, max_sources: int) -> int:
-    """How many sources fit in `target_minutes` with proper setup each: the
-    largest n whose budget fits, never fewer than one."""
-    fitting = [n for n in range(1, max_sources + 1) if budget_minutes(n) <= target_minutes]
-    return max(fitting, default=1)
+def length_bounds(fixed_minutes: int | None) -> tuple[int, int]:
+    """(shortest, longest) the episode may run: the principal's fixed length,
+    or the range the writer chooses from."""
+    if fixed_minutes is not None:
+        return fixed_minutes, fixed_minutes
+    return WRITER_MIN_MINUTES, WRITER_MAX_MINUTES
+
+
+def covered_ids(outline: EpisodeOutline) -> list[str]:
+    """Source ids some body segment discusses, in order of first appearance."""
+    seen: list[str] = []
+    for seg in outline.segments:
+        if seg.kind in BODY_KINDS:
+            seen += [sid for sid in seg.source_ids if sid not in seen]
+    return seen
+
+
+def episode_minutes(outline: EpisodeOutline, fixed_minutes: int | None) -> int:
+    """The length the script is written to: fixed, else the writer's choice,
+    else a budget from how many sources the outline covers."""
+    if fixed_minutes is not None:
+        return fixed_minutes
+    if outline.target_minutes is not None:
+        return outline.target_minutes
+    low, high = length_bounds(None)
+    return min(high, max(low, budget_minutes(max(1, len(covered_ids(outline))))))
 
 
 def segment_turn_targets(outline: EpisodeOutline, target_minutes: int) -> list[int]:
@@ -70,14 +106,16 @@ def segment_turn_targets(outline: EpisodeOutline, target_minutes: int) -> list[i
     return [max(MIN_TURNS_PER_SEGMENT, round(total_turns * w / total_weight)) for w in weights]
 
 
-def validate_outline(outline: EpisodeOutline, featured_ids: list[str]) -> list[str]:
-    """Every way `outline` breaks the required structure, as sentences. Empty
-    means usable. Pure."""
-    problems: list[str] = []
+def validate_outline(
+    outline: EpisodeOutline, candidate_ids: list[str], fixed_minutes: int | None = None
+) -> list[str]:
+    """Every way `outline` would be hard to follow, as sentences. Empty means
+    usable. Which sources it covers, and how, is the writer's call. Pure."""
     segments = outline.segments
     if not segments:
         return ["the outline has no segments"]
 
+    problems: list[str] = []
     kinds = [s.kind for s in segments]
     if kinds[0] != "intro":
         problems.append("the first segment must be the intro")
@@ -87,122 +125,136 @@ def validate_outline(outline: EpisodeOutline, featured_ids: list[str]) -> list[s
         problems.append("there must be exactly one intro segment")
     if kinds.count("close") != 1:
         problems.append("there must be exactly one close segment")
+    if len(segments) > MAX_SEGMENTS:
+        problems.append(f"there are {len(segments)} segments; use at most {MAX_SEGMENTS}")
 
-    known = set(featured_ids)
+    known = set(candidate_ids)
     for seg in segments:
         unknown = [sid for sid in seg.source_ids if sid not in known]
         if unknown:
             problems.append(f"segment {seg.name!r} names unknown source ids {unknown}")
+    if not any(sid in known for sid in covered_ids(outline)):
+        problems.append("no body segment discusses any of the sources")
 
-    covered: set[str] = set()
-    for seg in segments:
-        if seg.kind == "source":
-            if len(seg.source_ids) != 1:
-                problems.append(f"source segment {seg.name!r} must cover exactly one source id")
-                continue
-            sid = seg.source_ids[0]
-            if sid in covered:
-                problems.append(f"source {sid} has more than one source segment")
-            covered.add(sid)
-        elif seg.kind == "connection":
-            if len(seg.source_ids) < 2:
-                problems.append(f"connection segment {seg.name!r} must name at least two sources")
-            early = [sid for sid in seg.source_ids if sid in known and sid not in covered]
-            if early:
-                problems.append(
-                    f"connection segment {seg.name!r} comes before the source segment of {early}; "
-                    "a source must be introduced before it is connected to anything"
-                )
-
-    missing = [sid for sid in featured_ids if sid not in covered]
-    if missing:
-        problems.append(f"sources {missing} have no source segment")
-    if len(featured_ids) >= 2 and "connection" not in kinds:
-        problems.append("with two or more sources there must be at least one connection segment")
+    low, high = length_bounds(fixed_minutes)
+    chosen = outline.target_minutes if fixed_minutes is None else None
+    if chosen is not None and not low <= chosen <= high:
+        problems.append(f"target_minutes must be between {low} and {high}")
     return problems
 
 
-def parse_outline(data: Any, featured_ids: list[str], also_noted: list[str]) -> EpisodeOutline:
-    """Validate a model's outline reply; raises OutlineError listing every problem."""
+def parse_outline(
+    data: Any,
+    candidate_ids: list[str],
+    overflow_ids: list[str],
+    fixed_minutes: int | None = None,
+) -> EpisodeOutline:
+    """Validate a model's outline reply; raises OutlineError listing every
+    problem. Candidates no segment covers, then the overflow, become the
+    also-noted list."""
     if not isinstance(data, dict):
         raise OutlineError("reply is not a JSON object")
+    raw_minutes = data.get("target_minutes")
+    try:
+        chosen = None if raw_minutes is None else int(raw_minutes)
+    except (TypeError, ValueError) as err:
+        raise OutlineError("target_minutes must be a whole number of minutes") from err
     try:
         outline = EpisodeOutline(
             segments=[OutlineSegment.model_validate(s) for s in data.get("segments") or []],
-            also_noted=also_noted,
+            target_minutes=fixed_minutes if fixed_minutes is not None else chosen,
         )
     except ValidationError as err:
         raise OutlineError(f"segment fields are invalid: {err}") from err
-    problems = validate_outline(outline, featured_ids)
+    problems = validate_outline(outline, candidate_ids, fixed_minutes)
     if problems:
         raise OutlineError("; ".join(problems))
+    covered = set(covered_ids(outline))
+    outline.also_noted = [sid for sid in candidate_ids if sid not in covered] + overflow_ids
     return outline
 
 
 def outline_prompt(
-    briefs: list[SourceBrief], also_noted: list[EpisodeDigest], target_minutes: int
+    briefs: list[SourceBrief], overflow: list[EpisodeDigest], fixed_minutes: int | None
 ) -> str:
     briefs_json = json.dumps(
         [b.model_dump(mode="json", exclude_none=True) for b in briefs], indent=2
     )
-    noted = (
-        "\n".join(f"- {ep.show or 'unknown show'}: {ep.episode_title or ep.episode_id}" for ep in also_noted)
+    unbriefed = (
+        "\n".join(f"- {ep.show or 'unknown show'}: {ep.episode_title or ep.episode_id}" for ep in overflow)
         or "(none)"
     )
-    connection_rule = (
-        "- connection: after the source segments it connects. Name the specific link or "
-        "tension between the sources (the same claim seen from two sides, a shared "
-        "assumption, a contradiction) and what the listener should make of it.\n"
-        if len(briefs) >= 2
-        else ""
-    )
+    if fixed_minutes is not None:
+        length = (
+            f"The episode runs about {fixed_minutes} spoken minutes; fit the plan to that and "
+            f"set target_minutes to {fixed_minutes}."
+        )
+    else:
+        low, high = length_bounds(None)
+        length = (
+            f"Choose the length, a whole number of spoken minutes from {low} to {high}, to fit "
+            "what you decide to cover. Don't pad a thin week or cram a rich one."
+        )
     return (
-        f"FEATURED SOURCES (briefs):\n{briefs_json}\n\n"
-        f"ALSO NOTED (one line each in the close, no discussion):\n{noted}\n\n"
-        f"Plan an episode of about {target_minutes} spoken minutes. The listener has heard "
-        "none of these sources, so each must be introduced before anyone comments on it. "
-        "Use these segment kinds, in this order:\n"
-        "- intro (short): what today's episode covers and why it matters to this listener. "
-        "No commentary yet.\n"
-        "- source, one per featured source, exactly one source id each. The description must "
-        "follow this arc in order: who is speaking and why they are worth hearing; what the "
-        "piece is and when it aired; the context; the core point; the key moments in the "
-        "order they occur; then our take.\n"
-        f"{connection_rule}"
-        "- close (short): the synthesis in a sentence or two, then the also-noted mentions.\n\n"
-        "Order the source segments so the connections read naturally. Write each description "
-        "as instructions to the scriptwriter: the specific points, numbers and questions the "
-        "segment must cover, drawn from the briefs.\n\n"
+        f"CANDIDATE SOURCES (briefs, most relevant to this listener first):\n{briefs_json}\n\n"
+        f"NOT BRIEFED (more than could be prepared; at most a passing mention in the close):\n"
+        f"{unbriefed}\n\n"
+        f"{length}\n\n"
+        "Plan the episode. You choose what makes it in and how much each thing gets: one "
+        "source explored in depth, a few set against each other, an idea followed across "
+        "several, a quick run through a handful, or any mix. Leave out what doesn't earn its "
+        "time; anything left out can get a one-line mention in the close.\n\n"
+        "Segment kinds:\n"
+        "- intro (first, exactly one): what this episode is about and why this listener "
+        "should care.\n"
+        f"- body (as many as the material deserves, at most {MAX_SEGMENTS - 2}): any number of "
+        "source ids. A body segment can stay with one source, put two in conversation, or "
+        "follow a thread across several.\n"
+        "- close (last, exactly one): land the episode on purpose, and mention anything left "
+        "out that is still worth knowing about.\n\n"
+        "What keeps it easy to follow by ear:\n"
+        "- One thread at a time, with a reason to move from each segment to the next.\n"
+        "- A source is introduced the first time it is discussed, before anyone argues with it, "
+        "so its first real appearance comes before any segment that leans on it.\n"
+        "- Vary the pace. Size each segment by what it is worth (short, medium, long).\n\n"
+        "Write each description as notes to yourself as the scriptwriter: the specific points, "
+        "numbers, tensions and questions the segment covers, drawn from the briefs.\n\n"
         "Reply with ONLY a JSON object, no prose and no code fences:\n"
-        '{"segments": [{"name": "...", "kind": "intro|source|connection|close", '
+        '{"target_minutes": <minutes>, "segments": [{"name": "...", "kind": "intro|body|close", '
         '"source_ids": ["<episode_id>", ...], "description": "...", '
         '"size": "short|medium|long"}]}'
     )
 
 
-def mock_outline(briefs: list[SourceBrief], also_noted: list[str]) -> EpisodeOutline:
-    """Deterministic outline (no model) with the required structure."""
-    ids = [b.episode_id for b in briefs]
+def mock_outline(
+    briefs: list[SourceBrief], overflow_ids: list[str], fixed_minutes: int | None = None
+) -> EpisodeOutline:
+    """Deterministic outline (no model): a body segment for each brief that
+    fits the length, best first, then one tying them together."""
+    _, longest = length_bounds(fixed_minutes)
+    fitting = [n for n in range(1, len(briefs) + 1) if budget_minutes(n) <= longest]
+    chosen = briefs[: max(fitting, default=1)]
+    ids = [b.episode_id for b in chosen]
     segments = [
         OutlineSegment(
             name="Intro", kind="intro", source_ids=ids, description="What today covers.", size="short"
         )
     ]
-    for b in briefs:
+    for b in chosen:
         segments.append(
             OutlineSegment(
                 name=b.title or b.show or b.episode_id,
-                kind="source",
+                kind="body",
                 source_ids=[b.episode_id],
                 description=f"Introduce the source, then its point: {b.thesis}",
                 size="long",
             )
         )
-    if len(briefs) >= 2:
+    if len(chosen) >= 2:
         segments.append(
             OutlineSegment(
                 name="Connections",
-                kind="connection",
+                kind="body",
                 source_ids=ids,
                 description="How these sources bear on each other.",
                 size="medium",
@@ -211,4 +263,7 @@ def mock_outline(briefs: list[SourceBrief], also_noted: list[str]) -> EpisodeOut
     segments.append(
         OutlineSegment(name="Close", kind="close", source_ids=[], description="Wrap up.", size="short")
     )
-    return EpisodeOutline(segments=segments, also_noted=also_noted)
+    outline = EpisodeOutline(segments=segments)
+    outline.target_minutes = episode_minutes(outline, fixed_minutes)
+    outline.also_noted = [b.episode_id for b in briefs[len(chosen):]] + overflow_ids
+    return outline

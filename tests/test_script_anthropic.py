@@ -206,7 +206,8 @@ def test_each_segment_sees_the_outline_and_everything_written_before_it() -> Non
     system = _system(source_req)
     assert '"kind": "source"' in system  # full outline, as JSON
     assert "co-founder of a16z" in system  # the brief
-    assert "Context before commentary" in system
+    assert "WHAT KEEPS IT EASY TO FOLLOW BY EAR" in system
+    assert "when it aired, the context and the core point" not in system  # no fixed arc
     assert source_req["system"][0]["cache_control"] == {"type": "ephemeral"}
     assert _system(intro_req) == _system(close_req)  # one cached block for every segment
 
@@ -295,11 +296,11 @@ def test_outline_with_bad_structure_is_retried_with_the_violations() -> None:
     assert script.outline is not None and script.outline.segments[0].kind == "intro"
 
 
-def test_outline_failing_twice_falls_back_to_the_required_structure() -> None:
+def test_outline_failing_twice_falls_back_to_the_default_structure() -> None:
     fake = _FakeClient([_brief_reply([120.0]), "nope", "still nope", INTRO, SOURCE, CLOSE])
     script = AnthropicScriptComposer(client=fake).write_script(_digest(EP1), "SOUL", "CTX")
     assert script.outline is not None
-    assert [s.kind for s in script.outline.segments] == ["intro", "source", "close"]
+    assert [s.kind for s in script.outline.segments] == ["intro", "body", "close"]
 
 
 def test_brief_failing_twice_falls_back_to_metadata() -> None:
@@ -357,25 +358,66 @@ def _ep(eid: str, score: float) -> EpisodeDigest:
     return EpisodeDigest(episode_id=eid, episode_title=eid, highlights=[_hl(eid, 10.0, "x", score)])
 
 
-def test_plan_budgets_length_from_sources_and_caps_at_three() -> None:
+def test_plan_offers_every_source_best_first() -> None:
     digest = _digest(_ep("a", 0.5), _ep("b", 0.9), _ep("c", 0.7), _ep("d", 0.6))
     plan = plan_episode(digest, MONOLOGUE_PROFILE)
-    assert [e.episode_id for e in plan.featured] == ["b", "c", "d"]
-    assert [e.episode_id for e in plan.also_noted] == ["a"]
-    assert plan.target_minutes == 14
+    assert [e.episode_id for e in plan.candidates] == ["b", "c", "d", "a"]
+    assert plan.overflow == [] and plan.fixed_minutes is None
 
 
-def test_plan_with_explicit_short_length_features_one_source() -> None:
-    digest = _digest(_ep("a", 0.5), _ep("b", 0.9))
+def _custom_outline(minutes: int | None, *segments: tuple[str, list[str]]) -> str:
+    body: list[dict[str, Any]] = [
+        {"name": kind, "kind": kind, "source_ids": ids, "description": "d", "size": "medium"}
+        for kind, ids in segments
+    ]
+    return json.dumps({"target_minutes": minutes, "segments": body})
+
+
+def test_writer_may_feature_one_source_and_note_the_rest() -> None:
+    outline = _custom_outline(4, ("intro", []), ("body", ["ep2"]), ("close", []))
+    ep2_body = _lines(_line("Over on Odd Lots, capex is outrunning revenue.", ("ep2", 60.0)))
+    noted = _lines(_line("Also worth a listen: Marc Andreessen on 20VC.", ("ep1", None)))
+    fake = _FakeClient([_brief_reply([120.0]), _brief_reply([60.0], people=[]), outline, INTRO, ep2_body, noted])
+    script = AnthropicScriptComposer(client=fake).write_script(_digest(EP1, EP2), "SOUL", "CTX")
+
+    assert script.outline is not None and script.outline.also_noted == ["ep1"]
+    assert script.outline.target_minutes == 4
+    assert [b.episode_id for b in script.briefs] == ["ep2"]
+    system = _system(fake.messages.requests[3])
+    assert "Target length: ~4 minute(s)" in system
+    assert "episode_id: ep1 | 20VC" in system  # offered as also-noted
+    assert "Also worth a listen" in script.monologue  # the close may cite a noted source
+
+
+def test_a_source_first_discussed_in_a_shared_segment_gets_the_intro_note() -> None:
+    outline = _custom_outline(6, ("intro", ["ep1", "ep2"]), ("body", ["ep1", "ep2"]), ("close", []))
+    both = _lines(
+        _line("On 20VC, Marc Andreessen argues margins are expanding.", ("ep1", 120.0)),
+        _line("Odd Lots hears the opposite: capex outruns revenue.", ("ep2", 60.0)),
+    )
+    fake = _FakeClient([_brief_reply([120.0]), _brief_reply([60.0], people=[]), outline, INTRO, both, CLOSE])
+    AnthropicScriptComposer(client=fake).write_script(_digest(EP1, EP2), "SOUL", "CTX")
+
+    shared = _user(fake.messages.requests[4])
+    assert shared.count("has not been introduced yet") == 2
+    assert "how much setup it needs is your call" in shared
+
+
+def test_outline_prompt_lets_the_writer_choose_length_unless_fixed() -> None:
+    fake = _FakeClient(_monologue_replies())
+    AnthropicScriptComposer(client=fake).write_script(_digest(EP1), "SOUL", "CTX")
+    assert "Choose the length" in _user(fake.messages.requests[1])
+
     profile = EpisodeProfile(
         name="five",
         format="monologue",
         speakers=[SpeakerProfile(role="host", name="Host")],
         style=ConversationStyle(target_minutes=5),
     )
-    plan = plan_episode(digest, profile)
-    assert [e.episode_id for e in plan.featured] == ["b"]
-    assert plan.target_minutes == 5
+    fake = _FakeClient(_monologue_replies())
+    script = AnthropicScriptComposer(client=fake).write_script(_digest(EP1), "SOUL", "CTX", profile)
+    assert "runs about 5 spoken minutes" in _user(fake.messages.requests[1])
+    assert script.outline is not None and script.outline.target_minutes == 5
 
 
 # --- line validation (pure) --------------------------------------------------------

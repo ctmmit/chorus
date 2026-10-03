@@ -243,8 +243,8 @@ MAX_SPEAKERS = 2
 MIN_TARGET_MINUTES = 1
 MAX_TARGET_MINUTES = 20
 # Explicit default for callers that want a number; a profile whose style
-# leaves target_minutes unset gets a length budgeted from how many sources
-# the episode features (chorus/outline.py `budget_minutes`).
+# leaves target_minutes unset lets the writer choose the length in its outline
+# (chorus/outline.py `WRITER_MIN_MINUTES`..`WRITER_MAX_MINUTES`).
 DEFAULT_TARGET_MINUTES = 5
 # Sentinel persona value: "use the soul itself as this speaker's voice"
 # (chorus/script.py resolves it against the request's `soul` text).
@@ -574,8 +574,10 @@ class OutlineSegment(BaseModel):
     at a time, in order, each call seeing everything written before it."""
 
     name: str = Field(description="Short segment label.")
-    kind: Literal["intro", "source", "connection", "close"] = Field(
-        description="intro, one source's walkthrough, a cross-source connection, or the close."
+    # "source" and "connection" are the earlier fixed structure; outlines
+    # stored with them still parse and are treated as body segments.
+    kind: Literal["intro", "body", "close", "source", "connection"] = Field(
+        description="intro, a body segment (any number of sources), or the close."
     )
     source_ids: list[str] = Field(
         default_factory=list, description="Episode ids this segment covers."
@@ -590,7 +592,11 @@ class EpisodeOutline(BaseModel):
     segments: list[OutlineSegment] = Field(description="Segments in broadcast order.")
     also_noted: list[str] = Field(
         default_factory=list,
-        description="Episode ids that had highlights but did not fit; mentioned in the close.",
+        description="Episode ids that had highlights but no segment covers; mentioned in the close.",
+    )
+    target_minutes: int | None = Field(
+        default=None,
+        description="Spoken length the writer chose, or the principal's fixed length.",
     )
 
 

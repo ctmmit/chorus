@@ -89,9 +89,10 @@ from chorus.onboarding import (
     status,
     voice_overrides,
 )
+from chorus.outline import length_bounds
 from chorus.pipeline import PLACEHOLDER_AUDIO_WARNING, Deps, run_job, stage_audio, stage_ingest
 from chorus.render_plan import AudioChunkError, RenderPlan, build_plan, join_mp3, read_chunk
-from chorus.script import _max_turns, _speaker_persona, _turns_transcript, plan_episode
+from chorus.script import _speaker_persona, _turns_transcript, max_turns_for
 from chorus.soul import load_soul
 
 log = logging.getLogger("chorus.host_mode")
@@ -134,10 +135,21 @@ the lens; fetch an episode's windows with host_episode(job_id, episode_id).
 """
 
 SCRIPT_INSTRUCTIONS = """\
-Write a short, opinionated podcast script in the principal's lens.
+Write a podcast episode for the principal, in their lens, {length}.
 
-- Take a position, push back, and connect episodes. A thought partner with a point
-  of view, not a summary.
+You are the editor. Choose which highlights earn airtime and how much: go deep on
+one episode, set two against each other, follow an idea across several, or run
+quickly through a handful. Skip what doesn't earn its time. Take positions, push
+back, notice what is surprising. A thought partner with a point of view, not a
+summary.
+
+Keep it easy to follow by ear:
+- The principal has heard none of these episodes. The first time one comes up, say
+  enough for them to follow it (which show, who is talking) before reacting to it.
+- One thread at a time, with audible transitions. Don't repeat a point.
+- Plain spoken sentences: no lists, markdown or stage directions.
+
+Grounding:
 - EVERY beat must be grounded in one of the highlights below and cite it by `ref`.
   A beat with a missing or invalid ref is dropped. Do not introduce claims the
   highlights don't support.
@@ -167,9 +179,9 @@ _DIALOGUE_RENDER_NOTE = (
 
 _MONOLOGUE_RULES = "- Single voice: write takes only, in the order they should be spoken.\n"
 _DIALOGUE_RULES = """\
-- Two hosts. First write the takes (the beats), then turn them into dialogue: the host
-  raises each beat in their own voice, the cohost reacts in theirs (push back, ask for
-  the number, agree when it's warranted), honoring the personas and style below.
+- Two hosts, both real people with views. Write the takes (the beats), then the
+  dialogue that carries them: the hosts react to each other, press for specifics and
+  disagree where the material supports it, honoring the personas and style below.
 - Every turn also cites a highlight by `ref`. At most {max_turns} turns.
 """
 _MONOLOGUE_SCHEMA = '{"takes": [{"ref": 0, "take_type": "idea", "text": "..."}]}'
@@ -517,10 +529,16 @@ def _highlight_refs(digest: Digest) -> list[dict[str, Any]]:
 def _script_task(state: HostRunState, digest: Digest) -> HostTask:
     profile = _profile(state.request)
     dialogue = profile.format == "dialogue"
-    # plan_episode budgets an unset length from the featured sources, as Chorus's own writer does.
-    max_turns = _max_turns(plan_episode(digest, profile).target_minutes) if dialogue else None
+    # An unset length leaves the choice to the writer, as Chorus's own writer does.
+    low, high = length_bounds(profile.style.target_minutes)
+    max_turns = max_turns_for(profile) if dialogue else None
     rules = _DIALOGUE_RULES.format(max_turns=max_turns) if dialogue else _MONOLOGUE_RULES
     instructions = SCRIPT_INSTRUCTIONS.format(
+        length=(
+            f"about {low} spoken minutes long"
+            if low == high
+            else f"{low} to {high} spoken minutes long (you choose, to fit the material)"
+        ),
         take_types=", ".join(TAKE_TYPES),
         format_rules=rules,
         schema=_DIALOGUE_SCHEMA if dialogue else _MONOLOGUE_SCHEMA,
@@ -749,7 +767,7 @@ def submit_script(
         if profile.format == "dialogue":
             kept_turns, dropped_turns = _grounded(turns or [], digest, _turn)
             dropped += [f"turn {d}" for d in dropped_turns]
-            max_turns = _max_turns(plan_episode(digest, profile).target_minutes)
+            max_turns = max_turns_for(profile)
             if len(kept_turns) > max_turns:
                 dropped.append(f"{len(kept_turns) - max_turns} turn(s) over the {max_turns} cap")
                 kept_turns = kept_turns[:max_turns]

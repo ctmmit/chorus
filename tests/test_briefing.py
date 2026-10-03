@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 import pytest
 
 from chorus.briefing import (
+    MAX_CANDIDATE_SOURCES,
     BriefError,
     brief_prompt,
     mock_brief,
@@ -42,9 +43,16 @@ def test_select_sources_ranks_by_top_highlights_and_caps() -> None:
         soul_version="v",
         episodes=[_ep("one-lucky", 0.95), _ep("steady", 0.7, 0.7, 0.7), _ep("mid", 0.8, 0.5), _ep("x", 0.4)],
     )
-    featured, noted = select_sources(digest, max_sources=2)
-    assert [e.episode_id for e in featured] == ["steady", "mid"]
-    assert [e.episode_id for e in noted] == ["one-lucky", "x"]
+    candidates, overflow = select_sources(digest, max_sources=2)
+    assert [e.episode_id for e in candidates] == ["steady", "mid"]
+    assert [e.episode_id for e in overflow] == ["one-lucky", "x"]
+
+
+def test_every_source_is_a_candidate_up_to_the_brief_budget() -> None:
+    many = Digest(soul_version="v", episodes=[_ep(f"e{i:02d}", 0.5) for i in range(MAX_CANDIDATE_SOURCES + 2)])
+    candidates, overflow = select_sources(many)
+    assert len(candidates) == MAX_CANDIDATE_SOURCES
+    assert [e.episode_id for e in overflow] == [f"e{MAX_CANDIDATE_SOURCES}", f"e{MAX_CANDIDATE_SOURCES + 1}"]
 
 
 def test_select_sources_skips_refused_and_empty() -> None:
