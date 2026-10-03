@@ -77,7 +77,29 @@ Either way, the principal's settings, keys, soul, and history live in
 
 ### Tier A: register the MCP server
 
-Use the entry for your host. Every entry starts the same command.
+**One-command plugins** (Claude Code and Codex, option 1 install). These
+bundle the MCP server and the onboarding skill, and update with the
+repository:
+
+```bash
+claude plugin marketplace add ctmmit/chorus
+claude plugin install chorus@chorus
+```
+
+```bash
+codex plugin marketplace add ctmmit/chorus
+codex plugin add chorus@chorus
+```
+
+(Inside a Claude Code session: `/plugin marketplace add ctmmit/chorus`, then
+`/plugin install chorus@chorus`.) With a plugin installed, skip to step 4.
+
+**From the principal's terminal:** `chorus register` finds Claude Code,
+Claude Desktop/Cowork, Codex and Grok Build on this machine, shows each
+change, and applies it after they say yes (`--list` previews, `--yes` skips
+the questions).
+
+**By hand:** use the entry for your host. Every entry starts the same command.
 
 **Claude Code**
 

@@ -5,7 +5,9 @@
 > other) and your principal handed you this repository, follow
 > [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md). If you are a person
 > installing it yourself, clone it, install it (step 2 below), and run
-> `chorus onboard`.
+> `chorus onboard`. It walks you through setup, can connect Chorus to the
+> agents on your machine (`chorus register`), and can schedule a weekly
+> digest (`chorus schedule on`).
 
 ## Build a Chorus agent for your principal
 

@@ -93,6 +93,39 @@ def smoke_test(config: OnboardingConfig, deps: Deps | None = None) -> Job:
     )
 
 
+DIGESTS_DIRNAME = "digests"
+
+
+def write_digest_markdown(job: Job) -> Path:
+    """`~/.chorus/digests/<date>-<job>.md`: what a scheduled run leaves behind
+    for the principal to read, with every highlight's timestamp and quote."""
+    from datetime import UTC, datetime
+
+    lines = [f"# Chorus digest, {datetime.now(UTC).strftime('%d %b %Y')}", ""]
+    if job.error:
+        lines += [f"Run failed: {job.error}", ""]
+    for episode in job.digest.episodes if job.digest else []:
+        lines.append(f"## {episode.episode_title or episode.episode_id}")
+        if episode.refused:
+            lines += [f"Nothing surfaced ({episode.refusal_reason}).", ""]
+            continue
+        for h in episode.highlights:
+            minutes, seconds = divmod(int(h.segment_timestamp), 60)
+            lines.append(f"- **{minutes}:{seconds:02d}** \"{h.quote}\"  ")
+            lines.append(f"  {h.why_surface}")
+        lines.append("")
+    audio = artifact_file(job)
+    if audio is not None:
+        lines += [f"Episode: {audio}", ""]
+    lines += [f"Note: {w}" for w in job.warnings]
+    target = paths.home() / DIGESTS_DIRNAME
+    target.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(UTC).strftime("%Y-%m-%d")
+    out = target / f"{stamp}-{job.job_id[:8]}.md"
+    out.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    return out
+
+
 def artifact_file(job: Job) -> Path | None:
     """Local path of the job's rendered audio (or text placeholder)."""
     if not job.audio_url:

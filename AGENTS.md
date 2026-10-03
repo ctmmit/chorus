@@ -21,6 +21,8 @@ The rest of this file is for contributors changing the code.
 - `chorus/paths.py`: every local state location under `~/.chorus/`.
 - `chorus/host_mode.py`, `chorus/render_plan.py`: the agent as brain (`host_next` tasks) and as voice (render plans, MP3 joining).
 - `chorus/version.py`, `chorus/updater.py`, `chorus/migrations.py`: release checks, `chorus update`, and config migrations.
+- `chorus/registration.py`, `chorus/os_schedule.py`: `chorus register` (MCP registration with local agents) and `chorus schedule` (weekly OS task).
+- `.claude-plugin/`, `plugins/codex/chorus/`, `.agents/plugins/marketplace.json`: the Claude Code and Codex plugins. The Codex plugin keeps a copy of `skills/chorus-onboard` (a test enforces it).
 - `chorus/_bundled/`: the presets, demo catalog and sample transcript shipped in the wheel; keep them identical to `fixtures/` (a test enforces it).
 - `CHANGELOG.md`, `.github/workflows/release.yml`: bump `chorus/__init__.py:__version__`, add a changelog section, and push a `vX.Y.Z` tag to publish.
 - `fixtures/`: public test inputs; real transcripts are gitignored.

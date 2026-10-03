@@ -35,6 +35,15 @@ The principal's own agent can install, set up, and run Chorus.
   distribution (wheel or `uvx`), with the presets, demo catalog and sample
   transcript bundled. `chorus update` updates the install, `chorus_version`
   reports new releases, and config migrations run on start with a backup.
+- **Plugins and registration.** One-command installs for Claude Code
+  (`.claude-plugin/`) and Codex (`plugins/codex/chorus`, listed in
+  `.agents/plugins/marketplace.json`). `chorus register` connects Chorus to
+  Claude Code, Claude Desktop/Cowork, Codex and Grok Build, showing each
+  change and backing up any config file first.
+- **Weekly digests.** `chorus schedule on|off|status` uses Task Scheduler,
+  launchd or cron when Chorus does all the work itself. When the agent is the
+  brain or the voice, onboarding asks the agent to schedule the run in its own
+  scheduler instead. Every `chorus run` writes `~/.chorus/digests/<date>.md`.
 - **Fix.** On Windows, a background run could stall in `wait` when the agent
   polled while state was being saved.
 

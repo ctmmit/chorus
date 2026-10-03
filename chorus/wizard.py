@@ -34,6 +34,8 @@ from chorus.onboarding import (
     set_env_value,
     status,
 )
+from chorus.os_schedule import SchedulePlan
+from chorus.registration import Host, RegistrationResult, Target
 from chorus.soul import (
     INTERVIEW_QUESTIONS,
     PRESETS,
@@ -63,6 +65,9 @@ class Wizard:
     io: WizardIO = field(default_factory=WizardIO)
     smoke: Callable[[OnboardingConfig], Job] | None = None
     soul_builder: Callable[[OnboardingConfig], SoulBuilder] | None = None
+    scheduler: Callable[[SchedulePlan], str] | None = None
+    targets: Callable[[], list[Target]] | None = None
+    registrar: Callable[[Host], RegistrationResult] | None = None
 
     # --- prompts -----------------------------------------------------------
 
@@ -269,12 +274,46 @@ class Wizard:
             feeds = [f for f in feeds if f not in bad]
         weekly = self._confirm("  Run a digest every week?", default=False)
         if weekly:
-            self.io.say(
-                "  Noted. Automatic weekly scheduling arrives in a later release; until then "
-                "run `chorus run` (or schedule it with Task Scheduler or cron)."
-            )
+            self._offer_schedule(config)
         updated = config.model_copy(update={"shows": chosen, "feeds": feeds, "weekly": weekly})
         return mark_done(updated, Step.shows)
+
+    def _offer_registration(self) -> None:
+        """Connect Chorus to each agent found here, one confirmation each."""
+        found = [t for t in (self.targets or _default_targets)() if t.found]
+        if not found:
+            self.io.say(_agent_registration_hint())
+            return
+        self.io.say("Connect Chorus to your agents so they can run it:")
+        for target in found:
+            if target.registered:
+                self.io.say(f"  {target.label}: already connected.")
+                continue
+            where = f" in {target.location}" if target.location else ""
+            self.io.say(f"  {target.label}: {target.change}{where}")
+            if not self._confirm("  Apply?", default=True):
+                continue
+            result = (self.registrar or _default_register)(target.host)
+            backup = f" (backup: {result.backup})" if result.backup else ""
+            self.io.say(f"  {result.message}{backup}")
+        self.io.say("Then open your agent and ask it to run your Chorus digest.")
+
+    def _offer_schedule(self, config: OnboardingConfig) -> None:
+        from chorus import os_schedule
+
+        if config.brain is Brain.host or config.voice is Voice.host_plugin:
+            self.io.say(f"  {os_schedule.AGENT_SCHEDULE_NOTE}")
+            return
+        schedule = os_schedule.plan()
+        self.io.say(f"  Chorus can add a {schedule.description}, running:")
+        self.io.say(f"    {' '.join(schedule.run_command)}")
+        if not self._confirm("  Add it now?", default=True):
+            self.io.say("  Skipped. `chorus schedule on` adds it later.")
+            return
+        try:
+            self.io.say(f"  {(self.scheduler or os_schedule.apply)(schedule)}")
+        except os_schedule.ScheduleError as err:
+            self.io.say(f"  Could not schedule it: {err}. Try `chorus schedule on` later.")
 
     def _smoke(self, config: OnboardingConfig) -> OnboardingConfig:
         if config.brain is Brain.host or config.voice is Voice.host_plugin:
@@ -313,9 +352,21 @@ class Wizard:
             return
         self.io.say("Chorus is set up.")
         if config.mode is Mode.host_agent:
-            self.io.say(_agent_registration_hint())
+            self._offer_registration()
         else:
             self.io.say("Run `chorus run` for this week's digest; `chorus status` shows the setup.")
+
+
+def _default_targets() -> list[Target]:
+    from chorus.registration import detect
+
+    return detect()
+
+
+def _default_register(host: Host) -> RegistrationResult:
+    from chorus.registration import register
+
+    return register(host)
 
 
 def _default_smoke(config: OnboardingConfig) -> Job:

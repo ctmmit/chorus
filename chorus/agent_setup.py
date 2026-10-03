@@ -215,6 +215,19 @@ def step_prompt(step: Step, config: OnboardingConfig) -> StepPrompt:
                 "Use search_podcasts / resolve_podcast to turn a show name into its RSS feed URL "
                 "when it is not in the catalog.",
                 "Then call onboarding_set_shows.",
+                *(
+                    [
+                        "If they want it weekly: you do part of this setup's work, so add a "
+                        "weekly task to your own scheduler (a scheduled task or automation) that "
+                        "says 'run my Chorus digest'. The operating system can't wake you."
+                    ]
+                    if config.brain is Brain.host or config.voice is Voice.host_plugin
+                    else [
+                        "If they want it weekly, offer onboarding_schedule(on=true): it adds an "
+                        "operating-system task that runs the digest by itself (default Monday "
+                        "08:00). Ask before calling it; it changes their system scheduler."
+                    ]
+                ),
             ],
             data={"catalog_shows": [s["show"] for s in list_shows()]},
         )
@@ -481,6 +494,22 @@ def _start_host_smoke(
         "until it is done. The smoke test completes when the run is done.",
         "next": task.model_dump(mode="json"),
     }
+
+
+def schedule(on: bool, day: str = "mon", time: str = "08:00") -> dict[str, Any]:
+    """Add or remove the OS task that runs the weekly digest. Refused (with
+    what to do instead) when the agent is the brain or the voice."""
+    from chorus import os_schedule
+
+    config = _load()
+    if not on:
+        return {"scheduled": False, "message": os_schedule.remove()}
+    if config.brain is Brain.host or config.voice is Voice.host_plugin:
+        return {"scheduled": False, "message": os_schedule.AGENT_SCHEDULE_NOTE}
+    plan = os_schedule.plan(day, time)
+    message = os_schedule.apply(plan)
+    save_config(config.model_copy(update={"weekly": True}))
+    return {"scheduled": True, "message": message, "runs": " ".join(plan.run_command)}
 
 
 def run_digest(episode_ids: list[str] | None = None) -> dict[str, Any]:

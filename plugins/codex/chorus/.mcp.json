@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "chorus": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["--from", "chorus-agent@latest", "chorus-mcp"]
+    }
+  }
+}

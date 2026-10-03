@@ -87,6 +87,13 @@ def register_setup_tools(server: FastMCP, store: JobStore) -> None:
         """Set followed catalog shows and RSS feed URLs, and whether to digest weekly."""
         return agent_setup.set_shows(shows or [], feeds or [], weekly).model_dump(mode="json")
 
+    def onboarding_schedule(on: bool, day: str = "mon", time: str = "08:00") -> dict[str, Any]:
+        """Add (on=true) or remove the operating-system task that runs the
+        weekly digest by itself. Ask the principal first. When you are the
+        brain or the voice, this returns what to do in your own scheduler
+        instead. day: mon..sun; time: 24-hour HH:MM."""
+        return agent_setup.schedule(on, day, time)
+
     def onboarding_smoke_test(run: bool = True, agent_model: str | None = None) -> dict[str, Any]:
         """Run (or skip) one test digest over a bundled sample transcript with
         the chosen brain and voice. May make billed calls; ask first. With the
@@ -159,6 +166,7 @@ def register_setup_tools(server: FastMCP, store: JobStore) -> None:
         onboarding_soul_show,
         onboarding_set_shows,
         onboarding_smoke_test,
+        onboarding_schedule,
         run_my_digest,
         host_next,
         host_episode,

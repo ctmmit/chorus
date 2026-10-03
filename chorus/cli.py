@@ -4,6 +4,8 @@
     chorus status                       what is configured and what blocks a run
     chorus run [--episode ID ...]       digest this week's episodes (or the given ones)
     chorus update [--check] [--yes]     check for and apply a new Chorus release
+    chorus register [--host H] [--yes]  connect Chorus to Claude Code, Claude Desktop, Codex, Grok
+    chorus schedule on|off|status       run the digest weekly with the OS scheduler
     chorus setup <action> ...           the same onboarding as JSON, for an agent driving
                                         Chorus from a shell (see `chorus setup --help`)
 
@@ -38,6 +40,20 @@ def _parser() -> argparse.ArgumentParser:
         help="redo a step: " + ", ".join(s.value for s in Step),
     )
     commands.add_parser("status", help="show configuration and readiness")
+    register = commands.add_parser("register", help="connect Chorus to your agents over MCP")
+    register.add_argument(
+        "--host",
+        action="append",
+        default=[],
+        choices=["claude-code", "claude-desktop", "codex", "grok"],
+        help="only these hosts (default: every one found)",
+    )
+    register.add_argument("--list", action="store_true", help="show the changes; apply none")
+    register.add_argument("--yes", action="store_true", help="apply without asking")
+    schedule = commands.add_parser("schedule", help="weekly digest via the OS scheduler")
+    schedule.add_argument("action", choices=["on", "off", "status"])
+    schedule.add_argument("--day", default="mon", help="mon..sun (default mon)")
+    schedule.add_argument("--time", default="08:00", help="24-hour HH:MM (default 08:00)")
     update = commands.add_parser("update", help="check for and apply a new Chorus release")
     update.add_argument("--check", action="store_true", help="only report; change nothing")
     update.add_argument("--yes", action="store_true", help="apply a breaking update unprompted")
@@ -295,7 +311,7 @@ def cmd_status() -> int:
 
 def cmd_run(episode_ids: list[str]) -> int:
     from chorus.brains import BrainConfigError
-    from chorus.local_run import recent_episodes, run_digest
+    from chorus.local_run import recent_episodes, run_digest, write_digest_markdown
     from chorus.models import EpisodeInput, JobStatus
     from chorus.onboarding import OnboardingError, load_config
     from chorus.wizard import summarize
@@ -314,7 +330,64 @@ def cmd_run(episode_ids: list[str]) -> int:
         print(err)
         return EXIT_NOT_READY
     print(summarize(job))
+    print(f"Digest saved to {write_digest_markdown(job)}")
     return EXIT_OK if job.status is JobStatus.done else EXIT_FAILED
+
+
+def cmd_register(hosts: list[str], list_only: bool, assume_yes: bool) -> int:
+    from chorus.registration import Host, detect, register
+
+    wanted = {Host(h) for h in hosts}
+    failures = 0
+    for target in detect():
+        if wanted and target.host not in wanted:
+            continue
+        if not target.found:
+            print(f"{target.label}: not found")
+            continue
+        if target.registered:
+            print(f"{target.label}: already registered")
+            continue
+        where = f" in {target.location}" if target.location else ""
+        print(f"{target.label}: {target.change}{where}")
+        if list_only:
+            continue
+        if not assume_yes:
+            if not sys.stdin.isatty():
+                print("  Skipped (not a terminal). Rerun with --yes to apply.")
+                continue
+            if input("  Apply? (Y/n): ").strip().lower() not in {"", "y", "yes"}:
+                continue
+        result = register(target.host)
+        backup = f" (backup: {result.backup})" if result.backup else ""
+        print(f"  {result.message}{backup}")
+        failures += 0 if result.ok else 1
+    return EXIT_FAILED if failures else EXIT_OK
+
+
+def cmd_schedule(action: str, day: str, time: str) -> int:
+    from chorus import os_schedule
+    from chorus.onboarding import Brain, Voice, load_config
+
+    if action == "status":
+        on = os_schedule.is_scheduled()
+        print("Weekly digest is scheduled." if on else "Weekly digest is not scheduled.")
+        return EXIT_OK
+    if action == "off":
+        print(os_schedule.remove())
+        return EXIT_OK
+    config = load_config()
+    if config.brain is Brain.host or config.voice is Voice.host_plugin:
+        print(os_schedule.AGENT_SCHEDULE_NOTE)
+        return EXIT_NOT_READY
+    try:
+        plan = os_schedule.plan(day, time)
+        print(os_schedule.apply(plan))
+    except os_schedule.ScheduleError as err:
+        print(f"Could not schedule: {err}")
+        return EXIT_FAILED
+    print(f"It runs: {' '.join(plan.run_command)}")
+    return EXIT_OK
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -336,6 +409,10 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "update":
         return cmd_update(args.check, args.yes)
+    if args.command == "register":
+        return cmd_register(args.host, args.list, args.yes)
+    if args.command == "schedule":
+        return cmd_schedule(args.action, args.day, args.time)
     if args.command == "onboard":
         return cmd_onboard(args.reset)
     if args.command == "status":
