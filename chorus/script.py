@@ -1,49 +1,90 @@
-"""Script synthesis: compose the agent's opinionated script from the digest.
+"""Script synthesis: brief each source, outline the episode, write it segment by segment.
 
-Every take must be traceable to a surfaced highlight (no ungrounded opinions) —
-ENGINEERING_REVIEW §9.2. The mock guarantees traceability by construction; the
-real Sonnet composer is instructed to tag each take with its highlight and we
-keep only takes that reference a real one.
+A listener needs context before commentary: who is talking, what the piece
+is, when it aired, why it exists and what it argues, and only then the take.
+The earlier composer handed the model an opaque episode id, a timestamp and
+the first 28 words of a transcript window, and asked for a monologue in one
+call. The result had no setup, no order and no transitions.
 
-Phase E (docs/DEVELOPMENT_PLAN.md §4, two-host episodes): outline-then-dialogue.
-Pass 1 (unchanged) produces the beats (`takes`) from the digest. Pass 2, only
-when `profile.format == "dialogue"`, turns those beats into `turns` — the
-agent still writes every line; the profile only supplies who's speaking and
-how (personas, tone, engagement techniques), never an auto-writer. Grounding
-is per-turn: a turn that does not resolve to a surfaced highlight is dropped,
-exactly as an ungrounded take is dropped today. Single-voice (no profile, or
-`profile.format == "monologue"`) is unchanged from before this phase.
+The pipeline now follows open-notebook's podcast-creator: an outline of
+segments, then one model call per segment, in order. Each call sees the full
+outline, every line written so far, the current segment, whether it is the
+last one, and how many lines to aim for. Chorus adds two things on top:
 
-R18 (docs/REVIEW_WAVE1.md #18): every `Script` this module returns carries
-`voices` — role -> `SpeakerProfile.voice_id` for the profile that produced
-it — so `chorus.audio` renderers can honor a request's per-speaker voice
-instead of falling back to the renderer's env/default voice id.
+1. A `SourceBrief` per featured source (chorus/briefing.py), so the script
+   can introduce each source accurately.
+2. An outline whose structure is enforced in code (chorus/outline.py): intro,
+   one segment per source, connections only after the sources they connect,
+   then the close.
 
-R20 (docs/REVIEW_WAVE1.md #20): `AnthropicScriptComposer` raises `ScriptError`
-when the digest had highlights but the model's reply yielded zero grounded
-takes — a model-format or grounding failure, not an honest "nothing cleared
-the bar" editorial conclusion. The empty "Nothing cleared the bar." response
-is reserved for when the digest itself has no highlights to begin with.
+Grounding (ENGINEERING_REVIEW §9.2) now has two kinds. A line that states
+something about a source cites either a surfaced highlight (timestamp) or the
+source's brief (no timestamp: who, what, when, thesis). A framing, transition
+or opinion line may cite nothing, but then `validate_line` rejects it if it
+carries a number or a name the source material doesn't contain. A segment
+with invalid lines is re-asked once with the problems listed; lines that are
+still invalid are dropped and logged.
+
+Monologue and dialogue share this path. The profile only decides who speaks
+(host alone, or host and cohost) and how (personas, tone).
+
+R18: every `Script` carries `voices` (role -> voice id) for the renderer.
+R20: `ScriptError` when the digest had highlights but no grounded line
+survived. "Nothing cleared the bar" is reserved for a digest with nothing
+to discuss.
 """
 from __future__ import annotations
 
+import json
 import logging
+import math
 import os
 import re
+from dataclasses import dataclass
 from typing import Any, Literal, Protocol, runtime_checkable
 
+from pydantic import BaseModel, ValidationError
+
+from chorus.briefing import (
+    BRIEF_SYSTEM,
+    MAX_SOURCES_PER_EPISODE,
+    BriefError,
+    brief_prompt,
+    format_timestamp,
+    mock_brief,
+    parse_brief,
+    select_sources,
+    source_material,
+)
 from chorus.errors import TerminalError
 from chorus.models import (
+    DEFAULT_TARGET_MINUTES,
     HOST_PERSONA_IS_SOUL,
     MONOLOGUE_PROFILE,
     TAKE_TYPES,
+    Citation,
     ConversationStyle,
     Digest,
+    EpisodeDigest,
+    EpisodeOutline,
     EpisodeProfile,
+    OutlineSegment,
     Script,
+    SourceBrief,
     SpeakerProfile,
     Take,
     Turn,
+)
+from chorus.outline import (
+    SPOKEN_WORDS_PER_MINUTE,
+    WORDS_PER_TURN,
+    OutlineError,
+    budget_minutes,
+    mock_outline,
+    outline_prompt,
+    parse_outline,
+    segment_turn_targets,
+    sources_for_budget,
 )
 
 log = logging.getLogger("chorus.script")
@@ -51,25 +92,29 @@ log = logging.getLogger("chorus.script")
 
 class ScriptError(TerminalError):
     """Script synthesis produced nothing usable despite grounded material
-    being available (digest had highlights, zero takes survived parsing) —
+    being available (digest had highlights, no grounded line survived) —
     a model-format/grounding failure, not an honest empty digest. Terminal:
     re-running the same digest through the same broken parse won't change
     the outcome; the caller's degrade path (chorus/pipeline.py) records it
     as "script synthesis failed" rather than silently rendering an empty
     episode."""
 
-# Turn cap sizing (spec: ~150 spoken words/minute, ~35 words/turn) so a long
-# target_minutes can't make pass 2 write an unbounded dialogue.
-SPOKEN_WORDS_PER_MINUTE = 150
-WORDS_PER_TURN = 35
 
-
-def _ts(seconds: float) -> str:
-    return f"{int(seconds) // 60}:{int(seconds) % 60:02d}"
+NOTHING_CLEARED = "Nothing cleared the bar this week."
+SPEAKER_MOVES = ("setup", *TAKE_TYPES)
+# A segment may run somewhat past its line target, never unboundedly.
+LINE_CAP_SLACK = 1.5
+# Capitalized words an uncited line may use without naming anyone.
+_COMMON_CAPITALIZED = frozenset(
+    ["i", "i'm", "i'd", "i've", "i'll", "ok", "okay", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"]
+)
+_WORD_RE = re.compile(r"[A-Za-z][\w'’-]*")
+_DIGIT_RE = re.compile(r"\d")
+_CLAUSE_SPLIT_RE = re.compile(r"(?<=[.!?:;])\s+|[\"“”(—]")
 
 
 def _max_turns(target_minutes: int) -> int:
-    """~150 wpm / ~35 words-per-turn, so a 5-minute episode caps at ~21 turns."""
+    """~150 wpm / ~35 words-per-turn, so a 5-minute episode is about 21 lines."""
     return max(1, round(target_minutes * SPOKEN_WORDS_PER_MINUTE / WORDS_PER_TURN))
 
 
@@ -86,12 +131,12 @@ def _speaker_persona(speaker: SpeakerProfile, soul: str) -> str:
     return soul if speaker.persona == HOST_PERSONA_IS_SOUL else speaker.persona
 
 
-def _style_block(style: ConversationStyle) -> str:
+def _style_block(style: ConversationStyle, target_minutes: int) -> str:
     engagement = ", ".join(style.engagement) if style.engagement else "none specified"
     return (
         f"Tone: {style.tone or 'unspecified'}\n"
         f"Engagement techniques to use: {engagement}\n"
-        f"Target length: ~{style.target_minutes} minute(s)"
+        f"Target length: ~{target_minutes} minute(s)"
     )
 
 
@@ -105,101 +150,607 @@ def _turns_transcript(turns: list[Turn]) -> str:
     """The readable transcript for a dialogue script — what `monologue` holds
     in dialogue format (spec: "HOST: ...\\n\\nCOHOST: ...")."""
     if not turns:
-        return "Nothing cleared the bar this week."
+        return NOTHING_CLEARED
     return "\n\n".join(f"{t.speaker.upper()}: {t.text}" for t in turns)
+
+
+# --- Episode plan -------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class EpisodePlan:
+    """Which sources the episode features, which it only mentions, and how long it runs."""
+
+    featured: list[EpisodeDigest]
+    also_noted: list[EpisodeDigest]
+    target_minutes: int
+
+
+def plan_episode(digest: Digest, profile: EpisodeProfile) -> EpisodePlan:
+    """Pure. An unset `target_minutes` budgets the length from the sources
+    (up to MAX_SOURCES_PER_EPISODE); an explicit one caps how many sources fit."""
+    explicit = profile.style.target_minutes
+    if explicit is None:
+        featured, also_noted = select_sources(digest, MAX_SOURCES_PER_EPISODE)
+        target = budget_minutes(len(featured)) if featured else DEFAULT_TARGET_MINUTES
+    else:
+        featured, also_noted = select_sources(
+            digest, sources_for_budget(explicit, MAX_SOURCES_PER_EPISODE)
+        )
+        target = explicit
+    return EpisodePlan(featured=featured, also_noted=also_noted, target_minutes=target)
+
+
+# --- Line validation ----------------------------------------------------------------
+
+
+class DraftCite(BaseModel):
+    episode_id: str
+    timestamp: float | None = None
+
+
+class DraftLine(BaseModel):
+    """One line as the model returns it, before validation."""
+
+    speaker: str
+    text: str
+    move: str | None = None
+    cites: list[DraftCite] = []
+
+
+@dataclass(frozen=True)
+class LineContext:
+    """What a line may rest on: who may speak, which sources and moments
+    exist, and the vocabulary an uncited line may draw names from."""
+
+    speakers: frozenset[str]
+    citable_ids: frozenset[str]
+    highlights: dict[tuple[str, int], float]
+    vocabulary: frozenset[str]
+
+
+def _normalize_word(word: str) -> str:
+    word = word.lower().replace("’", "'")
+    return word[:-2] if word.endswith("'s") else word
+
+
+def vocabulary_of(*texts: str) -> frozenset[str]:
+    return frozenset(_normalize_word(w) for text in texts for w in _WORD_RE.findall(text))
+
+
+def unknown_names(text: str, vocabulary: frozenset[str]) -> list[str]:
+    """Capitalized words that are not at the start of a clause and do not
+    appear in `vocabulary`: names an uncited line has no grounds to use."""
+    found: list[str] = []
+    for clause in _CLAUSE_SPLIT_RE.split(text):
+        words = _WORD_RE.findall(clause)
+        for word in words[1:]:
+            norm = _normalize_word(word)
+            if word[0].isupper() and norm not in vocabulary and norm not in _COMMON_CAPITALIZED:
+                found.append(word)
+    return found
+
+
+def validate_line(line: DraftLine, ctx: LineContext) -> list[str]:
+    """Every reason `line` can't go in the script, as phrases. Empty means
+    valid. Pure."""
+    problems: list[str] = []
+    if not line.text.strip():
+        problems.append("the text is empty")
+    if line.speaker not in ctx.speakers:
+        problems.append(f"speaker must be one of {sorted(ctx.speakers)}")
+    for cite in line.cites:
+        if cite.episode_id not in ctx.citable_ids:
+            problems.append(f"cites unknown source {cite.episode_id!r}")
+        elif cite.timestamp is not None and (cite.episode_id, round(cite.timestamp)) not in ctx.highlights:
+            problems.append(
+                f"cites timestamp {cite.timestamp:g}, which is not a surfaced moment of "
+                f"{cite.episode_id}; use one of its listed timestamps or null"
+            )
+    if not line.cites:
+        if _DIGIT_RE.search(line.text):
+            problems.append("states a number without citing the source it comes from")
+        names = unknown_names(line.text, ctx.vocabulary)
+        if names:
+            problems.append(
+                f"uses {', '.join(names)} without a citation; cite the source or drop the name"
+            )
+    return problems
+
+
+def _to_turn(line: DraftLine, ctx: LineContext) -> Turn:
+    citations = [
+        Citation(
+            episode_id=c.episode_id,
+            segment_timestamp=(
+                ctx.highlights[(c.episode_id, round(c.timestamp))] if c.timestamp is not None else None
+            ),
+        )
+        for c in line.cites
+    ]
+    anchor = next((c for c in citations if c.segment_timestamp is not None), None)
+    episode_id = anchor.episode_id if anchor else (citations[0].episode_id if citations else None)
+    speaker: Literal["host", "cohost"] = "cohost" if line.speaker == "cohost" else "host"
+    return Turn(
+        speaker=speaker,
+        text=line.text.strip(),
+        episode_id=episode_id,
+        segment_timestamp=anchor.segment_timestamp if anchor else None,
+        citations=citations,
+        move=line.move if line.move in SPEAKER_MOVES else None,
+    )
+
+
+def json_object(body: str) -> Any:
+    """The JSON object in a model reply, tolerating code fences or a stray
+    sentence around it. Raises ValueError when there is none."""
+    start, end = body.find("{"), body.rfind("}")
+    if start == -1 or end <= start:
+        raise ValueError("no JSON object in the reply")
+    return json.loads(body[start : end + 1])
+
+
+def check_lines(body: str, ctx: LineContext) -> tuple[list[Turn], list[str]]:
+    """(valid turns, problems) for one segment reply."""
+    try:
+        data = json_object(body)
+    except ValueError as err:
+        return [], [f"the reply was not a JSON object ({err})"]
+    raw_lines = data.get("lines") if isinstance(data, dict) else None
+    if not isinstance(raw_lines, list):
+        return [], ['the reply has no "lines" array']
+    turns: list[Turn] = []
+    problems: list[str] = []
+    for i, raw in enumerate(raw_lines, start=1):
+        try:
+            line = DraftLine.model_validate(raw)
+        except ValidationError:
+            problems.append(f"line {i} does not have the required fields")
+            continue
+        issues = validate_line(line, ctx)
+        if issues:
+            problems.append(f"line {i} ({line.text[:60]!r}): {'; '.join(issues)}")
+        else:
+            turns.append(_to_turn(line, ctx))
+    return turns, problems
+
+
+# --- Segment requests ---------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SegmentRequest:
+    index: int
+    segment: OutlineSegment
+    outline: EpisodeOutline
+    transcript: list[Turn]
+    is_final: bool
+    target_lines: int
+    briefs: dict[str, SourceBrief]
+    profile: EpisodeProfile
+
+    @property
+    def max_lines(self) -> int:
+        return math.ceil(self.target_lines * LINE_CAP_SLACK)
+
+
+def _source_label(brief: SourceBrief) -> str:
+    return " — ".join(x for x in (brief.show, brief.title) if x) or brief.episode_id
+
+
+def segment_system(
+    plan: EpisodePlan,
+    briefs: list[SourceBrief],
+    outline: EpisodeOutline,
+    profile: EpisodeProfile,
+    soul: str,
+    context: str,
+) -> str:
+    """The part of every segment prompt that never changes within a script,
+    so it can sit in one cached system block."""
+    host = _speaker(profile, "host")
+    if profile.format == "dialogue":
+        cohost = _speaker(profile, "cohost")
+        voices = (
+            f'Two voices. "host" ({host.name}) carries the structure: introductions, '
+            "transitions, the take. "
+            f'"cohost" ({cohost.name}) reacts, presses for specifics and pushes back where the '
+            "material supports it. Alternate naturally; no one speaks more than four sentences "
+            "in a row.\n\n"
+            f"HOST PERSONA:\n{_host_persona(host)}\n\n"
+            f"COHOST PERSONA:\n{_speaker_persona(cohost, soul)}"
+        )
+    else:
+        voices = (
+            f'One voice: every line is spoken by "host" ({host.name}).\n\n'
+            f"HOST PERSONA:\n{_host_persona(host)}"
+        )
+    briefs_json = json.dumps([b.model_dump(mode="json", exclude_none=True) for b in briefs], indent=2)
+    material = "\n\n".join(source_material(ep) for ep in plan.featured)
+    noted = "\n".join(
+        f"- episode_id: {ep.episode_id} | {ep.show or 'unknown show'}: {ep.episode_title or ''}"
+        for ep in plan.also_noted
+    ) or "(none)"
+    outline_json = json.dumps(outline.model_dump(mode="json"), indent=2)
+    return f"""\
+You write a podcast episode for an audience of one listener, one segment at a \
+time. The listener has heard none of the sources. Your job is to make each \
+source clear first and then say something worth hearing about it.
+
+LISTENER LENS (who this is for and how they think):
+{soul}
+
+LISTENER'S CURRENT CONTEXT:
+{context or "(none given)"}
+
+VOICES:
+{voices}
+
+STYLE:
+{_style_block(profile.style, plan.target_minutes)}
+
+SOURCE BRIEFS:
+{briefs_json}
+
+SOURCE MATERIAL (excerpts are cleaned transcript; speaker labels in brackets):
+{material}
+
+ALSO NOTED (mention in the close only, by show and title):
+{noted}
+
+EPISODE OUTLINE:
+{outline_json}
+
+RULES
+1. Context before commentary. The first time a source comes up, before any \
+opinion, tell the listener: the show, who is speaking and why they are worth \
+hearing, when it aired, what the conversation is about, and its core point. \
+Then walk through its key moments in the order they happen. Then give the take.
+2. Name things the way a listener would: by show, person and title. Never say \
+an episode id, a timestamp, "segment" or "highlight".
+3. Paraphrase. Quote only a short, clean sentence that appears in an excerpt, \
+and say who said it.
+4. One idea at a time. Signpost every turn in the argument ("That's the bull \
+case. Here's where it breaks.") so a listener who drifted can rejoin.
+5. Continue from where the transcript stops. Don't reintroduce a source or a \
+speaker who has already been introduced, and don't repeat a point already made.
+6. Stay inside the current segment; later segments are written separately.
+7. Citations. A line that states anything about a source cites it: \
+{{"episode_id": "...", "timestamp": <seconds>}} for a specific moment (use a \
+listed timestamp exactly), or "timestamp": null for facts from its brief \
+(who, what, when, context, thesis). A line with no citations is for framing, \
+transitions and opinion only: it may not contain a number or a name.
+8. Write for the ear: plain spoken sentences, no lists, no markdown, no stage \
+directions, no sound effects."""
+
+
+def _host_persona(host: SpeakerProfile) -> str:
+    if host.persona == HOST_PERSONA_IS_SOUL:
+        return "Speaks as the listener lens above: its interests, convictions and voice."
+    return host.persona
+
+
+def segment_prompt(req: SegmentRequest) -> str:
+    if req.transcript:
+        so_far = "\n".join(f"{t.speaker.upper()}: {t.text}" for t in req.transcript)
+    else:
+        so_far = "(nothing yet: this segment opens the episode)"
+    # A source is introduced by its own source segment, not by a passing
+    # mention in the intro.
+    introduced = {
+        sid
+        for seg in req.outline.segments[: req.index]
+        if seg.kind == "source"
+        for sid in seg.source_ids
+    }
+    notes: list[str] = []
+    for sid in req.segment.source_ids:
+        brief = req.briefs.get(sid)
+        if brief is None:
+            continue
+        if sid in introduced:
+            notes.append(f"{_source_label(brief)} has already been introduced; don't reintroduce it.")
+        elif req.segment.kind == "source":
+            notes.append(
+                f"{_source_label(brief)} has not been introduced yet. Open with who is speaking, "
+                "what the piece is, when it aired, the context and the core point, before any take."
+            )
+    if req.is_final:
+        notes.append("This is the final segment: close the episode.")
+    else:
+        notes.append("Stop at the end of this segment; the next segment continues from here.")
+    speakers = "host" if req.profile.format != "dialogue" else "host|cohost"
+    segment_json = json.dumps(req.segment.model_dump(mode="json"), indent=2)
+    return (
+        f"TRANSCRIPT SO FAR:\n{so_far}\n\n"
+        f"NOW WRITE SEGMENT {req.index + 1} OF {len(req.outline.segments)}:\n{segment_json}\n\n"
+        f"Write about {req.target_lines} lines, at most {req.max_lines}. "
+        + " ".join(notes)
+        + "\n\nReply with ONLY a JSON object, no prose and no code fences:\n"
+        f'{{"lines": [{{"speaker": "{speakers}", "text": "...", '
+        f'"move": "{"|".join(SPEAKER_MOVES)}", '
+        '"cites": [{"episode_id": "...", "timestamp": <seconds or null>}]}]}'
+    )
+
+
+def repair_prompt(problems: list[str]) -> str:
+    listed = "\n".join(f"- {p}" for p in problems)
+    return (
+        f"Some lines can't be used:\n{listed}\n\n"
+        "Rewrite the whole segment with these fixed, keeping everything else. Reply with ONLY "
+        'the corrected JSON object ({"lines": [...]}).'
+    )
+
+
+def line_context(
+    plan: EpisodePlan, briefs: list[SourceBrief], profile: EpisodeProfile, soul: str, context: str
+) -> LineContext:
+    sources = [*plan.featured, *plan.also_noted]
+    highlights = {
+        (h.episode_id, round(h.segment_timestamp)): h.segment_timestamp
+        for ep in sources
+        for h in ep.highlights
+    }
+    speakers = frozenset(s.role for s in profile.speakers)
+    texts = [
+        soul,
+        context,
+        *(s.name for s in profile.speakers),
+        *(s.persona for s in profile.speakers),
+        *(b.model_dump_json() for b in briefs),
+        *(source_material(ep) for ep in sources),
+    ]
+    return LineContext(
+        speakers=speakers,
+        citable_ids=frozenset(ep.episode_id for ep in sources),
+        highlights=highlights,
+        vocabulary=vocabulary_of(*texts),
+    )
+
+
+def _takes_from(turns: list[Turn]) -> list[Take]:
+    """`Script.takes` (kept for API and email callers): every line anchored to a highlight."""
+    return [
+        Take(
+            text=t.text,
+            take_type=t.move if t.move in TAKE_TYPES else "idea",
+            episode_id=t.episode_id,
+            segment_timestamp=t.segment_timestamp,
+        )
+        for t in turns
+        if t.episode_id is not None and t.segment_timestamp is not None
+    ]
+
+
+def _briefs_in_outline_order(briefs: list[SourceBrief], outline: EpisodeOutline) -> list[SourceBrief]:
+    order = [s.source_ids[0] for s in outline.segments if s.kind == "source" and s.source_ids]
+    rank = {sid: i for i, sid in enumerate(order)}
+    return sorted(briefs, key=lambda b: rank.get(b.episode_id, len(rank)))
+
+
+# --- Composers ----------------------------------------------------------------------
 
 
 @runtime_checkable
 class ScriptComposer(Protocol):
-    def write_script(
+    def write_briefs(
         self, digest: Digest, soul: str, context: str, profile: EpisodeProfile | None = None
+    ) -> list[SourceBrief]: ...
+
+    def write_outline(
+        self,
+        digest: Digest,
+        briefs: list[SourceBrief],
+        soul: str,
+        context: str,
+        profile: EpisodeProfile | None = None,
+    ) -> EpisodeOutline: ...
+
+    def write_script(
+        self,
+        digest: Digest,
+        soul: str,
+        context: str,
+        profile: EpisodeProfile | None = None,
+        *,
+        briefs: list[SourceBrief] | None = None,
+        outline: EpisodeOutline | None = None,
     ) -> Script: ...
 
 
-class MockScriptComposer:
-    """Deterministic: one take per highlight (pass 1), take_type cycled,
-    traceable by construction. For dialogue profiles, pass 2 deterministically
-    alternates host/cohost per beat: the host states the take, the cohost
-    pushes back citing the SAME highlight (so every turn stays traceable)."""
+class _SegmentedComposer:
+    """The brief -> outline -> segment loop. Subclasses supply how each brief,
+    the outline and each segment's lines are produced; the orchestration,
+    budgeting and assembly are shared so the mock and the real composer can't
+    drift apart."""
+
+    # -- hooks -------------------------------------------------------------------
+
+    def _brief(self, episode: EpisodeDigest) -> SourceBrief:
+        raise NotImplementedError
+
+    def _outline(
+        self,
+        briefs: list[SourceBrief],
+        plan: EpisodePlan,
+        soul: str,
+        context: str,
+        profile: EpisodeProfile,
+    ) -> EpisodeOutline:
+        raise NotImplementedError
+
+    def _segment(self, req: SegmentRequest, system: str, ctx: LineContext) -> list[Turn]:
+        raise NotImplementedError
+
+    # -- public API ----------------------------------------------------------------
+
+    def write_briefs(
+        self, digest: Digest, soul: str, context: str, profile: EpisodeProfile | None = None
+    ) -> list[SourceBrief]:
+        plan = plan_episode(digest, profile or MONOLOGUE_PROFILE)
+        return [self._brief(ep) for ep in plan.featured]
+
+    def write_outline(
+        self,
+        digest: Digest,
+        briefs: list[SourceBrief],
+        soul: str,
+        context: str,
+        profile: EpisodeProfile | None = None,
+    ) -> EpisodeOutline:
+        profile = profile or MONOLOGUE_PROFILE
+        plan = plan_episode(digest, profile)
+        if not briefs:
+            return EpisodeOutline(segments=[], also_noted=[ep.episode_id for ep in plan.also_noted])
+        return self._outline(briefs, plan, soul, context, profile)
 
     def write_script(
-        self, digest: Digest, soul: str, context: str, profile: EpisodeProfile | None = None
+        self,
+        digest: Digest,
+        soul: str,
+        context: str,
+        profile: EpisodeProfile | None = None,
+        *,
+        briefs: list[SourceBrief] | None = None,
+        outline: EpisodeOutline | None = None,
     ) -> Script:
         profile = profile or MONOLOGUE_PROFILE
-        takes = self._takes(digest)
-        monologue_text = self._monologue(takes)
         voices = _voices_for(profile)
-
-        if profile.format != "dialogue":
+        plan = plan_episode(digest, profile)
+        if not plan.featured:
             return Script(
                 soul_version=digest.soul_version,
-                takes=takes,
-                monologue=monologue_text,
+                takes=[],
+                monologue=NOTHING_CLEARED,
                 format=profile.format,
                 voices=voices,
             )
+        if briefs is None:
+            briefs = self.write_briefs(digest, soul, context, profile)
+        if outline is None:
+            outline = self.write_outline(digest, briefs, soul, context, profile)
+        briefs = _briefs_in_outline_order(briefs, outline)
 
-        turns = self._turns(takes)
+        ctx = line_context(plan, briefs, profile, soul, context)
+        system = segment_system(plan, briefs, outline, profile, soul, context)
+        by_id = {b.episode_id: b for b in briefs}
+        targets = segment_turn_targets(outline, plan.target_minutes)
+        turns: list[Turn] = []
+        for i, (segment, target) in enumerate(zip(outline.segments, targets, strict=True)):
+            req = SegmentRequest(
+                index=i,
+                segment=segment,
+                outline=outline,
+                transcript=list(turns),
+                is_final=i == len(outline.segments) - 1,
+                target_lines=target,
+                briefs=by_id,
+                profile=profile,
+            )
+            turns.extend(self._segment(req, system, ctx)[: req.max_lines])
+
+        if not any(t.citations for t in turns):
+            # R20: there was grounded material, but nothing grounded survived.
+            raise ScriptError(
+                f"script: {len(digest.highlights)} highlight(s) available but no grounded "
+                "line survived validation"
+            )
+        if profile.format == "dialogue":
+            text = _turns_transcript(turns)
+        else:
+            text = "\n\n".join(t.text for t in turns)
         return Script(
             soul_version=digest.soul_version,
-            takes=takes,
-            monologue=_turns_transcript(turns),
+            takes=_takes_from(turns),
+            monologue=text,
             turns=turns,
-            format="dialogue",
+            format=profile.format,
             voices=voices,
+            briefs=briefs,
+            outline=outline,
         )
 
-    @staticmethod
-    def _takes(digest: Digest) -> list[Take]:
-        takes: list[Take] = []
-        for i, h in enumerate(digest.highlights):
+
+class MockScriptComposer(_SegmentedComposer):
+    """Deterministic, offline. Same structure as the real composer: an intro,
+    a setup line per source citing its brief, one line per highlight citing
+    it (a cohost follow-up on each in dialogue), a connection line and a close."""
+
+    def _brief(self, episode: EpisodeDigest) -> SourceBrief:
+        return mock_brief(episode)
+
+    def _outline(
+        self,
+        briefs: list[SourceBrief],
+        plan: EpisodePlan,
+        soul: str,
+        context: str,
+        profile: EpisodeProfile,
+    ) -> EpisodeOutline:
+        return mock_outline(briefs, [ep.episode_id for ep in plan.also_noted])
+
+    def _segment(self, req: SegmentRequest, system: str, ctx: LineContext) -> list[Turn]:
+        seg = req.segment
+        briefs = [req.briefs[sid] for sid in seg.source_ids if sid in req.briefs]
+        brief_cites = [Citation(episode_id=b.episode_id) for b in briefs]
+        if seg.kind == "intro":
+            labels = "; ".join(_source_label(b) for b in briefs)
+            return [Turn(speaker="host", text=f"Today: {labels}.", citations=brief_cites, move="setup",
+                         episode_id=briefs[0].episode_id if briefs else None)]
+        if seg.kind == "connection":
+            return [Turn(speaker="host", text="What connects these is worth a minute.",
+                         citations=brief_cites, move="connection",
+                         episode_id=briefs[0].episode_id if briefs else None)]
+        if seg.kind == "close":
+            return [Turn(speaker="host", text="That's the episode.")]
+        brief = briefs[0]
+        published = brief.published_at.strftime("%d %b %Y") if brief.published_at else "recently"
+        out = [
+            Turn(
+                speaker="host",
+                text=f"From {_source_label(brief)}, published {published}. {brief.context} "
+                f"The core point: {brief.thesis}",
+                episode_id=brief.episode_id,
+                citations=[Citation(episode_id=brief.episode_id)],
+                move="setup",
+            )
+        ]
+        for i, point in enumerate(brief.key_points):
             take_type = TAKE_TYPES[i % len(TAKE_TYPES)]
-            label = h.episode_title or h.episode_id
-            text = f"[{take_type}] On {label} at {_ts(h.segment_timestamp)} — {h.quote}"
-            takes.append(
-                Take(
-                    text=text,
-                    take_type=take_type,
-                    episode_id=h.episode_id,
-                    segment_timestamp=h.segment_timestamp,
-                )
-            )
-        return takes
-
-    @staticmethod
-    def _monologue(takes: list[Take]) -> str:
-        return (
-            "\n\n".join(t.text for t in takes)
-            if takes
-            else "Nothing cleared the bar this week."
-        )
-
-    @staticmethod
-    def _turns(takes: list[Take]) -> list[Turn]:
-        turns: list[Turn] = []
-        for t in takes:
-            turns.append(
-                Turn(speaker="host", text=t.text, episode_id=t.episode_id, segment_timestamp=t.segment_timestamp)
-            )
-            turns.append(
+            cite = Citation(episode_id=brief.episode_id, segment_timestamp=point.segment_timestamp)
+            out.append(
                 Turn(
-                    speaker="cohost",
-                    text=f"Where's the number on that? [{t.take_type}] I'll push back: {t.text}",
-                    episode_id=t.episode_id,
-                    segment_timestamp=t.segment_timestamp,
+                    speaker="host",
+                    text=f"[{take_type}] At {format_timestamp(point.segment_timestamp)}: {point.text}",
+                    episode_id=brief.episode_id,
+                    segment_timestamp=point.segment_timestamp,
+                    citations=[cite],
+                    move=take_type,
                 )
             )
-        return turns
+            if req.profile.format == "dialogue":
+                out.append(
+                    Turn(
+                        speaker="cohost",
+                        text="Where's the number on that?",
+                        episode_id=brief.episode_id,
+                        segment_timestamp=point.segment_timestamp,
+                        citations=[cite],
+                        move="pushback",
+                    )
+                )
+        return out
 
 
-class AnthropicScriptComposer:
-    """Real opinionated script (Claude Sonnet). Activated when a key is
-    present. `client` is injectable so the parsing paths are unit-testable
+class AnthropicScriptComposer(_SegmentedComposer):
+    """Real script (Claude Sonnet). Activated when a key is present. `client`
+    is injectable so every parsing and validation path is unit-testable
     without a key (same pattern as chorus.llm.AnthropicLLMClient)."""
 
     MODEL = "claude-sonnet-4-6"
-    TAKES_MAX_TOKENS = 1500
-    TURNS_MAX_TOKENS = 2500
+    BRIEF_MAX_TOKENS = 1500
+    OUTLINE_MAX_TOKENS = 2500
+    SEGMENT_MAX_TOKENS = 4000
 
     def __init__(self, api_key: str | None = None, client: Any | None = None) -> None:
         if client is None:
@@ -208,148 +759,93 @@ class AnthropicScriptComposer:
             client = anthropic.Anthropic(api_key=api_key)
         self._client: Any = client
 
-    def _create(self, prompt: str, max_tokens: int) -> str:
+    def _create(self, system: str, messages: list[dict[str, str]], max_tokens: int) -> str:
         msg = self._client.messages.create(
             model=self.MODEL,
             max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
+            # Cached: identical across every segment call of one script.
+            system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+            messages=messages,
         )
         return "".join(b.text for b in msg.content if b.type == "text")
 
-    def write_script(
-        self, digest: Digest, soul: str, context: str, profile: EpisodeProfile | None = None
-    ) -> Script:
-        profile = profile or MONOLOGUE_PROFILE
-        takes = self._write_takes(digest, soul, context)
-        if digest.highlights and not takes:
-            # R20: the digest had grounded material; zero takes surviving
-            # parsing means the model's reply was empty, ungrounded, or
-            # malformed — not an honest editorial "nothing cleared the bar".
-            raise ScriptError(
-                f"script: {len(digest.highlights)} highlight(s) available but zero grounded "
-                "takes survived parsing"
-            )
-        monologue_text = "\n\n".join(t.text for t in takes) if takes else "Nothing cleared the bar."
-        voices = _voices_for(profile)
-
-        if profile.format != "dialogue":
-            return Script(
-                soul_version=digest.soul_version,
-                takes=takes,
-                monologue=monologue_text,
-                format=profile.format,
-                voices=voices,
-            )
-
-        turns = self._write_turns(digest, soul, context, profile, takes)
-        return Script(
-            soul_version=digest.soul_version,
-            takes=takes,
-            monologue=_turns_transcript(turns),
-            turns=turns,
-            format="dialogue",
-            voices=voices,
-        )
-
-    # -- pass 1: beats (unchanged from single-voice) ------------------------
-
-    def _write_takes(self, digest: Digest, soul: str, context: str) -> list[Take]:
-        hl_lines = "\n".join(
-            f"- id={h.episode_id} ts={h.segment_timestamp} :: {h.quote}" for h in digest.highlights
-        )
-        prompt = (
-            f"You are this lens:\n{soul}\n\nPRINCIPAL CONTEXT:\n{context}\n\n"
-            "Write a short, opinionated single-voice podcast monologue. Take a "
-            "position, push back, connect episodes. EVERY beat must be grounded in "
-            "one of these highlights. Output one beat per line as "
-            "'TAKE|<type>|<episode_id>|<ts>|<text>' where type is one of "
-            f"{', '.join(TAKE_TYPES)}.\n\nHIGHLIGHTS:\n{hl_lines}"
-        )
-        body = self._create(prompt, self.TAKES_MAX_TOKENS)
-        valid = {(h.episode_id, round(h.segment_timestamp)) for h in digest.highlights}
-        takes: list[Take] = []
-        for line in body.splitlines():
-            m = re.match(r"TAKE\|([^|]+)\|([^|]+)\|([0-9.]+)\|(.+)", line.strip())
-            if not m:
-                continue
-            tt, eid, ts_str, text = m.group(1).strip(), m.group(2).strip(), m.group(3), m.group(4)
-            try:
-                ts = float(ts_str)
-            except ValueError:
-                log.warning("script: take has unparseable timestamp %r; skipped", ts_str)
-                continue
-            if tt in TAKE_TYPES and (eid, round(ts)) in valid:  # drop ungrounded takes
-                takes.append(Take(text=text, take_type=tt, episode_id=eid, segment_timestamp=ts))
-            else:
-                log.info("script: dropped ungrounded take (episode_id=%s ts=%s)", eid, ts)
-        return takes
-
-    # -- pass 2: beats -> dialogue turns (dialogue format only) -------------
-
-    def _write_turns(
-        self, digest: Digest, soul: str, context: str, profile: EpisodeProfile, takes: list[Take]
-    ) -> list[Turn]:
-        if not takes:
-            return []
-        max_turns = _max_turns(profile.style.target_minutes)
-        prompt = self._turns_prompt(soul, context, profile, takes, max_turns)
-        body = self._create(prompt, self.TURNS_MAX_TOKENS)
-        valid = {(h.episode_id, round(h.segment_timestamp)) for h in digest.highlights}
-        return _parse_turns(body, valid, max_turns)
-
-    @staticmethod
-    def _turns_prompt(
-        soul: str, context: str, profile: EpisodeProfile, takes: list[Take], max_turns: int
-    ) -> str:
-        host = _speaker(profile, "host")
-        cohost = _speaker(profile, "cohost")
-        beats = "\n".join(
-            f"- id={t.episode_id} ts={t.segment_timestamp} type={t.take_type} :: {t.text}" for t in takes
-        )
-        return (
-            f"PRINCIPAL CONTEXT:\n{context}\n\n"
-            f"HOST ({host.name}) persona:\n{_speaker_persona(host, soul)}\n\n"
-            f"COHOST ({cohost.name}) persona:\n{_speaker_persona(cohost, soul)}\n\n"
-            f"CONVERSATION STYLE:\n{_style_block(profile.style)}\n\n"
-            "Turn these beats into a two-host dialogue: the host raises each beat in "
-            "their own voice, the cohost reacts in theirs (push back, ask for the "
-            "number, agree when it's warranted), honoring the conversation style "
-            "above. EVERY turn must be grounded in one of the beats below — do not "
-            f"introduce claims the beats don't support. Write at most {max_turns} "
-            "turns total. Output one turn per line as "
-            "'TURN|<host|cohost>|<episode_id>|<ts>|<text>'.\n\n"
-            f"BEATS:\n{beats}"
-        )
-
-
-_TURN_RE = re.compile(r"TURN\|(host|cohost)\|([^|]+)\|([^|]+)\|(.+)")
-
-
-def _parse_turns(body: str, valid: set[tuple[str, int]], max_turns: int) -> list[Turn]:
-    """Parse 'TURN|<host|cohost>|<episode_id>|<ts>|<text>' lines. Ungrounded
-    turns are dropped (logged); a malformed timestamp is skipped (logged),
-    never raised — the whole reply must never fail the job over one bad line."""
-    turns: list[Turn] = []
-    for line in body.splitlines():
-        m = _TURN_RE.match(line.strip())
-        if not m:
-            continue
-        # _TURN_RE's first group only ever matches "host" or "cohost", but
-        # that's not visible to mypy from a regex match — narrow explicitly.
-        speaker: Literal["host", "cohost"] = "host" if m.group(1) == "host" else "cohost"
-        eid, ts_str, text = m.group(2).strip(), m.group(3).strip(), m.group(4)
+    def _ask_with_retry(self, system: str, user: str, max_tokens: int, parse: Any) -> Any:
+        """One call, and one retry that shows the model why its reply failed.
+        Raises the parse error if the retry fails too."""
+        messages = [{"role": "user", "content": user}]
+        body = self._create(system, messages, max_tokens)
         try:
-            ts = float(ts_str)
-        except ValueError:
-            log.warning("script: dialogue turn has unparseable timestamp %r; skipped", ts_str)
-            continue
-        if (eid, round(ts)) not in valid:
-            log.info("script: dropped ungrounded dialogue turn (episode_id=%s ts=%s)", eid, ts)
-            continue
-        turns.append(Turn(speaker=speaker, text=text, episode_id=eid, segment_timestamp=ts))
-        if len(turns) >= max_turns:
-            break
-    return turns
+            return parse(json_object(body))
+        except ValueError as err:
+            log.info("script: reply unusable, retrying once with feedback (%s)", err)
+            messages += [
+                {"role": "assistant", "content": body},
+                {
+                    "role": "user",
+                    "content": f"That reply can't be used: {err}. Reply again with ONLY the "
+                    "corrected JSON object.",
+                },
+            ]
+            return parse(json_object(self._create(system, messages, max_tokens)))
+
+    def _brief(self, episode: EpisodeDigest) -> SourceBrief:
+        try:
+            brief: SourceBrief = self._ask_with_retry(
+                BRIEF_SYSTEM,
+                brief_prompt(episode),
+                self.BRIEF_MAX_TOKENS,
+                lambda data: parse_brief(data, episode),
+            )
+            return brief
+        except (ValueError, BriefError) as err:
+            log.warning("script: brief for %s unusable twice (%s); using metadata", episode.episode_id, err)
+            return mock_brief(episode)
+
+    def _outline(
+        self,
+        briefs: list[SourceBrief],
+        plan: EpisodePlan,
+        soul: str,
+        context: str,
+        profile: EpisodeProfile,
+    ) -> EpisodeOutline:
+        featured_ids = [b.episode_id for b in briefs]
+        also_noted = [ep.episode_id for ep in plan.also_noted]
+        system = (
+            "You plan podcast episodes for an audience of one listener. You decide what each "
+            "segment must establish and in what order, so the episode is linear: every source "
+            "is introduced before it is discussed, and every connection comes after the "
+            f"sources it connects.\n\nLISTENER LENS:\n{soul}\n\nLISTENER'S CURRENT CONTEXT:\n"
+            f"{context or '(none given)'}"
+        )
+        try:
+            outline: EpisodeOutline = self._ask_with_retry(
+                system,
+                outline_prompt(briefs, plan.also_noted, plan.target_minutes),
+                self.OUTLINE_MAX_TOKENS,
+                lambda data: parse_outline(data, featured_ids, also_noted),
+            )
+            return outline
+        except (ValueError, OutlineError) as err:
+            log.warning("script: outline unusable twice (%s); using the default structure", err)
+            return mock_outline(briefs, also_noted)
+
+    def _segment(self, req: SegmentRequest, system: str, ctx: LineContext) -> list[Turn]:
+        messages = [{"role": "user", "content": segment_prompt(req)}]
+        body = self._create(system, messages, self.SEGMENT_MAX_TOKENS)
+        turns, problems = check_lines(body, ctx)
+        if not problems:
+            return turns
+        log.info("script: segment %d had %d problem(s); asking once for a fix", req.index + 1, len(problems))
+        messages += [
+            {"role": "assistant", "content": body},
+            {"role": "user", "content": repair_prompt(problems)},
+        ]
+        repaired, still = check_lines(self._create(system, messages, self.SEGMENT_MAX_TOKENS), ctx)
+        for problem in still:
+            log.info("script: segment %d dropped after repair: %s", req.index + 1, problem)
+        # A repair that came back unparseable must not erase the valid first draft.
+        return repaired if repaired else turns
 
 
 def get_script_composer() -> ScriptComposer:

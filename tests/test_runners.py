@@ -51,7 +51,10 @@ def test_background_runner_with_no_background_tasks_runs_on_daemon_thread(tmp_pa
 
     deadline = time.monotonic() + 5.0
     job = store.get(job_id)
-    while job is not None and job.status == JobStatus.queued and time.monotonic() < deadline:
+    # Wait for a terminal state: stopping at the first non-queued status
+    # can catch the job mid-run and fail the done assertion.
+    terminal = {JobStatus.done, JobStatus.failed}
+    while job is not None and job.status not in terminal and time.monotonic() < deadline:
         time.sleep(0.02)
         job = store.get(job_id)
     assert job is not None

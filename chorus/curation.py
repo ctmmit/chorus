@@ -9,6 +9,8 @@ bar"), never given an invented reason.
 from __future__ import annotations
 
 import hashlib
+import re
+from typing import Any
 
 from chorus.llm import LLMClient, TokenUsage
 from chorus.models import (
@@ -26,14 +28,60 @@ RELEVANCE_THRESHOLD = 0.35
 WINDOW_SECONDS = 90
 QUOTE_WORDS = 28
 REFUSAL = "nothing cleared the relevance bar"
+# The opening of an episode is where hosts name themselves and their guest;
+# the script stage's source brief reads this much of it.
+BRIEF_INTRO_SECONDS = 300
+MAX_INTRO_EXCERPT_CHARS = 6_000
+
+# Spoken filler that carries no meaning in a written excerpt. Deliberately
+# narrow: "like" and "you know" are sometimes load-bearing.
+_FILLER_RE = re.compile(r"\b(?:u+m+|u+h+|e+r+m+|h+m+|m+h*m+)\b[,.]?\s*", re.IGNORECASE)
+_TURN_MARKER_RE = re.compile(r">>+")
+_REPEATED_WORD_RE = re.compile(r"\b(\w+)(?:\s+\1\b)+", re.IGNORECASE)
+_SPACE_BEFORE_PUNCT_RE = re.compile(r"\s+([,.;:!?])")
+
+
+def clean_spoken_text(text: str) -> str:
+    """Make transcript text readable without changing what was said: drop
+    filler ("um", "uh"), caption turn markers (">>") and stuttered repeats
+    ("the the"), and normalize spacing. Pure; used for excerpts the script
+    reads, never for `quote` (which must match the transcript verbatim)."""
+    text = _TURN_MARKER_RE.sub(" ", text)
+    text = _FILLER_RE.sub("", text)
+    text = _REPEATED_WORD_RE.sub(r"\1", text)
+    text = " ".join(text.split())
+    return _SPACE_BEFORE_PUNCT_RE.sub(r"\1", text)
+
+
+def labeled_text(segments: list[Segment]) -> str:
+    """Join segments, prefixing a `[speaker]` label whenever the speaker
+    changes (when the source knows who is speaking), then clean the result."""
+    parts: list[str] = []
+    current: str | None = None
+    for seg in segments:
+        if seg.speaker and seg.speaker != current:
+            parts.append(f"[{seg.speaker}]")
+            current = seg.speaker
+        parts.append(seg.text)
+    return clean_spoken_text(" ".join(parts))
+
+
+def intro_excerpt(segments: list[Segment], seconds: int = BRIEF_INTRO_SECONDS) -> str:
+    text = labeled_text([s for s in segments if s.start < seconds])
+    return text[:MAX_INTRO_EXCERPT_CHARS]
 
 
 class _Window:
-    __slots__ = ("start", "text")
+    __slots__ = ("start", "text", "segments")
 
-    def __init__(self, start: float, text: str) -> None:
+    def __init__(self, start: float, segment: Segment) -> None:
         self.start = start
-        self.text = text
+        self.text = segment.text
+        self.segments = [segment]
+
+    def add(self, segment: Segment) -> None:
+        self.text += " " + segment.text
+        self.segments.append(segment)
 
 
 def window_segments(segments: list[Segment], window: int = WINDOW_SECONDS) -> list[_Window]:
@@ -41,10 +89,10 @@ def window_segments(segments: list[Segment], window: int = WINDOW_SECONDS) -> li
     cur: _Window | None = None
     for s in segments:
         if cur is None or s.start - cur.start >= window:
-            cur = _Window(s.start, s.text)
+            cur = _Window(s.start, s)
             out.append(cur)
         else:
-            cur.text += " " + s.text
+            cur.add(s)
     return out
 
 
@@ -85,6 +133,7 @@ def curate_episode(
         raise ValueError(f"max_highlights must be >= 1, got {max_highlights}")
     transcript = resolved.transcript
     title = resolved.episode.title
+    show = resolved.episode.show
     duration = transcript.segments[-1].start if transcript.segments else None
     scored: list[tuple[float, str, _Window]] = []
     windows: list[WindowScore] = []
@@ -109,6 +158,7 @@ def curate_episode(
             refusal_reason=REFUSAL,
             duration_seconds=duration,
             windows=windows,
+            **_source_metadata(resolved),
         )
 
     scored.sort(key=lambda t: t[0], reverse=True)
@@ -120,6 +170,8 @@ def curate_episode(
             quote=_quote(w.text),
             relevance_score=round(score, 3),
             why_surface=reason,
+            show=show,
+            excerpt=labeled_text(w.segments),
         )
         for score, reason, w in scored[:max_highlights]
     ]
@@ -129,7 +181,19 @@ def curate_episode(
         highlights=highlights,
         duration_seconds=duration,
         windows=windows,
+        **_source_metadata(resolved),
     )
+
+
+def _source_metadata(resolved: ResolvedEpisode) -> dict[str, Any]:
+    """What the script stage needs to introduce this source before commenting on it."""
+    episode = resolved.episode
+    return {
+        "show": episode.show,
+        "published_at": episode.published_at,
+        "description": episode.description,
+        "intro_excerpt": intro_excerpt(resolved.transcript.segments),
+    }
 
 
 def build_digest(

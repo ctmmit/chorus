@@ -215,16 +215,7 @@ def _split_long_turn(turn: Turn, max_chars: int) -> list[Turn]:
     if current:
         pieces.append(current)
 
-    return [
-        Turn(
-            speaker=turn.speaker,
-            text=piece,
-            episode_id=turn.episode_id,
-            segment_timestamp=turn.segment_timestamp,
-        )
-        for piece in pieces
-        if piece
-    ]
+    return [turn.model_copy(update={"text": piece}) for piece in pieces if piece]
 
 
 def _chunk_turns(turns: list[Turn], max_chars: int) -> list[list[Turn]]:

@@ -72,3 +72,62 @@ def test_ungrounded_episode_refuses(client: MockLLMClient) -> None:
     assert ep.refused
     assert ep.refusal_reason == REFUSAL
     assert ep.highlights == []
+
+
+# --- Excerpts and source metadata for the script stage -------------------------------
+
+
+@pytest.mark.parametrize(
+    ("raw", "clean"),
+    [
+        (">> So um, the the thing is, uh, margins are are expanding .", "So the thing is, margins are expanding."),
+        ("Hmm. Mhm, right.", "right."),
+        ("Humble umbrella, uhh, ermine.", "Humble umbrella, ermine."),
+        ("  spaced   out  ", "spaced out"),
+    ],
+)
+def test_clean_spoken_text(raw: str, clean: str) -> None:
+    from chorus.curation import clean_spoken_text
+
+    assert clean_spoken_text(raw) == clean
+
+
+def test_labeled_text_marks_speaker_changes_only() -> None:
+    from chorus.curation import intro_excerpt, labeled_text
+    from chorus.models import Segment
+
+    segments = [
+        Segment(start=0, text="Welcome back.", speaker="Harry"),
+        Segment(start=5, text="Today, um, Marc is here.", speaker="Harry"),
+        Segment(start=200, text="Thanks for having me.", speaker="Marc"),
+        Segment(start=400, text="Late line.", speaker="Marc"),
+    ]
+    assert labeled_text(segments) == (
+        "[Harry] Welcome back. Today, Marc is here. [Marc] Thanks for having me. Late line."
+    )
+    assert labeled_text([Segment(start=0, text="No labels here.")]) == "No labels here."
+    assert intro_excerpt(segments) == "[Harry] Welcome back. Today, Marc is here. [Marc] Thanks for having me."
+
+
+def test_curated_episode_carries_metadata_and_clean_excerpts() -> None:
+    from datetime import UTC, datetime
+
+    from chorus.models import ResolvedEpisode
+
+    published = datetime(2026, 9, 30, tzinfo=UTC)
+    episode = EpisodeInput(
+        video_id=ANDREESSEN, show="a16z", title="The Future", published_at=published, description="Notes."
+    )
+    transcript = FixtureTranscriptProvider().get(EpisodeInput(video_id=ANDREESSEN))
+    digest = curate_episode(
+        ResolvedEpisode(episode=episode, transcript=transcript),
+        _soul("soul_investor.md"),
+        _context(),
+        MockLLMClient(),
+    )
+    assert (digest.show, digest.published_at, digest.description) == ("a16z", published, "Notes.")
+    assert digest.intro_excerpt
+    for h in digest.highlights:
+        assert h.show == "a16z"
+        assert h.excerpt and " um " not in f" {h.excerpt} " and ">>" not in h.excerpt
+        assert citation_resolves(transcript, h.segment_timestamp, h.quote)

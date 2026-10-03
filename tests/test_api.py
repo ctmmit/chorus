@@ -61,8 +61,9 @@ def test_full_lifecycle_reaches_done(client: TestClient) -> None:
 
 
 def test_two_host_profile_lifecycle_reaches_done_with_dialogue_script(client: TestClient) -> None:
-    # §8 row E exit criterion: two-host episode renders; every turn resolves
-    # to a highlight; single-voice (the fixture above) still passes.
+    # §8 row E exit criterion: two-host episode renders; every citation
+    # resolves to a highlight or to a digested source's brief; single-voice
+    # (the fixture above) still passes.
     payload = _payload(ANDREESSEN)
     payload["profile"] = TWO_HOST_PROFILE.model_dump()
     job_id = client.post("/digest", json=payload).json()["job_id"]
@@ -76,8 +77,15 @@ def test_two_host_profile_lifecycle_reaches_done_with_dialogue_script(client: Te
         for ep in body["digest"]["episodes"]
         for h in ep["highlights"]
     }
+    episodes = {ep["episode_id"] for ep in body["digest"]["episodes"]}
     for turn in body["script"]["turns"]:
-        assert (turn["episode_id"], round(turn["segment_timestamp"])) in valid
+        for cite in turn["citations"]:
+            if cite["segment_timestamp"] is None:
+                assert cite["episode_id"] in episodes
+            else:
+                assert (cite["episode_id"], round(cite["segment_timestamp"])) in valid
+    assert any(c["segment_timestamp"] is not None for t in body["script"]["turns"] for c in t["citations"])
+    assert body["script"]["briefs"] and body["script"]["outline"]
     assert body["audio_url"]
 
 
@@ -107,7 +115,7 @@ class _RaisingLLM:
 
 
 class _RaisingComposer:
-    def write_script(self, digest, soul, context):  # type: ignore[no-untyped-def]
+    def write_briefs(self, digest, soul, context, profile=None):  # type: ignore[no-untyped-def]
         raise RuntimeError("simulated composer outage")
 
 

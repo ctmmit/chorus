@@ -266,7 +266,12 @@ def test_youtube_atom_entries_become_video_id_episodes(monkeypatch: pytest.Monke
         YoutubeSource(kind="youtube", channel_id=CHANNEL), datetime(2026, 9, 1, tzinfo=UTC), 10
     )
     assert [e.title for e in out] == ["Newer", "Older"]
-    assert out[0].episode == EpisodeInput(video_id="BBBBBBBBBBB", show="Lex Clips", title="Newer")
+    assert out[0].episode == EpisodeInput(
+        video_id="BBBBBBBBBBB",
+        show="Lex Clips",
+        title="Newer",
+        published_at=datetime(2026, 9, 30, 10, 0, tzinfo=UTC),
+    )
     assert out[0].source_title == "Lex Clips"
     assert out[0].published_at == datetime(2026, 9, 30, 10, 0, tzinfo=UTC)
     assert web.calls == [YT_FEED]
@@ -462,3 +467,49 @@ def test_window_running_past_the_prefix_triggers_a_full_read(
     eps = feeds.list_recent_episodes(source, _NOW - timedelta(days=5_000), limit=1_400)
     assert len(eps) == 1_400  # more than the prefix holds
     assert web.calls == [_BIG_URL, _BIG_URL]
+
+
+# --- Source context for the script stage -------------------------------------------
+
+
+def test_rss_item_carries_plain_text_show_notes_and_date() -> None:
+    import xml.etree.ElementTree as ET
+
+    from chorus.feeds import parse_rss
+
+    notes = "&lt;p&gt;Marc Andreessen joins &lt;b&gt;Harry&lt;/b&gt; to talk venture &amp;amp; AI.&lt;/p&gt;"
+    item = (
+        f"<item><title>Ep</title><guid>g</guid><pubDate>{rfc2822(NOW)}</pubDate>"
+        f"<description>{notes}</description></item>"
+    )
+    parsed = parse_rss(ET.fromstring(rss_feed("20VC", [item])), FEED)
+
+    episode = parsed.episodes[0].episode
+    assert episode.description == "Marc Andreessen joins Harry to talk venture & AI."
+    assert episode.published_at == parsed.episodes[0].published_at
+    assert episode.show == "20VC"
+
+
+def test_youtube_entry_carries_media_description() -> None:
+    import xml.etree.ElementTree as ET
+
+    from chorus.feeds import parse_youtube_atom
+
+    entry = (
+        '<entry xmlns:media="http://search.yahoo.com/mrss/"><yt:videoId>AAAAAAAAAAA</yt:videoId>'
+        "<title>T</title><published>2026-09-20T10:00:00+00:00</published>"
+        "<media:group><media:description>Guest: Jane Doe, CEO of Acme.</media:description>"
+        "</media:group></entry>"
+    )
+    parsed = parse_youtube_atom(ET.fromstring(youtube_feed("Chan", [entry])))
+
+    assert parsed.episodes[0].episode.description == "Guest: Jane Doe, CEO of Acme."
+
+
+def test_plain_description_caps_and_empties() -> None:
+    from chorus.feeds import plain_description
+    from chorus.models import MAX_DESCRIPTION_CHARS
+
+    assert plain_description(None) is None
+    assert plain_description("<p> </p>") is None
+    assert len(plain_description("word " * 2000) or "") == MAX_DESCRIPTION_CHARS
