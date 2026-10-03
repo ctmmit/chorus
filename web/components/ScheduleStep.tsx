@@ -146,6 +146,7 @@ export function ScheduleStep({
               <input
                 type="radio"
                 name={`${uid}-cadence`}
+                value={cadence}
                 checked={draft.cadence === cadence}
                 onChange={() => onPatch({ cadence })}
                 className="accent-navy-text"
@@ -162,6 +163,7 @@ export function ScheduleStep({
               <input
                 type="radio"
                 name={`${uid}-voice`}
+                value={option.id}
                 checked={draft.voice === option.id}
                 onChange={() => onPatch({ voice: option.id })}
                 className="mt-1.5 accent-navy-text"

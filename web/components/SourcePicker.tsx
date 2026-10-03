@@ -341,8 +341,9 @@ export function SourcePicker({
           Import from your podcast app
         </h3>
         <p id={fileHelpId} className={HELP_TEXT_CLASS}>
-          Apple Podcasts, Pocket Casts, Overcast and most other podcast apps can export your
-          subscriptions as an OPML file (a .opml or .xml file).
+          Pocket Casts, Overcast and most independent podcast apps can export your
+          subscriptions as an OPML file (a .opml or .xml file). Apple Podcasts and Spotify
+          don&apos;t offer this export, so add those shows with the search above instead.
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <label htmlFor={fileId} className="sr-only">
