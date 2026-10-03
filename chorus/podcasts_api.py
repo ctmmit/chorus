@@ -141,6 +141,17 @@ class AppleEpisode(BaseModel):
     audio_url: str | None = Field(default=None, description="The episode's audio URL.")
 
 
+class AppleEpisodeHit(BaseModel):
+    """One result of an Apple episode-title search."""
+
+    title: str = Field(description="Episode title.")
+    show_title: str | None = Field(default=None, description="The show it belongs to.")
+    show_id: str | None = Field(default=None, description="Apple collection id of the show.")
+    feed_url: str | None = Field(default=None, description="The show's RSS feed URL.")
+    guid: str | None = Field(default=None, description="The feed item's <guid>.")
+    audio_url: str | None = Field(default=None, description="The episode's audio URL.")
+
+
 class AppleShowLookup(BaseModel):
     """A show's feed plus the newest episodes Apple lists for it."""
 
@@ -477,6 +488,40 @@ class PodcastDirectory:
             422, f"Apple has no podcast with id {apple_id}, or it publishes no public feed URL"
         )
 
+    def search_episodes(self, term: str, limit: int = SEARCH_MAX_LIMIT) -> list[AppleEpisodeHit]:
+        """Apple's episode search (`entity=podcastEpisode`), one throttled
+        call: how a link that carries only an episode title (a Spotify share)
+        finds its feed item."""
+        normalized = normalize_query(term)
+        if not normalized:
+            raise PodcastError(422, "query must not be empty")
+        params = urlencode(
+            {
+                "media": "podcast",
+                "entity": "podcastEpisode",
+                "term": normalized[:SEARCH_MAX_QUERY_CHARS],
+                "limit": max(1, min(limit, SEARCH_MAX_LIMIT)),
+            }
+        )
+        hits: list[AppleEpisodeHit] = []
+        for item in self._itunes(f"{ITUNES_SEARCH_URL}?{params}"):
+            title = item.get("trackName")
+            if not isinstance(title, str):
+                continue
+            show, show_id = item.get("collectionName"), item.get("collectionId")
+            feed, guid, audio = item.get("feedUrl"), item.get("episodeGuid"), item.get("episodeUrl")
+            hits.append(
+                AppleEpisodeHit(
+                    title=title[:MAX_TITLE_CHARS],
+                    show_title=show[:MAX_TITLE_CHARS] if isinstance(show, str) else None,
+                    show_id=str(show_id) if isinstance(show_id, int) else None,
+                    feed_url=feed if isinstance(feed, str) and _valid_feed_url(feed) else None,
+                    guid=guid if isinstance(guid, str) and guid else None,
+                    audio_url=audio if isinstance(audio, str) and _valid_feed_url(audio) else None,
+                )
+            )
+        return hits
+
     def lookup_show_episodes(self, apple_id: str) -> AppleShowLookup:
         """The show's feed and its newest episodes in one throttled call."""
         query = urlencode(
@@ -496,7 +541,9 @@ class PodcastDirectory:
                         track_id=str(track_id),
                         title=title[:MAX_TITLE_CHARS],
                         guid=guid if isinstance(guid, str) and guid else None,
-                        audio_url=audio if isinstance(audio, str) and _valid_feed_url(audio) else None,
+                        audio_url=(
+                            audio if isinstance(audio, str) and _valid_feed_url(audio) else None
+                        ),
                     )
                 )
             elif source is None and (result := self._as_result(item)) is not None:

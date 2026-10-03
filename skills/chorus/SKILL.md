@@ -359,8 +359,8 @@ Over MCP the whole flow is three tools: `search_podcasts` (or
 `resolve_podcast` for a pasted link), then `preview_subscription`, then
 `subscribe`. `list_subscriptions`, `update_subscription` and `unsubscribe`
 manage what exists. The HTTP routes below are the same operations.
-`import_library` and `import_opml` bring in what the principal already follows
-and saves elsewhere; start there when you can.
+`share_links`, `import_file` and `import_library` bring in what the principal
+already follows and saves; start there when you can.
 
 ### 1. Find the sources
 
@@ -407,54 +407,101 @@ No soul yet? `POST /souls/interview` with `{ "answers": { "identity": "...",
 
 ### Start from the principal's library
 
-The principal probably already follows shows and saves episodes somewhere
-else. Import that before asking them to search. Work through these in order:
+The principal already listens somewhere. Start from that before asking them
+to search. None of these paths needs them to sign in to anything, and none
+needs a particular app:
 
-1. **Your own connectors.** If you can read the principal's library yourself
-   (a Readwise MCP, a Spotify MCP, a file they gave you), fetch it and push
-   the items with `POST /library/import` (MCP: `import_library`). Chorus never
-   needs that provider's token.
-2. **An OPML file.** Pocket Casts, Overcast and Castro export one. Apple
-   Podcasts has no export, but an iOS Shortcut that runs "Get Podcasts from
-   Library" can write the feed URLs into an OPML file. Use
-   `POST /podcasts/import-opml` (MCP: `import_opml`).
-3. **Nothing to read.** Fall back to search and resolve.
+1. **Shared links.** Whenever the principal sends you an episode or show link,
+   or says "save this", pass it to `POST /library/share` (MCP: `share_links`).
+   Chorus becomes their save-for-later queue.
+2. **Export files.** YouTube follows come from Google Takeout
+   (`YouTube and YouTube Music/subscriptions/subscriptions.csv`). Podcast-app
+   follows come from an OPML file: Overcast, Pocket Casts and Castro export
+   one, and for Apple Podcasts an iOS Shortcut that runs "Get Podcasts from
+   Library" can write one. Send either to `POST /library/import-file` (MCP:
+   `import_file`).
+3. **Your own connectors.** If you can already read a library the principal
+   keeps elsewhere, such as a read-later app or a Spotify MCP, push its items
+   to `POST /library/import` (MCP: `import_library`). Chorus never needs that
+   provider's token.
+4. **Nothing yet.** Fall back to search and resolve.
 
-`POST /library/import` takes `{ "items": [ ... ] }`, up to 500 per call. Each
-item has `provider` (one of `readwise`, `spotify`, `apple`, `instapaper`,
-`opml`, `pushed`), `item_kind` (`episode`, `show` or `document`) and `title`.
-Optional fields: `show_title`, `author`, `external_id`, `url`, `feed_url`,
-`guid`, `audio_url`, `saved_at` (ISO 8601 with an offset), `consumed`, `tags`,
-`highlights` and `notes`. Every identifier you include makes resolution
-cheaper:
+#### Share links
 
-- `feed_url` plus `guid` needs no lookup.
-- An Apple Podcasts episode link (`podcasts.apple.com/.../id<show>?i=<episode>`)
-  needs one lookup per show.
-- A bare show and episode title is matched by exact show title in Apple's
-  directory, then by episode title in that show's feed.
+`POST /library/share` takes `{ "links": ["..."] }`, `{ "text": "..." }`, or
+both, up to 100 links. `text` can be anything that contains links, such as a
+share-sheet payload, a forwarded message, or the principal's own words. Each
+link becomes a save dated now:
 
-`document` items, such as articles, only feed the soul.
+| Link | Becomes |
+|---|---|
+| `podcasts.apple.com/.../id<show>?i=<episode>` | an episode, matched by Apple track id |
+| `podcasts.apple.com/.../id<show>` | a followed show |
+| `open.spotify.com/episode/<id>`, `spotify:episode:<id>` | an episode: Spotify's public oEmbed gives the title, then Apple's episode index finds the show's feed item |
+| `open.spotify.com/show/<id>` | a followed show, matched by exact title |
+| `youtube.com/watch?v=`, `youtu.be/`, `/shorts/`, `/live/` | a YouTube episode, digested by video id |
+| `youtube.com/channel/UC...` | a followed channel (a `youtube` source) |
 
-**Readwise Reader.** List documents with `category=podcast`, page through all
-of them, and map each one like this:
+The response is `{ "items": [{ "link", "title", "show_title", "item_kind",
+"status", "reason" }], "skipped": [{ "link", "reason" }], "preview": { ... } }`.
+Tell the principal anything in `skipped`: `spotify.link` short links and
+YouTube `@handle` links can't be followed, and each comes with a reason.
+
+A Spotify exclusive has no public feed, so it comes back `unresolved` with
+that reason. Chorus never guesses a different episode. An episode title
+carried by two different shows is also left unresolved; the Apple link for
+the same episode resolves exactly.
+
+**Phone share sheet.** An iOS Shortcut set to "Show in Share Sheet" takes
+URLs as input and runs "Get Contents of URL": POST to
+`<base>/library/share` with the header `Authorization: Bearer <key>` and the
+JSON body `{"text": <Shortcut Input>}`. One tap from Apple Podcasts, Spotify
+or YouTube then saves the episode. On Android, any HTTP-request share target
+does the same.
+
+#### Export files
+
+`POST /library/import-file` takes `{ "format": "youtube_takeout" | "opml",
+"content": "<file text, up to 1 MiB>" }` and returns `{ "imported",
+"skipped", "preview" }`. Every followed channel or feed becomes an explicit
+suggestion, ready to subscribe, and is flagged when a subscription already
+covers it. Takeout columns are read by their content, so a localized header
+row still works.
+
+#### Pushing items from your own connector
+
+`POST /library/import` takes `{ "items": [ ... ] }`, up to 500 per call:
+
+- **Required on every item:** `provider` (`shared`, `apple`, `spotify`,
+  `youtube`, `opml`, `readwise`, `instapaper` or `pushed`) and `item_kind`
+  (`episode`, `show` or `document`).
+- **Required unless an identifier is given:** `title`. Any of `url`,
+  `feed_url`, `apple_show_id`, `spotify_id`, `youtube_video_id` or
+  `youtube_channel_id` counts, and resolution fills in the title.
+- **Optional:** `show_title`, `author`, `external_id`, `guid`, `audio_url`,
+  `saved_at` (ISO 8601 with an offset), `consumed`, `tags`, `highlights` and
+  `notes`.
+
+`document` items, such as articles, only feed the soul. Re-importing is
+idempotent, so push the whole list each time; items that already resolved
+cost nothing.
+
+As one example, a Readwise Reader library maps like this. List documents
+with `category=podcast`, then for each one:
 
 | Item field | Reader field |
 |---|---|
 | `provider` | `"readwise"` |
 | `item_kind` | `"episode"` |
 | `title` | `title` |
-| `show_title` | `author` (the show's name is replaced once the feed resolves) |
+| `show_title` | `author` (replaced once the feed resolves) |
 | `url` | `source_url` |
 | `external_id` | `id` |
 | `saved_at` | `saved_at` |
-| `tags` | the tag names |
-| `notes` | `notes` |
+| `tags` | tag names |
 | `consumed` | `true` when `location` is `archive` or `reading_progress` is at least 0.9 |
 
-Podcast highlights from Snipd or Airr go in `highlights`. Re-importing is
-idempotent, so push the whole list each time; items that already resolved
-cost nothing.
+#### The preview
 
 The response is a preview. Nothing is subscribed and no soul is changed:
 
@@ -480,7 +527,7 @@ How to read the response:
   `sources` and each run also digests the newest saved episodes it hasn't sent
   before, draining a backlog a few at a time. Consumed saves and saves older
   than 120 days are skipped. Set `providers` to limit it, for example to
-  `["readwise"]`.
+  `["shared"]` for links shared to Chorus.
 - **`pending`** means Apple's rate limit (about 20 lookups a minute) stopped
   resolution partway through. Import again in a minute to finish.
 - **`unresolved`** lists each item that could not be matched, with the reason.

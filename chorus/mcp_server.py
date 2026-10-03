@@ -33,7 +33,17 @@ from chorus.bootstrap import get_soul_builder
 from chorus.feeds import SubscriptionPreview
 from chorus.jobs import MASTER_OWNER, JobStore, SqliteJobStore
 from chorus.library import LibraryImport, LibraryItem, ResolutionStatus, SavedItem
-from chorus.library_api import LIST_DEFAULT_LIMIT, ImportPreview, LibraryService, LibrarySoul
+from chorus.library_api import (
+    LIST_DEFAULT_LIMIT,
+    FileImportResult,
+    ImportFileRequest,
+    ImportPreview,
+    LibraryService,
+    LibrarySoul,
+    ShareRequest,
+    ShareResult,
+)
+from chorus.library_inputs import FileFormat
 from chorus.models import (
     DigestRequest,
     EpisodeInput,
@@ -71,9 +81,11 @@ MCP_INSTRUCTIONS = (
     "weekly email digest, find shows with search_podcasts (or resolve_podcast for a pasted "
     "URL), check preview_subscription, then subscribe; the service checks each feed for new "
     "episodes on every run and never repeats one. To start from what the principal already "
-    "follows or has saved, fetch it with your own connectors (e.g. a Readwise MCP: Reader "
-    "documents with category=podcast) and call import_library, or import_opml for an OPML "
-    "export; the preview ranks shows to subscribe to and returns a saved-queue source that "
+    "listens to: pass any Apple Podcasts, Spotify or YouTube episode or show link they share "
+    "with you to share_links (Chorus becomes their save-for-later queue); import a YouTube "
+    "Takeout subscriptions.csv or a podcast-app OPML with import_file; or, if you have your "
+    "own connector to their library (e.g. a Readwise MCP), push its items with "
+    "import_library. Each returns ranked shows to subscribe to and a saved-queue source that "
     "makes each run draw from unheard saves."
 )
 
@@ -375,6 +387,33 @@ class ChorusTools:
 
     # --- Library import: what the principal follows and has saved ------------
 
+    def share_links(
+        self,
+        links: list[str] | None = None,
+        text: str | None = None,
+        ctx: Context | None = None,
+    ) -> ShareResult:
+        """Save episodes or shows the principal shared: Apple Podcasts,
+        Spotify or YouTube links (open.spotify.com/episode/..., youtu.be/...,
+        podcasts.apple.com/...?i=...), passed as `links` or inside free
+        `text`. No sign-in anywhere: titles come from the links and Spotify
+        episodes are matched to the show's public feed. Saved episodes join
+        the saved queue; shared shows become suggestions. Returns each link's
+        status, unrecognized links with reasons, and the library preview."""
+        request = ShareRequest(links=links or [], text=text)
+        return self._library_service().share(_owner_from_context(ctx), request)
+
+    def import_file(
+        self, format: FileFormat, content: str, ctx: Context | None = None
+    ) -> FileImportResult:
+        """Import followed shows from an export file's text: "youtube_takeout"
+        (Google Takeout > YouTube > subscriptions/subscriptions.csv) or "opml"
+        (Overcast, Pocket Casts, Castro, an Apple Podcasts Shortcut). Every
+        followed show or channel becomes an explicit suggestion in the
+        returned preview."""
+        request = ImportFileRequest(format=format, content=content)
+        return self._library_service().import_file(_owner_from_context(ctx), request)
+
     def import_library(self, items: list[LibraryItem], ctx: Context | None = None) -> ImportPreview:
         """Import shows and saved episodes the principal already has in other
         apps, fetched with YOUR OWN connectors (Chorus holds no token for
@@ -466,6 +505,8 @@ def create_mcp_server(
     server.add_tool(tools.list_subscriptions)
     server.add_tool(tools.update_subscription)
     server.add_tool(tools.unsubscribe)
+    server.add_tool(_in_thread(tools.share_links))
+    server.add_tool(_in_thread(tools.import_file))
     server.add_tool(_in_thread(tools.import_library))
     server.add_tool(tools.import_opml)
     server.add_tool(tools.list_library_items)

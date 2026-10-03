@@ -253,7 +253,9 @@ def test_rank_show_suggestions_matches_hand_computed_scores() -> None:
         # Documents never count
         LibraryItem(provider="instapaper", item_kind="document", title="An article"),
     ]
-    ranked = rank_show_suggestions(items, NOW, subscribed_feeds=["https://F.example.com/d.xml"])
+    ranked = rank_show_suggestions(
+        items, NOW, subscribed=[RssSource(kind="rss", feed_url="https://F.example.com/d.xml")]
+    )
     assert [(s.title, s.save_count, s.score) for s in ranked] == [
         ("Deep Talk", 2, 1.5),
         ("Followed Show", 0, 1.0),
@@ -271,7 +273,7 @@ def test_rank_show_suggestions_attaches_resolved_sources() -> None:
     ]
     source = RssSource(kind="rss", feed_url=FEED_A, title="Deep Talk")
     [suggestion] = rank_show_suggestions(
-        items, NOW, sources={f"apple:{SHOW_A_ID}": source}, subscribed_feeds=[FEED_A]
+        items, NOW, sources={f"apple:{SHOW_A_ID}": source}, subscribed=[source]
     )
     assert suggestion.source == source and suggestion.already_subscribed
 

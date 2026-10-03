@@ -174,8 +174,11 @@ class ShowSource(BaseModel):
 
 
 # Where an imported library item came from (chorus.library). "pushed" is an
-# agent that fetched the items through its own connector and sent them as-is.
-LibraryProvider = Literal["readwise", "spotify", "apple", "instapaper", "opml", "pushed"]
+# agent that fetched the items through its own connector and sent them as-is;
+# "shared" is a link the principal shared to Chorus (POST /library/share).
+LibraryProvider = Literal[
+    "shared", "apple", "spotify", "youtube", "opml", "readwise", "instapaper", "pushed"
+]
 SAVED_QUEUE_TITLE = "Saved episodes"
 
 
@@ -187,7 +190,7 @@ class SavedQueueSource(BaseModel):
     kind: Literal["saved"] = Field(description='Source type discriminator: always "saved".')
     providers: list[LibraryProvider] | None = Field(
         default=None,
-        max_length=6,
+        max_length=8,
         description="Only take saves imported from these providers; omit for all of them.",
     )
     title: str = Field(

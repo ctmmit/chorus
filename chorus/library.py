@@ -1,16 +1,17 @@
 """Library import: what the principal already follows or has saved, in one
 normalized shape, plus the pure logic that turns it into Chorus inputs.
 
-A library item is a show (a subscription in some app or an OPML outline), an
-episode (a podcast saved for later, e.g. from the Apple Podcasts share sheet
-into Readwise Reader), or a document (an article or highlight, used only as
-soul corpus). Items reach Chorus two ways, both landing in `LibraryImport`:
+A library item is a show (a followed podcast or YouTube channel), an episode
+(something saved to hear later), or a document (an article or highlight,
+used only as soul corpus). Items reach Chorus without the principal signing
+in anywhere, all landing in the same model (chorus.library_api):
 
-- Agent push: the calling agent already has a connector (a Readwise MCP, a
-  Spotify MCP), fetches the items itself, and posts them to
-  `POST /library/import`. Chorus never holds the provider token.
-- Server pull (chorus.connectors, later phase): Chorus fetches with a stored
-  per-owner credential.
+- Shared links: an Apple Podcasts, Spotify or YouTube link from a share
+  sheet or a message (chorus.library_inputs.parse_link), so Chorus itself
+  is the save-for-later queue.
+- Export files: a YouTube Takeout subscriptions.csv or a podcast-app OPML.
+- Agent push: an agent with its own connector to a library the principal
+  keeps elsewhere posts the items as-is; Chorus never holds that token.
 
 Three outputs come from the same items:
 
@@ -46,7 +47,13 @@ from chorus.models import (
     EpisodeInput,
     _canonical_feed_url,
 )
-from chorus.subscriptions import LibraryProvider, RssSource, SavedQueueSource
+from chorus.subscriptions import (
+    YOUTUBE_CHANNEL_ID_PATTERN,
+    LibraryProvider,
+    RssSource,
+    SavedQueueSource,
+    YoutubeSource,
+)
 
 MAX_LIBRARY_ITEMS = 500
 MAX_EXTERNAL_ID_CHARS = 200
@@ -83,7 +90,12 @@ _DIGITS_RE = re.compile(r"^\d{1,20}$")
 _NON_WORD_RE = re.compile(r"[^\w]+")
 _EPOCH = datetime.min.replace(tzinfo=UTC)
 
+YOUTUBE_VIDEO_ID_PATTERN = r"^[A-Za-z0-9_-]{11}$"
+SPOTIFY_ID_PATTERN = r"^[A-Za-z0-9]{22}$"
+
 ItemKind = Literal["show", "episode", "document"]
+# A followed show resolves to either kind of subscription source.
+ShowLink = RssSource | YoutubeSource
 ResolutionStatus = Literal["resolved", "pending", "unresolved", "corpus"]
 
 
@@ -148,9 +160,11 @@ def titles_match(a: str, b: str) -> bool:
 
 class LibraryItem(BaseModel):
     """One show, episode, or document from the principal's library, as an
-    agent or connector reports it. Only `provider`, `item_kind` and a title
-    are required; every identifier that is present makes resolution cheaper
-    (feed_url + guid needs no lookup at all; an Apple link needs one)."""
+    agent or connector reports it. `provider`, `item_kind`, and a title or
+    an identifying link/id are required; every identifier that is present
+    makes resolution cheaper (feed_url + guid needs no lookup at all; an
+    Apple link needs one). A shared link with no title gets one from
+    resolution."""
 
     provider: LibraryProvider = Field(description="Where the item came from.")
     item_kind: ItemKind = Field(
@@ -159,9 +173,12 @@ class LibraryItem(BaseModel):
         ),
     )
     title: str = Field(
-        min_length=1,
+        default="",
         max_length=MAX_TITLE_CHARS,
-        description="Episode title, show title for a show item, or document title.",
+        description=(
+            "Episode title, show title for a show item, or document title; may be empty "
+            "when url or an id identifies the item (resolution fills it in)."
+        ),
     )
     show_title: str | None = Field(
         default=None, max_length=MAX_SHOW_CHARS, description="The show an episode belongs to."
@@ -186,7 +203,15 @@ class LibraryItem(BaseModel):
         default=None, pattern=r"^\d{1,20}$", description="Apple track id."
     )
     spotify_id: str | None = Field(
-        default=None, max_length=MAX_EXTERNAL_ID_CHARS, description="Spotify show or episode id."
+        default=None, pattern=SPOTIFY_ID_PATTERN, description="Spotify show or episode id."
+    )
+    youtube_video_id: str | None = Field(
+        default=None, pattern=YOUTUBE_VIDEO_ID_PATTERN, description="YouTube video id (episodes)."
+    )
+    youtube_channel_id: str | None = Field(
+        default=None,
+        pattern=YOUTUBE_CHANNEL_ID_PATTERN,
+        description="YouTube channel id, UC plus 22 characters (shows).",
     )
     feed_url: str | None = Field(
         default=None,
@@ -242,7 +267,20 @@ class LibraryItem(BaseModel):
                 self.apple_show_id = ref.show_id
                 if self.apple_episode_id is None:
                     self.apple_episode_id = ref.episode_id
+        if not self.title.strip() and not self._has_identity():
+            raise ValueError("a library item needs a title, a url, or an id that identifies it")
+        self.title = self.title.strip()
         return self
+
+    def _has_identity(self) -> bool:
+        return bool(
+            self.url
+            or self.apple_show_id
+            or self.spotify_id
+            or self.youtube_video_id
+            or self.youtube_channel_id
+            or self.feed_url
+        )
 
     def item_key(self) -> str:
         """A stable identity, provider-independent where the item carries a
@@ -252,6 +290,8 @@ class LibraryItem(BaseModel):
             return f"show:{show_key(self)}"
         if self.apple_episode_id:
             return f"apple:{self.apple_episode_id}"
+        if self.youtube_video_id:
+            return f"youtube:{self.youtube_video_id}"
         if self.spotify_id:
             return f"spotify:{self.spotify_id}"
         if self.feed_url and (self.guid or self.audio_url):
@@ -270,9 +310,14 @@ def _hash(text: str) -> str:
 
 def show_key(item: LibraryItem) -> str:
     """Grouping key for the show an item belongs to: Apple id first (most
-    stable), then the feed URL, then the normalized show title."""
+    stable), then the YouTube channel or Spotify show, then the feed URL,
+    then the normalized show title."""
     if item.apple_show_id:
         return f"apple:{item.apple_show_id}"
+    if item.youtube_channel_id:
+        return f"youtube:{item.youtube_channel_id}"
+    if item.item_kind == "show" and item.spotify_id:
+        return f"spotify:{item.spotify_id}"
     if item.feed_url:
         return f"feed:{_canonical_feed_url(item.feed_url)}"
     name = item.title if item.item_kind == "show" else (item.show_title or item.author or "")
@@ -301,8 +346,10 @@ class SavedItem(BaseModel):
     episode: EpisodeInput | None = Field(
         default=None, description="The digestible episode, once resolved (episodes only)."
     )
-    show_source: RssSource | None = Field(
-        default=None, description="The show's RSS source, once resolved."
+    show_source: ShowLink | None = Field(
+        default=None,
+        discriminator="kind",
+        description="The show as a subscription source (RSS or YouTube), once resolved.",
     )
     reason: str | None = Field(default=None, description="Why the item is pending or unresolved.")
     imported_at: datetime = Field(description="First import time (UTC).")
@@ -314,12 +361,18 @@ def _identity(item: LibraryItem) -> tuple[str | None, ...]:
         item.apple_show_id,
         item.apple_episode_id,
         item.spotify_id,
+        item.youtube_video_id,
+        item.youtube_channel_id,
         item.feed_url,
         item.guid,
         item.audio_url,
         normalize_title(item.title),
         item.show_title,
     )
+
+
+# Fields chorus.library_resolve may fill in on a stored item.
+RESOLVER_FILLED_FIELDS = ("title", "show_title", "apple_show_id")
 
 
 def initial_status(item: LibraryItem) -> ResolutionStatus:
@@ -332,7 +385,17 @@ def merge_item(
     """Fold a re-imported item into what is stored. Resolution is kept when
     nothing that identifies the episode changed, so re-importing a library
     (to pick up new saves, or `consumed` flipping after a listen) costs no
-    lookups for items already resolved. An unresolved item is retried."""
+    lookups for items already resolved. An unresolved item is retried. A
+    re-share that lacks what resolution filled in (title, show, Apple show
+    id) keeps the stored values."""
+    if existing is not None:
+        filled = {
+            name: getattr(existing.item, name)
+            for name in RESOLVER_FILLED_FIELDS
+            if not getattr(incoming, name) and getattr(existing.item, name)
+        }
+        if filled:
+            incoming = incoming.model_copy(update=filled)
     if existing is not None and _identity(existing.item) == _identity(incoming):
         status = existing.status if existing.status != "unresolved" else initial_status(incoming)
         return existing.model_copy(
@@ -365,8 +428,10 @@ class ShowSuggestion(BaseModel):
     last_saved_at: datetime | None = Field(default=None, description="Most recent save, if dated.")
     score: float = Field(description="Recency-weighted save count; higher ranks first.")
     explicit: bool = Field(description="True when the principal follows the show in another app.")
-    source: RssSource | None = Field(
-        default=None, description="Ready-to-subscribe RSS source, when the show resolved to a feed."
+    source: ShowLink | None = Field(
+        default=None,
+        discriminator="kind",
+        description="Ready-to-subscribe source (RSS or YouTube), when the show resolved.",
     )
     already_subscribed: bool = Field(
         default=False,
@@ -380,6 +445,13 @@ def save_weight(saved_at: datetime | None, now: datetime, half_life_days: float)
         return UNDATED_SAVE_WEIGHT
     age_days = max(0.0, (now - saved_at).total_seconds() / SECONDS_PER_DAY)
     return float(0.5 ** (age_days / half_life_days))
+
+
+def source_key(source: ShowLink) -> str:
+    """The show_key a subscription source corresponds to."""
+    if isinstance(source, YoutubeSource):
+        return f"youtube:{source.channel_id}"
+    return f"feed:{_canonical_feed_url(source.feed_url)}"
 
 
 @dataclass
@@ -396,18 +468,19 @@ def rank_show_suggestions(
     items: Iterable[LibraryItem],
     now: datetime,
     *,
-    sources: Mapping[str, RssSource] | None = None,
-    subscribed_feeds: Iterable[str] = (),
+    sources: Mapping[str, ShowLink] | None = None,
+    subscribed: Iterable[ShowLink] = (),
     half_life_days: float = SUGGESTION_HALF_LIFE_DAYS,
     min_saves: int = MIN_SAVES_TO_SUGGEST,
     limit: int = MAX_SUGGESTIONS,
 ) -> list[ShowSuggestion]:
     """Group episodes by show and rank. A show qualifies with `min_saves`
     saved episodes or one explicit follow. `sources` maps show_key to a
-    resolved RssSource; `subscribed_feeds` marks shows already covered."""
+    resolved source; `subscribed` (the principal's current sources) marks
+    shows already covered."""
     if now.tzinfo is None:
         raise ValueError("rank_show_suggestions: `now` must be timezone-aware")
-    subscribed = {_canonical_feed_url(f) for f in subscribed_feeds}
+    covered = {source_key(s) for s in subscribed}
     groups: dict[str, _ShowGroup] = {}
     for item in items:
         if item.item_kind == "document":
@@ -434,11 +507,7 @@ def rank_show_suggestions(
         if not group.explicit and group.count < min_saves:
             continue
         source = (sources or {}).get(key)
-        feed = (
-            source.feed_url
-            if source is not None
-            else (key[5:] if key.startswith("feed:") else None)
-        )
+        keys = {key} | ({source_key(source)} if source is not None else set())
         suggestions.append(
             ShowSuggestion(
                 show_key=key,
@@ -450,7 +519,7 @@ def rank_show_suggestions(
                 score=round(group.score, 4),
                 explicit=group.explicit,
                 source=source,
-                already_subscribed=feed is not None and _canonical_feed_url(feed) in subscribed,
+                already_subscribed=bool(keys & covered),
             )
         )
     suggestions.sort(key=lambda s: (-s.score, s.title.lower()))
@@ -515,7 +584,7 @@ def corpus_texts(items: Iterable[LibraryItem], limit: int = CORPUS_MAX_TEXTS) ->
     interest whether or not it was played."""
     ordered = sorted(items, key=lambda i: i.saved_at or _EPOCH, reverse=True)
     texts: list[str] = []
-    for item in ordered[:limit]:
+    for item in [i for i in ordered if i.title][:limit]:
         lines = [f"{item.title} ({item.show_title})" if item.show_title else item.title]
         if item.tags:
             lines.append("Tags: " + ", ".join(item.tags))
