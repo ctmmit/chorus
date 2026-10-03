@@ -7,11 +7,11 @@ takes a real catalog source later.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
+from chorus import paths
 from chorus.models import EpisodeInput
 
-EPISODES_JSON = Path(__file__).resolve().parent.parent / "fixtures" / "episodes.json"
+EPISODES_JSON = paths.fixtures_dir() / "episodes.json"
 
 
 def _load() -> list[dict]:

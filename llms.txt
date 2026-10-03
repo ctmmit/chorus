@@ -8,6 +8,7 @@ bearer token or a self-serve API key delivered by email.
 
 ## Agent entrypoints
 
+- [Install for agents](https://github.com/ctmmit/chorus/blob/main/INSTALL_FOR_AGENTS.md): Set Chorus up for your principal from this repository link: install, connect (any MCP host or the JSON CLI), and walk the onboarding, including the required soul.
 - [Build instructions](https://github.com/ctmmit/chorus/blob/main/README.md): Install the skill or MCP server, interview the principal, and submit the first digest.
 - [Chorus skill](https://github.com/ctmmit/chorus/blob/main/SKILL.md): Complete HTTP contract, limits, lifecycle, and error semantics.
 - [Soul interview skill](https://github.com/ctmmit/chorus/blob/main/skills/chorus-soul-bootstrap/SKILL.md): Questions and exact soul.md schema.

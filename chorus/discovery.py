@@ -53,7 +53,7 @@ import os
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from chorus import catalog
+from chorus import __version__, catalog
 from chorus.personas import Cadence, Persona, PersonaRegistry, build_persona
 
 router = APIRouter()
@@ -63,7 +63,7 @@ DEFAULT_PUBLIC_URL = "http://localhost:8000"
 # Keep in sync with chorus.app's FastAPI(version=...) — both name the same
 # pre-1.0 service; not imported directly to avoid a circular import
 # (chorus.app imports this module to mount `router`).
-SERVICE_VERSION = "0.1.0"
+SERVICE_VERSION = __version__
 PROVIDER_NAME = "Chorus"
 AUTH_SCHEME_NAME = "bearer"
 

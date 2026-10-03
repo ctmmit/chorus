@@ -1,0 +1,17 @@
+{
+  "name": "chorus",
+  "owner": {
+    "name": "ctmmit",
+    "url": "https://github.com/ctmmit"
+  },
+  "description": "Chorus: persona-curated podcast digests and voiced episodes, run by your own agent.",
+  "plugins": [
+    {
+      "name": "chorus",
+      "source": ".",
+      "description": "Set up and run Chorus with your agent: onboarding (including your soul), weekly digests with cited highlights, and a voiced episode.",
+      "category": "productivity",
+      "skills": ["./skills/chorus-onboard"]
+    }
+  ]
+}

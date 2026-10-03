@@ -1,7 +1,9 @@
 [project]
-name = "chorus"
-version = "0.1.0"
+# Distribution name on PyPI; the import package stays `chorus`.
+name = "chorus-agent"
+dynamic = ["version"]
 description = "Agent-native podcast curation + voice"
+readme = "README.md"
 requires-python = ">=3.12"
 # Ranges live in requirements.in; exact pins (what Vercel/CI install) are
 # compiled into requirements.txt with `uv pip compile requirements.in`.
@@ -29,13 +31,25 @@ dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11"]
 [project.scripts]
 chorus-mcp = "chorus.mcp_server:main"
 chorus-api = "chorus.app:serve"
+chorus = "chorus.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/ctmmit/chorus"
+Changelog = "https://github.com/ctmmit/chorus/blob/main/CHANGELOG.md"
 
 # The repo root is a flat layout with many top-level folders (tests, scripts,
-# web, fixtures, skills, docs); only `chorus` is the package. Install editable
-# (`pip install -e .`): the package reads fixtures/ and .env.local relative to
-# the checkout, so a non-editable install from a wheel is not supported.
+# web, fixtures, skills, docs); only `chorus` is the package. A wheel install
+# works: local state lives in ~/.chorus (chorus.paths), and the presets,
+# demo catalog and sample transcript ship in chorus/_bundled. An editable
+# clone install reads the checkout's fixtures/ instead.
 [tool.setuptools.packages.find]
 include = ["chorus*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "chorus.__version__" }
+
+[tool.setuptools.package-data]
+chorus = ["_bundled/*.json", "_bundled/*.md", "_bundled/souls/*.md", "_bundled/transcripts/*.json"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

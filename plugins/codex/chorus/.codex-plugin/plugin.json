@@ -1,0 +1,18 @@
+{
+  "name": "chorus",
+  "version": "0.2.0",
+  "description": "Your agent listens to the podcasts you can't, and hands back only what matters: highlights each tied to a checkable timestamp, and a short episode voiced in your lens. Sets itself up with you on first use.",
+  "author": {
+    "name": "ctmmit",
+    "url": "https://github.com/ctmmit"
+  },
+  "homepage": "https://github.com/ctmmit/chorus",
+  "repository": "https://github.com/ctmmit/chorus",
+  "keywords": ["podcasts", "curation", "digest", "elevenlabs", "mcp"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Chorus",
+    "shortDescription": "Podcast digests with cited highlights and a voiced episode, run by your agent."
+  }
+}

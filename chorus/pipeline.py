@@ -225,14 +225,23 @@ def stage_audio(
 # --- In-process orchestrator (BackgroundRunner) ----------------------------
 
 
-def run_job(job_id: str, request: DigestRequest, store: JobStore, deps: Deps) -> None:
+def run_job(
+    job_id: str,
+    request: DigestRequest,
+    store: JobStore,
+    deps: Deps,
+    stop_before_audio: bool = False,
+) -> None:
+    """`stop_before_audio=True` leaves a successful job at `digest_ready` with
+    its script, unrendered, for the principal's agent to voice with its own
+    text-to-speech tool (`chorus.host_mode`, the "host-plugin" voice)."""
     job = store.get(job_id)
     if job is None:
         log.error("run_job: unknown job_id %s", job_id)
         return
 
     try:
-        _run(job, request, store, deps)
+        _run(job, request, store, deps, stop_before_audio)
     except Exception as err:
         # R7: BackgroundRunner has no retry mechanism to re-raise into (unlike
         # chorus.inngest_app.run_digest_body), so this stays a terminal
@@ -250,7 +259,9 @@ def run_job(job_id: str, request: DigestRequest, store: JobStore, deps: Deps) ->
             log.exception("job %s: could not persist failed status", job_id)
 
 
-def _run(job: Job, request: DigestRequest, store: JobStore, deps: Deps) -> None:
+def _run(
+    job: Job, request: DigestRequest, store: JobStore, deps: Deps, stop_before_audio: bool = False
+) -> None:
     usage = job.usage or JobUsage()
     job.usage = usage
 
@@ -291,6 +302,10 @@ def _run(job: Job, request: DigestRequest, store: JobStore, deps: Deps) -> None:
         job.warnings.append(f"script synthesis failed: {type(err).__name__}: {err}")
         log.warning("job %s: script synthesis failed (non-fatal): %s", job.job_id, err)
     usage.stage_seconds["script"] = time.perf_counter() - t0
+
+    if job.script is not None and stop_before_audio:
+        store.save(job)  # stays digest_ready: the agent renders the audio
+        return
 
     if job.script is not None:
         t0 = time.perf_counter()

@@ -42,6 +42,7 @@ from chorus.library_api import (
     LibrarySoul,
     ShareRequest,
     ShareResult,
+    SoulBuilderFactory,
 )
 from chorus.library_inputs import FileFormat
 from chorus.models import (
@@ -52,7 +53,7 @@ from chorus.models import (
     JobStatus,
     SelectionRequest,
 )
-from chorus.pipeline import Deps, default_deps
+from chorus.pipeline import Deps
 from chorus.podcasts_api import OpmlImport, PodcastDirectory, PodcastSearchResult, parse_opml
 from chorus.quotas import QuotaExceeded, enforce_job_quota
 from chorus.runners import BackgroundRunner, JobRunner
@@ -147,6 +148,7 @@ class ChorusTools:
         subscription_store: SubscriptionStore | None = None,
         podcasts: PodcastDirectory | None = None,
         library: LibraryService | None = None,
+        soul_builder: SoulBuilderFactory = get_soul_builder,
     ) -> None:
         self._store = store
         self._deps = deps
@@ -158,6 +160,7 @@ class ChorusTools:
         self._podcasts = podcasts or PodcastDirectory()
         self._library = library
         self._owns_library = library is None
+        self._soul_builder = soul_builder
 
     def _subscriptions(self) -> SubscriptionStore:
         """The subscription store: the app's own when injected, else selected
@@ -180,6 +183,7 @@ class ChorusTools:
                 config_env.select_saved_item_store(self._store),
                 self._podcasts,
                 self._subscriptions(),
+                soul_builder=self._soul_builder,
             )
         return self._library
 
@@ -452,7 +456,9 @@ class ChorusTools:
     def soul_from_library(self, ctx: Context | None = None) -> LibrarySoul:
         """Propose a soul.md from the imported library (titles, tags, notes,
         highlights). Nothing is saved: show it to the principal, merge it with
-        their current soul if they have one, then use it in subscribe."""
+        their current soul if they have one, then use it in subscribe. When
+        you are the brain (onboarding brain=host) Chorus calls no model: the
+        reply carries `corpus` and `agent_notes`, and you write the soul."""
         return self._library_service().soul(_owner_from_context(ctx))
 
     def _submit(self, request: DigestRequest, ctx: Context | None) -> dict[str, str]:
@@ -481,17 +487,33 @@ def create_mcp_server(
     subscription_store: SubscriptionStore | None = None,
     podcasts: PodcastDirectory | None = None,
     library: LibraryService | None = None,
+    local: bool = False,
 ) -> tuple[FastMCP, ChorusTools]:
-    """Create one MCP server and expose its direct-call implementation for tests."""
+    """Create one MCP server and expose its direct-call implementation for tests.
+
+    `local=True` (the stdio server on the principal's machine only) adds the
+    onboarding and configured-run tools from `chorus.mcp_setup`. They write
+    keys and souls to local disk, so the hosted HTTP mount never gets them."""
+    from chorus.mcp_setup import LOCAL_INSTRUCTIONS, register_setup_tools
+
     server = FastMCP(
         MCP_NAME,
-        instructions=MCP_INSTRUCTIONS,
+        instructions=f"{LOCAL_INSTRUCTIONS} {MCP_INSTRUCTIONS}" if local else MCP_INSTRUCTIONS,
         # This value does not bind a socket for a mounted ASGI app. It prevents
         # FastMCP from applying its localhost-only Host allowlist in production.
         host="0.0.0.0",
         json_response=True,
     )
-    tools = ChorusTools(store, deps, runner, subscription_store, podcasts, library)
+    # Locally the onboarding brain decides who writes a library soul (none
+    # with brain=host); the hosted server keeps choosing by key presence.
+    soul_builder: SoulBuilderFactory = get_soul_builder
+    if local:
+        from chorus.agent_setup import library_soul_builder
+
+        soul_builder = library_soul_builder
+    tools = ChorusTools(
+        store, deps, runner, subscription_store, podcasts, library, soul_builder=soul_builder
+    )
     server.add_tool(tools.list_shows)
     server.add_tool(tools.submit_digest)
     server.add_tool(tools.submit_selection)
@@ -511,6 +533,8 @@ def create_mcp_server(
     server.add_tool(tools.import_opml)
     server.add_tool(tools.list_library_items)
     server.add_tool(_in_thread(tools.soul_from_library))
+    if local:
+        register_setup_tools(server, store)
     return server, tools
 
 
@@ -541,17 +565,46 @@ def mount_mcp(
     app.state.chorus_mcp_tools = tools
 
 
+def local_stdio_deps() -> Deps:
+    """`default_deps` with every on-disk store under `~/.chorus/`. Providers
+    are still picked by key presence, as for the hosted API; the onboarding
+    choices take over this selection when the MCP onboarding tools land."""
+    from chorus import paths
+    from chorus.artifacts import LocalArtifactStore
+    from chorus.audio import get_audio_renderer
+    from chorus.config_env import build_transcript_chain
+    from chorus.llm import get_llm_client
+    from chorus.script import get_script_composer
+    from chorus.transcript_cache import SqliteTranscriptCache
+
+    return Deps(
+        provider=build_transcript_chain(SqliteTranscriptCache(paths.db_path())),
+        llm=get_llm_client(),
+        composer=get_script_composer(),
+        renderer=get_audio_renderer(),
+        artifacts=LocalArtifactStore(paths.artifacts_dir()),
+    )
+
+
 def main() -> None:
     """Run the local stdio transport used by desktop and CLI agents. No HTTP
     request exists on this transport, so every call runs as MASTER_OWNER
     (see `_owner_from_context`) — equivalent to holding the master token,
-    appropriate for local/dev tooling."""
-    from chorus.config import load_env
+    appropriate for local/dev tooling.
 
+    State (job and subscription database, transcript cache, artifacts) lives
+    under `~/.chorus/` (`chorus.paths`), never beside the code, so upgrading
+    an installed package or pulling a clone cannot touch it."""
+    from chorus import paths
+    from chorus.config import load_env
+    from chorus.migrations import migrate_config
+
+    paths.ensure_home()
     load_env()
-    store = SqliteJobStore()
-    deps = default_deps()
-    server, tools = create_mcp_server(store, deps, BackgroundRunner(store, deps))
+    migrate_config()
+    store = SqliteJobStore(paths.db_path())
+    deps = local_stdio_deps()
+    server, tools = create_mcp_server(store, deps, BackgroundRunner(store, deps), local=True)
     try:
         server.run(transport="stdio")
     finally:

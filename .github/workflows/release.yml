@@ -1,0 +1,92 @@
+name: release
+
+# Push a tag like v0.2.0 to publish that version to PyPI (as chorus-agent)
+# and GitHub Releases. One-time setup, done by a maintainer:
+#   1. On PyPI, add a trusted publisher for project "chorus-agent":
+#      owner ctmmit, repository chorus, workflow release.yml, environment pypi.
+#   2. In this repository's settings, create the environment "pypi".
+# No API token is stored anywhere; PyPI trusts this workflow's OIDC identity.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Tag must match chorus.__version__
+        run: |
+          version=$(python3 -c "import re;print(re.search(r'__version__ = \"([^\"]+)\"', open('chorus/__init__.py').read())[1])")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME does not match chorus.__version__ $version" >&2
+            exit 1
+          fi
+
+      - name: Changelog must have this version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '$0 == "## " v {found=1; next} /^## / && found {exit} found {print}' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "CHANGELOG.md has no '## $version' section" >&2
+            exit 1
+          fi
+
+      - name: Build
+        run: uv build
+
+      # The wheel must run with no checkout beside it: onboarding, the bundled
+      # preset and the smoke digest, from a neutral directory.
+      - name: Smoke-test the wheel
+        working-directory: /tmp
+        env:
+          CHORUS_HOME: /tmp/chorus-home
+          CHORUS_NO_UPDATE_CHECK: "1"
+        run: |
+          wheel=$(ls "$GITHUB_WORKSPACE"/dist/*.whl)
+          run() { uvx --quiet --from "$wheel" chorus "$@"; }
+          run setup set mode local-agent
+          run setup set brain mock
+          run setup set voice text-only
+          run setup set transcripts free
+          run setup set updates notify
+          run setup soul-draft --source preset --preset investor \
+            | uvx --quiet --from "$wheel" python -c "import json,sys;sys.stdout.write(json.load(sys.stdin)['markdown'])" > soul.md
+          run setup soul-save me --file soul.md
+          run setup shows
+          run setup smoke | grep -q '"status": "done"'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: |
+            dist/
+            notes.md
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # PyPI trusted publishing
+      contents: write  # create the GitHub Release
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --notes-file notes.md
