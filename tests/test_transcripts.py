@@ -251,8 +251,12 @@ _RAISES_JSON_ERROR = object()
 
 def test_managed_captions_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_get(url: str, **kwargs: object) -> _FakeResponse:
-        assert url == f"{tc.SUPADATA_BASE_URL}/youtube/transcript"
-        assert kwargs["params"] == {"videoId": "abcdefghijk"}
+        assert url == f"{tc.SUPADATA_BASE_URL}/transcript"
+        assert kwargs["params"] == {
+            "url": "https://www.youtube.com/watch?v=abcdefghijk",
+            "mode": "native",
+            "text": "false",
+        }
         assert kwargs["headers"] == {"x-api-key": "sk-test"}
         return _FakeResponse(
             200,
@@ -1088,7 +1092,11 @@ def test_digest_over_non_fixture_episode_reaches_done(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def fake_get(url: str, **kwargs: object) -> _FakeResponse:
-        assert kwargs["params"] == {"videoId": NON_FIXTURE_VIDEO_ID}
+        assert kwargs["params"] == {
+            "url": f"https://www.youtube.com/watch?v={NON_FIXTURE_VIDEO_ID}",
+            "mode": "native",
+            "text": "false",
+        }
         return _FakeResponse(
             200,
             {
@@ -1150,23 +1158,33 @@ def _unwrap_chain(deps: Deps) -> list[object]:
 
 
 def test_default_deps_fixture_only_without_keys(monkeypatch: pytest.MonkeyPatch) -> None:
-    for key in ("TRANSCRIPT_API_KEY", "DEEPGRAM_API_KEY", "ANTHROPIC_API_KEY", "ELEVENLABS_API_KEY"):
+    for key in (
+        "TRANSCRIPT_API_KEY",
+        "DEEPGRAM_API_KEY",
+        "ASSEMBLYAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "ELEVENLABS_API_KEY",
+    ):
         monkeypatch.delenv(key, raising=False)
     providers = _unwrap_chain(default_deps())
     kinds = [type(p).__name__ for p in providers]
     assert kinds == ["FixtureTranscriptProvider", "RssTranscriptProvider"]
 
 
-def test_default_deps_adds_supadata_and_deepgram_when_keyed(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_default_deps_adds_every_keyed_provider_in_ladder_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("TRANSCRIPT_API_KEY", "sk-test")
     monkeypatch.setenv("DEEPGRAM_API_KEY", "dg-test")
+    monkeypatch.setenv("ASSEMBLYAI_API_KEY", "aai-test")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
     providers = _unwrap_chain(default_deps())
     kinds = [type(p).__name__ for p in providers]
     assert kinds == [
         "FixtureTranscriptProvider",
-        "ManagedCaptionsProvider",
         "RssTranscriptProvider",
+        "AssemblyAITranscriptProvider",
         "DeepgramTranscriptProvider",
+        "ManagedCaptionsProvider",
     ]

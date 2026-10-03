@@ -23,7 +23,6 @@ one per Inngest `step.run`, so the two execution modes can never drift apart.
 from __future__ import annotations
 
 import logging
-import os
 import time
 from dataclasses import dataclass, field
 
@@ -51,20 +50,14 @@ from chorus.models import (
     Script,
 )
 from chorus.script import ScriptComposer, get_script_composer
-from chorus.transcript_cache import CachingTranscriptProvider, SqliteTranscriptCache
-from chorus.transcripts import (
-    ChainTranscriptProvider,
-    DeepgramTranscriptProvider,
-    FixtureTranscriptProvider,
-    ManagedCaptionsProvider,
-    RssTranscriptProvider,
-    TranscriptProvider,
-)
+from chorus.transcript_cache import SqliteTranscriptCache
+from chorus.transcripts import TranscriptProvider
 
 log = logging.getLogger("chorus.pipeline")
 
-TRANSCRIPT_API_KEY_ENV = "TRANSCRIPT_API_KEY"  # Supadata managed captions
+TRANSCRIPT_API_KEY_ENV = "TRANSCRIPT_API_KEY"  # Supadata native YouTube captions
 DEEPGRAM_API_KEY_ENV = "DEEPGRAM_API_KEY"
+ASSEMBLYAI_API_KEY_ENV = "ASSEMBLYAI_API_KEY"
 
 
 @dataclass
@@ -106,40 +99,22 @@ class Deps:
 
 
 def default_deps() -> Deps:
-    """Build the transcript provider ladder from the environment: fixtures
-    first (so tests/dev never depend on a live third party), then whichever
-    live providers have keys configured, all wrapped in a SQLite-backed cache
-    so a repeat request for the same episode never re-hits a paid API.
+    """Build the transcript provider ladder from the environment (fixtures,
+    publisher RSS transcript, AssemblyAI, Deepgram, Supadata native captions;
+    order and rationale in `chorus.config_env.build_transcript_chain`, the
+    single shared builder), wrapped in a SQLite-backed cache so a repeat
+    request for the same episode never re-hits a paid API.
 
     This is the local/dev/test builder (SQLite cache, local artifact
-    directory). chorus.config_env builds the Vercel-environment equivalent
-    (Postgres cache, Vercel Blob) that chorus.app.create_app uses by default;
-    default_deps() stays SQLite/local so `python -m chorus.app` and every
-    test keep working with zero configuration.
+    directory). chorus.config_env.build_deps builds the Vercel-environment
+    equivalent (Postgres cache, Vercel Blob) that chorus.app.create_app uses by
+    default; default_deps() stays SQLite/local so `python -m chorus.app` and
+    every test keep working with zero configuration.
     """
-    providers: list[TranscriptProvider] = [FixtureTranscriptProvider()]
-    active = ["fixture"]
-
-    transcript_api_key = os.environ.get(TRANSCRIPT_API_KEY_ENV)
-    if transcript_api_key:
-        providers.append(ManagedCaptionsProvider(transcript_api_key))
-        active.append("supadata")
-
-    rss_provider = RssTranscriptProvider()
-    providers.append(rss_provider)
-    active.append("rss")
-
-    deepgram_api_key = os.environ.get(DEEPGRAM_API_KEY_ENV)
-    if deepgram_api_key:
-        providers.append(DeepgramTranscriptProvider(deepgram_api_key, rss_provider=rss_provider))
-        active.append("deepgram")
-
-    log.info("transcripts: provider chain = %s", " -> ".join(active))
-    chain = ChainTranscriptProvider(providers)
-    cached_provider = CachingTranscriptProvider(chain, SqliteTranscriptCache())
+    from chorus.config_env import build_transcript_chain
 
     return Deps(
-        provider=cached_provider,
+        provider=build_transcript_chain(SqliteTranscriptCache()),
         llm=get_llm_client(),
         composer=get_script_composer(),
         renderer=get_audio_renderer(),
