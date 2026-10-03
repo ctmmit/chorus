@@ -25,12 +25,13 @@ from chorus.email import MockEmailSender
 from chorus.jobs import SqliteJobStore
 from chorus.keys import SqliteKeyStore
 from chorus.library import LibraryItem, SavedItem, merge_item, saved_queue_episodes
-from chorus.library_api import LibraryService
+from chorus.library_api import LibraryService, SharedItemStatus, share_summary
 from chorus.library_inputs import (
     HANDLE_REASON,
     SHORT_LINK_REASON,
     UNSUPPORTED_REASON,
     LinkError,
+    SkippedLink,
     links_from_text,
     parse_link,
     parse_youtube_takeout,
@@ -458,6 +459,27 @@ def test_share_text_saves_each_link_and_reports_the_rest(
     ]
     assert body["skipped"] == [{"link": "https://example.com/blog", "reason": UNSUPPORTED_REASON}]
     assert body["preview"]["queued_episodes"] == 2
+
+
+def test_share_summary_is_one_readable_line() -> None:
+    def status(title: str, state: str, kind: str = "episode", reason: str | None = None) -> object:
+        return SharedItemStatus(
+            link="x", title=title, show_title="Odd Lots", item_kind=kind, status=state, reason=reason
+        )
+
+    assert share_summary([status("Ep", "resolved")], [], 3) == (
+        "Saved “Ep” (Odd Lots). 3 episodes in your queue."
+    )
+    assert share_summary([status("Ep", "unresolved", reason="no feed")], [], 0) == (
+        "Could not match “Ep” (Odd Lots): no feed"
+    )
+    assert share_summary([status("Show", "resolved", kind="show")], [], 0) == (
+        "Added “Show” (Odd Lots) to your suggested shows."
+    )
+    skipped = [SkippedLink(link="y", reason="nope")]
+    assert share_summary([], skipped, 0) == "Nothing saved: nope"
+    two = [status("A", "resolved"), status("B", "unresolved")]
+    assert share_summary(two, skipped, 1) == "Saved 1 of 3 links. 1 episode in your queue."
 
 
 def test_resharing_keeps_titles_and_costs_no_lookups(

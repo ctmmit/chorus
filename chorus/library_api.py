@@ -159,9 +159,33 @@ class SharedItemStatus(BaseModel):
 class ShareResult(BaseModel):
     """POST /library/share response."""
 
+    summary: str = Field(
+        description="One line for a phone notification, e.g. what was saved and the queue size."
+    )
     items: list[SharedItemStatus] = Field(description="One entry per recognized link.")
     skipped: list[SkippedLink] = Field(description="Links that were not recognized, and why.")
     preview: ImportPreview = Field(description="The owner's library after this share.")
+
+
+def share_summary(
+    items: list[SharedItemStatus], skipped: list[SkippedLink], queued: int
+) -> str:
+    """The one-line answer a share-sheet Shortcut shows."""
+    if not items:
+        return f"Nothing saved: {skipped[0].reason}" if skipped else "Nothing saved: no links found"
+    queue = f"{queued} episode{'s' if queued != 1 else ''} in your queue."
+    if len(items) > 1:
+        saved = sum(1 for i in items if i.status != "unresolved")
+        return f"Saved {saved} of {len(items) + len(skipped)} links. {queue}"
+    item = items[0]
+    name = f"“{item.title}”" + (f" ({item.show_title})" if item.show_title else "")
+    if item.status == "unresolved":
+        return f"Could not match {name}: {item.reason}"
+    if item.status == "pending":
+        return f"Saved {name}; still looking it up. {queue}"
+    if item.item_kind == "show":
+        return f"Added {name} to your suggested shows."
+    return f"Saved {name}. {queue}"
 
 
 class ImportFileRequest(BaseModel):
@@ -217,10 +241,12 @@ class LibraryService:
             for item in parsed.items
             if (entry := stored.get(item.item_key())) is not None
         ]
+        preview = self._preview(owner, now, received=len(keys), new=new)
         return ShareResult(
+            summary=share_summary(statuses, parsed.skipped, preview.queued_episodes),
             items=statuses,
             skipped=parsed.skipped,
-            preview=self._preview(owner, now, received=len(keys), new=new),
+            preview=preview,
         )
 
     def import_file(
