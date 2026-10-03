@@ -434,6 +434,10 @@ def test_scheduler_enforces_the_owner_quota_without_losing_episodes(
 # --- catalog show sources ---------------------------------------------------------------------
 
 
+@pytest.mark.skipif(
+    not (Path(__file__).resolve().parent.parent / "fixtures" / "transcripts" / "c4tvVKDhpiY.json").exists(),
+    reason="needs the private 20VC transcript (failed runs never mark episodes seen)",
+)
 def test_catalog_show_source_digests_once_then_goes_quiet(tmp_path: Path) -> None:
     # Catalog fixtures carry no dates; the seen list is what stops repeats.
     # The fixture-by-id provider serves the catalog episodes' own transcripts.
