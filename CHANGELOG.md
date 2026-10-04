@@ -11,6 +11,12 @@ the version.
 
 ## Unreleased
 
+- **A private podcast feed.** Every finished digest with audio now arrives
+  in the principal's podcast app. `GET /feed` or the `get_podcast_feed` tool
+  returns a feed URL to add once. It carries the MP3, show notes with
+  timestamped source links, chapters and the transcript, and is authorized by
+  an HMAC token in the URL because podcast apps cannot send headers.
+  `chorus feed` writes a local `~/.chorus/feed.xml` for desktop players.
 - **Chapters and source links in the episode.** The MP3 now carries ID3v2.4
   chapters, one per outline segment (or per source for host-mode scripts),
   so podcast players show the episode's structure. Each chapter links to the

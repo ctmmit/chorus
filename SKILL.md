@@ -670,3 +670,25 @@ token required, since it is meant to be clicked from an email client) and the
 `List-Unsubscribe` / `List-Unsubscribe-Post` headers Gmail and Yahoo require
 of bulk senders. Clicking it deactivates the subscription (`active: false`);
 clicking it again is a no-op, not an error.
+
+## Podcast feed
+
+Every finished digest with rendered audio also lands in the principal's
+private podcast feed, so it arrives in the podcast app they already use.
+
+- `GET /feed` (bearer token, like every other route) returns
+  `{feed_url, episodes, instructions}`. The MCP tool `get_podcast_feed` returns
+  the same. Give the principal `feed_url` once; they add it to a podcast app
+  that accepts private feeds (Overcast, Pocket Casts, Apple Podcasts on macOS).
+- The feed URL is `/feed/<token>.xml`. The token is an HMAC of the owner, so
+  the URL contains no email address, needs no `Authorization` header (podcast
+  apps cannot send one), and is a credential: anyone holding it can hear the
+  digests. Rotating `CHORUS_FEED_SECRET` revokes every feed.
+- Each item carries the MP3 (byte-range requests supported), its duration,
+  show notes listing the highlights with links that open each source at the
+  cited moment, Podcasting 2.0 `podcast:chapters`, and `podcast:transcript`
+  (the script as text). Directories are told not to list it (`itunes:block`,
+  `podcast:locked`).
+- Local installs have no public URL: `chorus feed` (or `get_podcast_feed` on
+  the local MCP server) writes `~/.chorus/feed.xml` with `file://` enclosures
+  for a desktop player.

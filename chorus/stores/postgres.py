@@ -24,7 +24,13 @@ from datetime import UTC, datetime, timedelta
 
 from psycopg_pool import ConnectionPool
 
-from chorus.jobs import IN_FLIGHT_STATUSES, MASTER_OWNER
+from chorus.jobs import (
+    FINISHED_SCAN_LIMIT,
+    IN_FLIGHT_STATUSES,
+    MASTER_OWNER,
+    FinishedJob,
+    finished_with_audio,
+)
 from chorus.keys import KEY_BYTES, KEY_PREFIX, KEY_RATE_LIMIT, KeyRateLimited
 from chorus.library import ResolutionStatus, SavedItem
 from chorus.models import Job, JobStatus, Transcript
@@ -181,6 +187,20 @@ class PostgresJobStore:
                 (owner, *(s.value for s in IN_FLIGHT_STATUSES)),
             ).fetchone()
         return int(row[0]) if row else 0
+
+    def list_finished(self, owner: str, limit: int) -> list[FinishedJob]:
+        with self._pool.connection() as conn:
+            rows = conn.execute(
+                f"SELECT payload, created_at FROM {JOBS_TABLE} WHERE owner = %s AND status = %s "
+                "ORDER BY created_at DESC LIMIT %s",
+                (owner, JobStatus.done.value, FINISHED_SCAN_LIMIT),
+            ).fetchall()
+        return finished_with_audio([(r[0], r[1]) for r in rows], limit)
+
+    def owners(self) -> list[str]:
+        with self._pool.connection() as conn:
+            rows = conn.execute(f"SELECT DISTINCT owner FROM {JOBS_TABLE}").fetchall()
+        return sorted(str(r[0]) for r in rows)
 
     def close(self) -> None:
         self._pool.close()

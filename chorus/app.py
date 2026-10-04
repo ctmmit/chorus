@@ -80,6 +80,7 @@ from chorus.mcp_server import mount_mcp
 from chorus.models import DigestRequest, Job, JobStatus, KeyRequest, SelectionRequest
 from chorus.personas import PersonaRegistry
 from chorus.pipeline import Deps
+from chorus.podcast_feed import FEED_PUBLIC_PREFIX, build_feed_router
 from chorus.podcasts_api import PodcastDirectory, build_podcasts_router
 from chorus.quotas import QuotaExceeded, enforce_job_quota
 from chorus.runners import InngestRunner, JobRunner
@@ -193,6 +194,10 @@ def _is_public_route(request: Request) -> bool:
     if (method, path) in PUBLIC_ROUTES:
         return True
     if method == "GET" and path.startswith(DISCOVERY_PUBLIC_PREFIXES):
+        return True
+    if method == "GET" and path.startswith(FEED_PUBLIC_PREFIX):
+        # The private podcast feed and its files carry their own HMAC token
+        # in the path (chorus/podcast_feed.py); a podcast app sends no header.
         return True
     return any(method == m and path.endswith(suffix) for m, suffix in PUBLIC_ROUTE_SUFFIXES)
 
@@ -499,6 +504,9 @@ def create_app(
     # shows from Readwise, Apple, Spotify, OPML, pushed by the agent.
     library = LibraryService(saved_item_store, podcasts, subscription_store)
     app.include_router(build_library_router(library))
+    # The private podcast feed (chorus/podcast_feed.py): GET /feed for the
+    # caller's URL, and the token-authorized feed, audio, chapters, transcript.
+    app.include_router(build_feed_router(store, deps.artifacts))
 
     # Inngest only when it is actually the active runner (a durable-step
     # invocation needs the same store/deps every step reads and writes).

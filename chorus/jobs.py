@@ -13,6 +13,7 @@ import os
 import sqlite3
 import threading
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Protocol, runtime_checkable
@@ -64,6 +65,33 @@ TERMINAL_STATUSES = (JobStatus.done, JobStatus.failed)
 _EPOCH = "1970-01-01T00:00:00+00:00"
 
 
+# How many recent done jobs `list_finished` scans for ones with audio. A
+# feed shows far fewer than this; the bound keeps the query cheap.
+FINISHED_SCAN_LIMIT = 200
+
+
+@dataclass(frozen=True)
+class FinishedJob:
+    """A done job with its creation time (a column, not part of the payload),
+    which is what a podcast feed item needs for its publication date."""
+
+    job: Job
+    created_at: datetime
+
+
+def finished_with_audio(rows: list[tuple[str, str]], limit: int) -> list[FinishedJob]:
+    """(payload, created_at) rows, newest first, narrowed to jobs whose
+    audio is a rendered MP3 (not a text placeholder), at most `limit`."""
+    out: list[FinishedJob] = []
+    for payload, created_at in rows:
+        job = Job.model_validate_json(payload)
+        if job.audio_url and job.audio_url.endswith(".mp3"):
+            out.append(FinishedJob(job=job, created_at=datetime.fromisoformat(created_at)))
+        if len(out) >= limit:
+            break
+    return out
+
+
 def _now() -> datetime:
     return datetime.now(UTC)
 
@@ -89,6 +117,15 @@ class JobStore(Protocol):
 
     def count_in_flight(self, owner: str) -> int:
         """`owner`'s jobs currently queued or digest_ready (concurrency quota, R3)."""
+        ...
+
+    def list_finished(self, owner: str, limit: int) -> list[FinishedJob]:
+        """`owner`'s done jobs with rendered MP3 audio, newest first (the
+        private podcast feed, chorus/podcast_feed.py)."""
+        ...
+
+    def owners(self) -> list[str]:
+        """Every owner that has created a job (feed-token lookup)."""
         ...
 
     def close(self) -> None: ...
@@ -239,6 +276,20 @@ class SqliteJobStore:
                 (owner, *(s.value for s in IN_FLIGHT_STATUSES)),
             ).fetchone()
         return int(row[0]) if row else 0
+
+    def list_finished(self, owner: str, limit: int) -> list[FinishedJob]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT payload, created_at FROM jobs WHERE owner = ? AND status = ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (owner, JobStatus.done.value, FINISHED_SCAN_LIMIT),
+            ).fetchall()
+        return finished_with_audio([(r[0], r[1]) for r in rows], limit)
+
+    def owners(self) -> list[str]:
+        with self._lock:
+            rows = self._conn.execute("SELECT DISTINCT owner FROM jobs").fetchall()
+        return sorted(str(r[0]) for r in rows)
 
     def close(self) -> None:
         with self._lock:
