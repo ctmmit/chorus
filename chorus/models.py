@@ -386,6 +386,13 @@ class DigestRequest(BaseModel):
         default=None,
         description="Episode format and speakers; omit for the single-voice monologue default.",
     )
+    remember: bool = Field(
+        default=True,
+        description=(
+            "Use and update the owner's memory of earlier digests (repeat penalty, threads "
+            "that refer back). False keeps this run out of memory entirely."
+        ),
+    )
 
 
 class SelectionRequest(BaseModel):
@@ -532,6 +539,17 @@ class ThreadMember(BaseModel):
     stance: Literal["agrees", "disagrees", "adds"] = Field(
         description="How this highlight answers the thread's question relative to the others."
     )
+    remembered_at: datetime | None = Field(
+        default=None,
+        description=(
+            "Set when the member is a claim surfaced in an earlier digest (chorus/memory.py) "
+            "rather than this week's: when it was surfaced."
+        ),
+    )
+    quote: str | None = Field(
+        default=None, description="A remembered member's quote (this week's are on the digest)."
+    )
+    source: str | None = Field(default=None, description="A remembered member's show or title.")
 
 
 class Thread(BaseModel):

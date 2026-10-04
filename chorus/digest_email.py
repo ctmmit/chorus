@@ -192,14 +192,21 @@ def render_digest_email(
             text_lines.append(f"## {thread.question}")
             items: list[str] = []
             for member in thread.members:
-                h = by_id.get(member.highlight_id)
-                if h is None:
-                    continue
-                source = h.show or h.episode_title or h.episode_id
-                text_lines.append(f"- {source} ({member.stance}): {h.quote}")
+                if member.remembered_at is not None:
+                    # A claim from an earlier digest (chorus/memory.py).
+                    when = member.remembered_at.strftime("%d %b %Y")
+                    source = f"{member.source or member.episode_id}, {when}"
+                    quote = member.quote or ""
+                else:
+                    h = by_id.get(member.highlight_id)
+                    if h is None:
+                        continue
+                    source = h.show or h.episode_title or h.episode_id
+                    quote = h.quote
+                text_lines.append(f"- {source} ({member.stance}): {quote}")
                 items.append(
                     f"<li>{escape(source)} <em>({escape(member.stance)})</em>: "
-                    f"“{escape(h.quote)}”</li>"
+                    f"“{escape(quote)}”</li>"
                 )
             text_lines.append("")
             thread_html.append(

@@ -21,6 +21,7 @@ from chorus.audio import (
     ProfileAwareRenderer,
 )
 from chorus.llm import AnthropicLLMClient, LLMClient, MockLLMClient
+from chorus.memory import SqliteClaimStore
 from chorus.onboarding import (
     ANTHROPIC_KEY,
     ELEVENLABS_KEY,
@@ -112,4 +113,5 @@ def build_local_deps(config: OnboardingConfig) -> Deps:
         composer=composer,
         renderer=renderer,
         artifacts=LocalArtifactStore(paths.artifacts_dir()),
+        claims=SqliteClaimStore(paths.db_path()),
     )

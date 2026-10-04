@@ -721,3 +721,21 @@ Ratings teach the lens, but only with the principal's approval.
 - MCP: `rate_highlight`, `propose_soul_update`, `apply_soul_update`. Show the
   principal each edit and its evidence before applying anything.
 
+## Memory across weeks
+
+Chorus remembers what it surfaced for each owner, so a digest reads like an
+analyst who was there last month.
+
+- A window that repeats a claim surfaced in the last 4 weeks loses 0.25 of
+  its relevance score; its `why_surface` says "repeats a point surfaced <date>
+  from <source>". A strong repeat can still make the digest; a marginal one
+  drops out.
+- A thread (`digest.threads`) may include claims from earlier digests as
+  members with `remembered_at`, `quote` and `source` set, so it can say that a
+  guest weeks ago predicted what this week's guest disputes. Every thread
+  still has at least one of this week's highlights, and the script never cites
+  a remembered claim as if it were this week's.
+- `remember: false` on `POST /digest` (or a subscription) keeps that run out
+  of memory: nothing is read or written. The MCP tool `clear_memory` forgets
+  everything remembered for the caller.
+

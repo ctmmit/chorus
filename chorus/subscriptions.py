@@ -255,6 +255,13 @@ class Subscription(BaseModel):
             "proposal from highlight ratings was accepted (chorus/feedback.py)."
         ),
     )
+    remember: bool = Field(
+        default=True,
+        description=(
+            "Remember what each run surfaced, so later runs skip repeats and threads can "
+            "refer back (chorus/memory.py). False keeps this subscription out of memory."
+        ),
+    )
     context: str = Field(
         max_length=MAX_CONTEXT_CHARS,
         description="Current projects, reading, and priorities that tune relevance.",

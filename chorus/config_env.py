@@ -37,6 +37,7 @@ from chorus.jobs import DEFAULT_DB, MASTER_OWNER, JobStore, SqliteJobStore
 if TYPE_CHECKING:
     from chorus.feedback import FeedbackStore
     from chorus.keys import KeyStore
+    from chorus.memory import ClaimStore
     from chorus.personas import PersonaRegistry
     from chorus.pipeline import Deps
     from chorus.runners import JobRunner
@@ -151,6 +152,21 @@ def select_feedback_store(store: JobStore | None = None) -> FeedbackStore:
 
     db_path = getattr(store, "db_path", None) or DEFAULT_DB
     return SqliteFeedbackStore(db_path)
+
+
+def select_claim_store(store: JobStore | None = None) -> ClaimStore:
+    """What each principal was already told (chorus.memory): the same
+    selection rule as select_subscription_store."""
+    dsn = _dsn()
+    if dsn:
+        from chorus.stores.postgres import PostgresClaimStore
+
+        log.info("memory: %s set — using PostgresClaimStore", DATABASE_URL_ENV)
+        return PostgresClaimStore(dsn)
+    from chorus.memory import SqliteClaimStore
+
+    db_path = getattr(store, "db_path", None) or DEFAULT_DB
+    return SqliteClaimStore(db_path)
 
 
 def select_transcript_cache() -> TranscriptCache:
@@ -271,6 +287,7 @@ def build_deps() -> Deps:
         composer=get_script_composer(),
         renderer=get_audio_renderer(),
         artifacts=select_artifact_store(),
+        claims=select_claim_store(),
     )
 
 
