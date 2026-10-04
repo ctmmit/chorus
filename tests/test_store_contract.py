@@ -238,6 +238,28 @@ def test_count_for_owner_excludes_jobs_created_before_since(job_store: JobStore)
     assert job_store.count_for_owner("alice", future_since) == 0
 
 
+def test_list_finished_returns_done_mp3_jobs_for_one_owner(job_store: JobStore) -> None:
+    owner = f"feed-{uuid.uuid4().hex}"
+    done_ids = []
+    for ext in ("mp3", "mp3", "txt"):
+        job_id = job_store.create(owner=owner)
+        job = job_store.get(job_id)
+        assert job is not None
+        job.status = JobStatus.done
+        job.audio_url = f"/artifacts/episode_{job_id}.{ext}"
+        job_store.save(job)
+        if ext == "mp3":
+            done_ids.append(job_id)
+    job_store.create(owner=owner)  # still queued
+
+    finished = job_store.list_finished(owner, 10)
+    assert {f.job.job_id for f in finished} == set(done_ids)
+    assert all(f.created_at.tzinfo is not None for f in finished)
+    assert len(job_store.list_finished(owner, 1)) == 1
+    assert job_store.list_finished(f"nobody-{uuid.uuid4().hex}", 10) == []
+    assert owner in job_store.owners()
+
+
 # --- TranscriptCache contract -------------------------------------------
 
 

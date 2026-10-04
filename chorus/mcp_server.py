@@ -54,6 +54,7 @@ from chorus.models import (
     SelectionRequest,
 )
 from chorus.pipeline import Deps
+from chorus.podcast_feed import register_feed_tools
 from chorus.podcasts_api import OpmlImport, PodcastDirectory, PodcastSearchResult, parse_opml
 from chorus.quotas import QuotaExceeded, enforce_job_quota
 from chorus.runners import BackgroundRunner, JobRunner
@@ -519,6 +520,7 @@ def create_mcp_server(
     register_digest_tools(server, tools)
     register_subscription_tools(server, tools)
     register_library_tools(server, tools)
+    register_feed_tools(server, store, local=local)
     if local:
         register_setup_tools(server, store)
     return server, tools

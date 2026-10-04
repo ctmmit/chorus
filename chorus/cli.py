@@ -57,6 +57,7 @@ def _parser() -> argparse.ArgumentParser:
     update = commands.add_parser("update", help="check for and apply a new Chorus release")
     update.add_argument("--check", action="store_true", help="only report; change nothing")
     update.add_argument("--yes", action="store_true", help="apply a breaking update unprompted")
+    commands.add_parser("feed", help="write a podcast feed of your finished digests")
     run = commands.add_parser("run", help="digest this week's episodes")
     run.add_argument(
         "--episode",
@@ -404,6 +405,21 @@ def cmd_schedule(action: str, day: str, time: str) -> int:
     return EXIT_OK
 
 
+def cmd_feed() -> int:
+    from chorus.jobs import SqliteJobStore
+    from chorus.podcast_feed import LOCAL_FEED_NAME, write_local_feed
+
+    store = SqliteJobStore(paths.db_path())
+    try:
+        out, count = write_local_feed(store, paths.artifacts_dir(), paths.home() / LOCAL_FEED_NAME)
+    finally:
+        store.close()
+    print(f"Wrote {count} episode(s) to {out}")
+    print("Open it in a desktop podcast player. On a phone, use the hosted service's feed")
+    print("URL instead (GET /feed or the get_podcast_feed tool); a local file is not reachable.")
+    return EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
     from chorus.migrations import migrate_config
     from chorus.onboarding import OnboardingError
@@ -433,6 +449,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_status()
     if args.command == "setup":
         return cmd_setup(args)
+    if args.command == "feed":
+        return cmd_feed()
     return cmd_run(args.episode)
 
 

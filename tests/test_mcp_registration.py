@@ -38,6 +38,7 @@ HOSTED_TOOLS = [
     ("import_opml", False),
     ("list_library_items", False),
     ("soul_from_library", True),
+    ("get_podcast_feed", False),
 ]
 
 
