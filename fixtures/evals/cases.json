@@ -4,35 +4,97 @@
     "soul": "souls/soul_investor.md",
     "context": "context.md",
     "transcript": "sample_public",
-    "must": [0, 181],
-    "never": [90],
+    "must": [
+      0,
+      181
+    ],
+    "never": [
+      90
+    ],
     "note": "Unit-economics shift and a falsifiable margin claim are on-thesis; the green-room aside is drama."
   },
   {
     "case_id": "sample-popculture",
     "soul": "souls/soul_popculture.md",
     "transcript": "sample_public",
-    "must": [90],
-    "never": [0, 181],
+    "must": [
+      90
+    ],
+    "never": [
+      0,
+      181
+    ],
     "note": "The celebrity-wedding green-room story is the cultural hook; margins and market structure are spreadsheet talk."
+  },
+  {
+    "case_id": "counter-investor",
+    "soul": "souls/soul_investor.md",
+    "context": "context.md",
+    "transcript": "sample_counter",
+    "must": [
+      0,
+      180
+    ],
+    "never": [
+      90
+    ],
+    "note": "The rebuttal's margin and licensing arguments are on-thesis whichever side they take; the espresso-machine detour is not."
   },
   {
     "case_id": "andreessen-investor",
     "soul": "souls/soul_investor.md",
     "context": "context.md",
     "transcript": "c4tvVKDhpiY",
-    "must": [273, 1815, 3449, 3541, 3723],
-    "ok": [364, 1543, 1634, 1724, 2360, 2450, 2998, 3905],
-    "never": [0, 909, 1089, 1270, 1453, 2541, 4451],
+    "must": [
+      273,
+      1815,
+      3449,
+      3541,
+      3723
+    ],
+    "ok": [
+      364,
+      1543,
+      1634,
+      1724,
+      2360,
+      2450,
+      2998,
+      3905
+    ],
+    "never": [
+      0,
+      909,
+      1089,
+      1270,
+      1453,
+      2541,
+      4451
+    ],
     "note": "Venture economics (omission vs commission), fund size, AI pricing, creative destruction and lump of labor are on-thesis; stress habits, reading comments, a porch and cigar, Miami and founder anecdotes are not."
   },
   {
     "case_id": "andreessen-popculture",
     "soul": "souls/soul_popculture.md",
     "transcript": "c4tvVKDhpiY",
-    "must": [0, 909, 1089, 1179, 2541, 4451],
-    "ok": [728, 1453, 3178],
-    "never": [1815, 2360, 3541],
+    "must": [
+      0,
+      909,
+      1089,
+      1179,
+      2541,
+      4451
+    ],
+    "ok": [
+      728,
+      1453,
+      3178
+    ],
+    "never": [
+      1815,
+      2360,
+      3541
+    ],
     "note": "Quotable self-blame, online dust-ups, the Miami rumor and the first Zuckerberg meeting travel; fund economics and LP mechanics do not."
   },
   {

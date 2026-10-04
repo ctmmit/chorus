@@ -86,6 +86,7 @@ from chorus.outline import (
     parse_outline,
     segment_turn_targets,
 )
+from chorus.threads import threads_brief
 
 log = logging.getLogger("chorus.script")
 
@@ -172,13 +173,19 @@ class EpisodePlan:
     candidates: list[EpisodeDigest]
     overflow: list[EpisodeDigest]
     fixed_minutes: int | None
+    # Questions several sources speak to (chorus/threads.py), as the outline
+    # prompt shows them; empty when there are none.
+    threads: str = ""
 
 
 def plan_episode(digest: Digest, profile: EpisodeProfile) -> EpisodePlan:
     """Pure."""
     candidates, overflow = select_sources(digest)
     return EpisodePlan(
-        candidates=candidates, overflow=overflow, fixed_minutes=profile.style.target_minutes
+        candidates=candidates,
+        overflow=overflow,
+        fixed_minutes=profile.style.target_minutes,
+        threads=threads_brief(digest),
     )
 
 
@@ -877,7 +884,7 @@ class AnthropicScriptComposer(_SegmentedComposer):
         try:
             outline: EpisodeOutline = self._ask_with_retry(
                 system,
-                outline_prompt(briefs, plan.overflow, plan.fixed_minutes),
+                outline_prompt(briefs, plan.overflow, plan.fixed_minutes, plan.threads),
                 self.OUTLINE_MAX_TOKENS,
                 lambda data: parse_outline(data, candidate_ids, overflow_ids, plan.fixed_minutes),
             )

@@ -162,6 +162,13 @@ never stays `queued` or `digest_ready` indefinitely. The digest is usable at
 ```
 
 - Every highlight's `segment_timestamp` + `quote` resolve to the real transcript.
+- `digest.threads` lists questions two or more sources spoke to this week,
+  disagreements first: `{question, members: [{highlight_id, episode_id,
+  stance}]}`, where `stance` is `agrees`, `disagrees` or `adds`. Every member
+  is a surfaced highlight, and a thread always spans at least two sources. It
+  is empty when fewer than two sources surfaced anything or nothing connects.
+  The episode script may build a segment around a thread; the digest email
+  leads with them.
 - `usage` is run telemetry, not part of the lifecycle contract — safe to ignore.
   `transcript_sources` maps each resolved episode id to which provider produced
   its transcript ("fixture", "rss:json"/"rss:vtt"/"rss:srt", "assemblyai",

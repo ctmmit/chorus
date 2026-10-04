@@ -1,0 +1,27 @@
+{
+  "video_id": "sample_counter",
+  "_comment": "Synthetic, redistributable transcript for the public test suite. A rebuttal to sample_public on the same topics: two 90s windows argue the opposite investor thesis (margins will not expand, the licenses are not a moat), one is off-topic chatter. Used by the cross-source threads tests and eval.",
+  "segments": [
+    {"start": 0.0, "text": "Today a skeptic on the AI margin story joins us to push back on last week's guest."},
+    {"start": 7.0, "text": "I disagree with the claim that falling inference costs expand gross margins."},
+    {"start": 14.5, "text": "Unit economics do not improve when every competitor gets the same cost curve at the same time."},
+    {"start": 23.0, "text": "Pricing power is not the mechanism here; buyers capture the savings within two quarters."},
+    {"start": 31.5, "text": "So my falsifiable claim is the opposite: margins will not expand, they will compress back to forty percent."},
+    {"start": 41.0, "text": "Watch the gross margins next quarter and you will see the competition show up."},
+    {"start": 52.0, "text": "Capital allocation follows: the winners will reinvest the savings, not bank them."},
+    {"start": 64.0, "text": "That is a base rate every software cycle has followed."},
+    {"start": 76.0, "text": "The cost curve falls for everyone, so it is not a moat."},
+    {"start": 90.0, "text": "Quick detour: the green room had a new espresso machine and nobody could work it."},
+    {"start": 98.0, "text": "We spent ten minutes on whose turn it was to pick lunch and which playlist to put on."},
+    {"start": 108.0, "text": "Somebody brought a dog, which became the highlight of the afternoon for everyone."},
+    {"start": 118.0, "text": "Then a long debate about the best airport lounge, which settled nothing."},
+    {"start": 130.0, "text": "Anyway, back to it."},
+    {"start": 180.0, "text": "On market structure I think last week's guest is wrong about the licenses."},
+    {"start": 188.0, "text": "The licenses are not a durable moat; regulators will issue more of them within a year."},
+    {"start": 197.5, "text": "Pricing power that depends on a regulatory catalyst is borrowed, not owned."},
+    {"start": 207.0, "text": "When the next two players get licenses, margins revert and the price takers catch up."},
+    {"start": 218.0, "text": "Labor is the real cost curve to watch, and AI compresses it for every competitor equally."},
+    {"start": 230.0, "text": "My capital allocation advice: do not pay a premium for a moat a regulator can revoke."},
+    {"start": 242.0, "text": "That claim is falsifiable within four quarters, and I expect to be proven right."}
+  ]
+}

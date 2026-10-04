@@ -175,8 +175,20 @@ def parse_outline(
 
 
 def outline_prompt(
-    briefs: list[SourceBrief], overflow: list[EpisodeDigest], fixed_minutes: int | None
+    briefs: list[SourceBrief],
+    overflow: list[EpisodeDigest],
+    fixed_minutes: int | None,
+    threads: str = "",
 ) -> str:
+    """`threads` is chorus.threads.threads_brief's text: questions two or more
+    sources speak to, offered as candidate body segments, not required ones."""
+    thread_block = (
+        "THREADS ACROSS SOURCES (questions two or more sources speak to, with each source's "
+        "stance; a disagreement makes a strong body segment that puts those sources in "
+        f"conversation, if it earns its time):\n{threads}\n\n"
+        if threads
+        else ""
+    )
     briefs_json = json.dumps(
         [b.model_dump(mode="json", exclude_none=True) for b in briefs], indent=2
     )
@@ -199,6 +211,7 @@ def outline_prompt(
         f"CANDIDATE SOURCES (briefs, most relevant to this listener first):\n{briefs_json}\n\n"
         f"NOT BRIEFED (more than could be prepared; at most a passing mention in the close):\n"
         f"{unbriefed}\n\n"
+        f"{thread_block}"
         f"{length}\n\n"
         "Plan the episode. You choose what makes it in and how much each thing gets: one "
         "source explored in depth, a few set against each other, an idea followed across "

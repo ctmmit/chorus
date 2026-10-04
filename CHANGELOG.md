@@ -11,6 +11,13 @@ the version.
 
 ## Unreleased
 
+- **Threads across sources.** After curation, Chorus finds the questions
+  two or more sources spoke to this week and how each answered (`agrees`,
+  `disagrees`, `adds`), on `digest.threads`, disagreements first. Every
+  member is a surfaced highlight and every thread spans at least two
+  sources. The outline writer is offered them as segments that put sources
+  in conversation, and the digest email leads with them. A synthetic
+  rebuttal transcript (`sample_counter`) joins the public fixtures.
 - **Ratings teach the lens, with approval.** Every highlight has a stable
   `highlight_id` and can be rated up or down, with a note, through
   `rate_highlight`, `POST /feedback`, or the signed "More like this" / "Less
