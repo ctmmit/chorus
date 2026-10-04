@@ -11,6 +11,12 @@ the version.
 
 ## Unreleased
 
+- **Personas as sources.** A persona's owner can publish finished digests to
+  it; a subscription can listen to a public persona (`kind: "persona"`) and
+  hear the episodes it surfaced, curated through the subscriber's own soul and
+  cited to the primary source. Up-votes on those highlights endorse the
+  persona; `/network` shows the counts, and each persona has a public podcast
+  feed advertised on its A2A card.
 - **Brief me now.** `POST /quick-take` and the `quick_take` tool judge one
   episode in about a minute: `listen`, `skim` or `skip` by a fixed rule on
   the scores, up to three reasons each citing a moment, and a 60 to 90 second

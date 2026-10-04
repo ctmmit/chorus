@@ -45,6 +45,7 @@ HOSTED_TOOLS = [
     ("clear_memory", False),
     ("ask_digest", False),
     ("quick_take", False),
+    ("publish_to_persona", False),
 ]
 
 

@@ -426,6 +426,13 @@ class DigestRequest(BaseModel):
             "that refer back). False keeps this run out of memory entirely."
         ),
     )
+    via_personas: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Episode id -> persona id for episodes a subscription picked up from a persona's "
+            "published digests (chorus/publications.py). Set by Chorus."
+        ),
+    )
     context_blocks: list[ContextBlock] = Field(
         default_factory=list,
         max_length=MAX_CONTEXT_BLOCKS,
@@ -576,6 +583,14 @@ class EpisodeDigest(BaseModel):
     url: str | None = Field(
         default=None,
         description="Where a listener can open the source (YouTube watch page or audio file).",
+    )
+    source_episode: EpisodeInput | None = Field(
+        default=None,
+        description="The episode as requested, so it can be fetched again (persona publishing).",
+    )
+    via_persona: str | None = Field(
+        default=None,
+        description="The persona whose published digest brought this episode in, if any.",
     )
     intro_excerpt: str = Field(
         default="",

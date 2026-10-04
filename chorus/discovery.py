@@ -200,7 +200,19 @@ def _persona_agent_card(persona: Persona, base: str) -> dict[str, object]:
                 "examples": [f"GET {url} for this persona's registered facts"],
                 "inputModes": ["application/json"],
                 "outputModes": ["application/json", "audio/mpeg"],
-            }
+            },
+            {
+                "id": "podcast",
+                "name": f"{persona.name} podcast",
+                "description": (
+                    "The digests this persona published, as a podcast feed; subscribe to "
+                    'it as a Chorus source of kind "persona" to hear them through your own soul.'
+                ),
+                "tags": ["podcast", "rss", "persona"],
+                "examples": [f"GET {url}/feed.xml", f"GET {url}/published"],
+                "inputModes": ["application/json"],
+                "outputModes": ["application/rss+xml", "audio/mpeg"],
+            },
         ],
     }
 
@@ -299,7 +311,9 @@ def list_personas(personas: PersonaRegistry = Depends(get_personas)) -> list[Per
 
 @router.post("/personas")
 def create_persona(
-    request: CreatePersonaRequest, personas: PersonaRegistry = Depends(get_personas)
+    request: CreatePersonaRequest,
+    http_request: Request,
+    personas: PersonaRegistry = Depends(get_personas),
 ) -> Persona:
     """Bearer-authed (see chorus.app's DISCOVERY_PUBLIC_PREFIXES: only GET
     under /personas is auth-exempt)."""
@@ -310,6 +324,7 @@ def create_persona(
         shows=request.shows,
         cadence=request.cadence,
         public=request.public,
+        owner=getattr(http_request.state, "owner", "master"),
     )
     return personas.create(persona)
 
@@ -358,6 +373,9 @@ class NetworkNode(BaseModel):
     kind: str  # "persona" | "show"
     label: str
     size: int
+    # Listener up-votes on highlights that arrived through this persona
+    # (chorus/publications.py); always 0 for a show.
+    endorsements: int = 0
 
 
 class NetworkEdge(BaseModel):
@@ -375,7 +393,9 @@ def _show_node_id(show_key: str) -> str:
     return f"show:{show_key}"
 
 
-def build_network(personas: list[Persona]) -> NetworkGraph:
+def build_network(
+    personas: list[Persona], endorsements: dict[str, int] | None = None
+) -> NetworkGraph:
     """Nodes: one per public persona (size = shows listened to) plus one per
     catalog show (size = number of listening personas, including 0 for a
     show nobody has subscribed to yet — the graph should still show the
@@ -399,6 +419,7 @@ def build_network(personas: list[Persona]) -> NetworkGraph:
                 kind="persona",
                 label=persona.name,
                 size=len(persona.shows),
+                endorsements=(endorsements or {}).get(persona.persona_id, 0),
             )
         )
         seen: set[str] = set()
@@ -421,5 +442,7 @@ def build_network(personas: list[Persona]) -> NetworkGraph:
 
 
 @router.get("/network")
-def network(personas: PersonaRegistry = Depends(get_personas)) -> NetworkGraph:
-    return build_network(personas.list(public_only=True))
+def network(request: Request, personas: PersonaRegistry = Depends(get_personas)) -> NetworkGraph:
+    publications = getattr(request.app.state, "publications", None)
+    counts = publications.endorsement_counts() if publications is not None else {}
+    return build_network(personas.list(public_only=True), counts)

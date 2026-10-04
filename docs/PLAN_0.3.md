@@ -396,6 +396,14 @@ persona B to A, runs B, and asserts that B's highlights cite A's original
 source episode and timestamp, and that an up-vote in B increments A's
 endorsement count.
 
+**As built.** A `PersonaSource` yields the original episodes the persona
+surfaced, and the subscriber curates each full original transcript through
+their own soul, rather than curating a transcript made of the persona's
+quotes. The persona acts as the discovery filter, and grounding needs no
+hop at all: every highlight cites the primary source directly and resolves
+against its transcript. Endorsement counts sit on persona nodes in
+`/network`, since who subscribes to whom stays private.
+
 ---
 
 ## Risks

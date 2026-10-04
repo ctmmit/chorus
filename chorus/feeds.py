@@ -50,6 +50,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -63,7 +64,14 @@ from chorus.models import (
     EpisodeInput,
 )
 from chorus.netguard import Resolver
-from chorus.subscriptions import RssSource, SavedQueueSource, ShowSource, Source, YoutubeSource
+from chorus.subscriptions import (
+    PersonaSource,
+    RssSource,
+    SavedQueueSource,
+    ShowSource,
+    Source,
+    YoutubeSource,
+)
 from chorus.transcripts import (
     FEED_PREFIX_BYTES,
     MAX_FEED_BYTES,
@@ -112,6 +120,9 @@ class FeedEpisode(BaseModel):
     title: str = Field(description="Episode title.")
     published_at: datetime = Field(description="Publication time, timezone-aware UTC.")
     episode: EpisodeInput = Field(description="The episode in the shape POST /digest accepts.")
+    via_persona: str | None = Field(
+        default=None, description="The persona whose published digest surfaced it, if any."
+    )
 
 
 class SourceError(BaseModel):
@@ -146,6 +157,34 @@ class GatherResult(BaseModel):
     errors: list[SourceError] = Field(description="Sources that failed to list.")
 
 
+def list_persona_episodes(
+    source: PersonaSource,
+    since: datetime,
+    limit: int,
+    *,
+    personas: Any | None = None,
+    publications: Any | None = None,
+) -> list[FeedEpisode]:
+    """The original episodes a public persona published since `since`
+    (chorus/publications.py). Stores default to the deployment's own."""
+    from chorus import config_env
+    from chorus.publications import persona_feed_episodes
+
+    owns = personas is None, publications is None
+    registry = personas or config_env.select_persona_registry()
+    store = publications or config_env.select_publication_store()
+    try:
+        persona = registry.get(source.persona_id)
+        if persona is None or not persona.public:
+            raise FeedFetchError(f"persona {source.persona_id} is unknown or not public")
+        return persona_feed_episodes(persona, store.list(source.persona_id), since, limit)
+    finally:
+        if owns[0]:
+            getattr(registry, "close", lambda: None)()
+        if owns[1]:
+            store.close()
+
+
 def source_label(source: Source) -> str:
     """A short human label for logs, errors and the "sources checked" list."""
     if isinstance(source, RssSource):
@@ -154,6 +193,8 @@ def source_label(source: Source) -> str:
         return source.title or f"YouTube channel {source.channel_id}"
     if isinstance(source, SavedQueueSource):
         return source.title
+    if isinstance(source, PersonaSource):
+        return source.title or f"persona {source.persona_id}"
     return source.show
 
 
@@ -475,6 +516,8 @@ def list_recent_episodes(
         episodes = parse_youtube_atom(root, title_override=source.title).episodes
     elif isinstance(source, SavedQueueSource):
         raise FeedFetchError(SAVED_QUEUE_UNAVAILABLE)
+    elif isinstance(source, PersonaSource):
+        return list_persona_episodes(source, since, limit)
     else:
         assert isinstance(source, ShowSource)
         resolved = catalog.resolve(shows=[source.show])

@@ -796,3 +796,23 @@ From a phone's share sheet: `POST /library/share` with `"mode": "quick"` plus
 context) saves the links as usual and returns `quick_take` for the first
 shared episode that resolved.
 
+## Personas as sources
+
+A persona (`POST /personas`) can publish, and other principals can listen.
+
+- `POST /personas/{persona_id}/publish {"job_id"}` (or MCP
+  `publish_to_persona`) publishes one of your finished digests to a persona
+  you registered. Only its episodes and highlights are shared, never your
+  soul or context. `GET /personas/{id}/published` lists publications
+  publicly; `GET /personas/{id}/feed.xml` is the persona's public podcast
+  feed (its published digests that have audio).
+- A subscription source `{"kind": "persona", "persona_id": "..."}` picks up
+  the original episodes a public persona published since the last run and
+  curates them through the subscriber's own soul. Highlights cite the
+  primary source and timestamp, never the persona; the digest marks such
+  episodes with `via_persona`.
+- An up-vote (`rate_highlight`, `POST /feedback`, or the email link) on a
+  highlight from an episode that came through a persona endorses that
+  persona, once per listener and highlight. `/network` shows each persona's
+  `endorsements`, and its A2A card lists a `podcast` skill with the feed.
+

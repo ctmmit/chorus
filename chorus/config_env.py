@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from chorus.memory import ClaimStore
     from chorus.personas import PersonaRegistry
     from chorus.pipeline import Deps
+    from chorus.publications import PublicationStore
     from chorus.runners import JobRunner
     from chorus.saved_items import SavedItemStore
     from chorus.subscriptions import SubscriptionStore
@@ -167,6 +168,21 @@ def select_claim_store(store: JobStore | None = None) -> ClaimStore:
 
     db_path = getattr(store, "db_path", None) or DEFAULT_DB
     return SqliteClaimStore(db_path)
+
+
+def select_publication_store(store: JobStore | None = None) -> PublicationStore:
+    """Persona publications and endorsements (chorus.publications): the same
+    selection rule as select_subscription_store."""
+    dsn = _dsn()
+    if dsn:
+        from chorus.stores.postgres import PostgresPublicationStore
+
+        log.info("publications: %s set — using PostgresPublicationStore", DATABASE_URL_ENV)
+        return PostgresPublicationStore(dsn)
+    from chorus.publications import SqlitePublicationStore
+
+    db_path = getattr(store, "db_path", None) or DEFAULT_DB
+    return SqlitePublicationStore(db_path)
 
 
 def select_transcript_cache() -> TranscriptCache:
