@@ -43,6 +43,10 @@ then run from the root:
 & $PY scripts/golden_path.py
 ```
 
+Before merging a change to curation scoring or its prompts, run
+`& $PY scripts/eval_curation.py --live` on `main` and on the branch and put
+both tables in the pull request. The mock run is part of the test suite.
+
 All four commands must pass before a commit. Never call live providers in tests.
 
 ## Conventions
