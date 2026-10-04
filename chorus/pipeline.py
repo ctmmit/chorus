@@ -25,7 +25,9 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 from pydantic import BaseModel
 
@@ -38,6 +40,16 @@ from chorus.errors import is_retryable
 from chorus.ingest import AllEpisodesFailed, ingest
 from chorus.jobs import JobStore
 from chorus.llm import LLMClient, TokenUsage, get_llm_client
+from chorus.memory import (
+    Claim,
+    ClaimStore,
+    Recall,
+    SqliteClaimStore,
+    as_remembered,
+    claims_from,
+    recall,
+    related_claims,
+)
 from chorus.models import (
     MONOLOGUE_PROFILE,
     Chapter,
@@ -74,6 +86,9 @@ class Deps:
     composer: ScriptComposer
     renderer: AudioRenderer
     artifacts: ArtifactStore = field(default_factory=LocalArtifactStore)
+    # What this principal was already told (chorus/memory.py). None turns
+    # memory off: no repeat penalty, no remembered claims in threads.
+    claims: ClaimStore | None = None
 
     def close(self) -> None:
         """R24 (docs/REVIEW_WAVE1.md #24): close every owned provider/cache/
@@ -96,6 +111,7 @@ class Deps:
             self.composer,
             self.renderer,
             self.artifacts,
+            self.claims,
         ):
             if candidate is None or id(candidate) in seen:
                 continue
@@ -126,6 +142,7 @@ def default_deps() -> Deps:
         composer=get_script_composer(),
         renderer=get_audio_renderer(),
         artifacts=LocalArtifactStore(),
+        claims=SqliteClaimStore(),
     )
 
 
@@ -161,7 +178,10 @@ def stage_ingest(request: DigestRequest, provider: TranscriptProvider) -> Ingest
 
 
 def stage_curate_episode(
-    resolved: ResolvedEpisode, request: DigestRequest, llm: LLMClient
+    resolved: ResolvedEpisode,
+    request: DigestRequest,
+    llm: LLMClient,
+    remembered: Sequence[Claim] = (),
 ) -> CurateResult:
     """Score one resolved episode against the soul/context and surface its
     highlights (or an honest refusal). One Inngest step per episode
@@ -179,6 +199,7 @@ def stage_curate_episode(
         llm,
         max_highlights=request.highlight_count,
         meter=meter,
+        remembered=remembered,
     )
     tokens = LLMTokens(
         calls=meter.calls,
@@ -190,10 +211,30 @@ def stage_curate_episode(
     return CurateResult(digest=digest, tokens=tokens)
 
 
-def stage_threads(digest: Digest, llm: LLMClient) -> list[Thread]:
-    """Questions two or more sources speak to (chorus/threads.py). Callers
-    treat a raised exception as non-fatal: the digest stands without threads."""
-    return build_threads(digest, thread_writer_for(llm)())
+def stage_threads(
+    digest: Digest, llm: LLMClient, remembered: Sequence[Claim] = ()
+) -> list[Thread]:
+    """Questions two or more sources speak to (chorus/threads.py), with
+    related claims from earlier digests offered alongside. Callers treat a
+    raised exception as non-fatal: the digest stands without threads."""
+    past = [as_remembered(c) for c in related_claims(digest.highlights, remembered)]
+    return build_threads(digest, thread_writer_for(llm)(), past)
+
+
+def stage_recall(deps: Deps, owner: str, request: DigestRequest) -> Recall:
+    """What this owner was already told, unless the request opts out."""
+    if not request.remember:
+        return Recall()
+    return recall(deps.claims, owner, datetime.now(UTC))
+
+
+def stage_remember(deps: Deps, job: Job, request: DigestRequest) -> int:
+    """Write a finished job's claims to memory; returns how many."""
+    if deps.claims is None or not request.remember:
+        return 0
+    claims = claims_from(job, datetime.now(UTC))
+    deps.claims.remember(claims)
+    return len(claims)
 
 
 class BriefResult(BaseModel):
@@ -345,9 +386,13 @@ def _run(
         r.episode.resolved_id(): r.transcript.source or "unknown" for r in ingested.resolved
     }
 
+    memory = stage_recall(deps, job.owner, request)
+
     # Any exception here propagates to run_job's handler -> failed with reason.
     t0 = time.perf_counter()
-    curated = [stage_curate_episode(r, request, deps.llm) for r in ingested.resolved]
+    curated = [
+        stage_curate_episode(r, request, deps.llm, memory.repeats) for r in ingested.resolved
+    ]
     job.digest = Digest(
         soul_version=soul_version(request.soul),
         soul_origin=request.soul_origin,
@@ -357,7 +402,7 @@ def _run(
     usage.llm_tokens = sum_llm_tokens([c.tokens for c in curated])
     t0 = time.perf_counter()
     try:
-        job.digest.threads = stage_threads(job.digest, deps.llm)
+        job.digest.threads = stage_threads(job.digest, deps.llm, memory.lookback)
     except Exception as err:  # noqa: BLE001 - threads are a layer; the digest stands
         job.warnings.append(f"threads failed: {type(err).__name__}: {err}")
         log.warning("job %s: threads failed (non-fatal): %s", job.job_id, err)
@@ -398,4 +443,9 @@ def _run(
         usage.stage_seconds["audio"] = time.perf_counter() - t0
 
     job.status = JobStatus.done
+    try:
+        stage_remember(deps, job, request)
+    except Exception as err:  # noqa: BLE001 - memory is a layer; the job is done
+        job.warnings.append(f"memory not updated: {type(err).__name__}: {err}")
+        log.warning("job %s: memory not updated (non-fatal): %s", job.job_id, err)
     store.save(job)

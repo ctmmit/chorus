@@ -59,6 +59,7 @@ from chorus.curation import soul_version
 from chorus.email import EmailSender
 from chorus.errors import is_retryable
 from chorus.jobs import IN_FLIGHT_STATUSES, JobStore
+from chorus.memory import Recall
 from chorus.models import (
     CurateResult,
     Digest,
@@ -83,6 +84,8 @@ from chorus.pipeline import (
     stage_curate_episode,
     stage_ingest,
     stage_outline,
+    stage_recall,
+    stage_remember,
     stage_script,
     stage_threads,
     sum_llm_tokens,
@@ -163,13 +166,20 @@ async def _execute(step: StepLike, event_data: dict[str, Any], store: JobStore, 
         r.episode.resolved_id(): r.transcript.source or "unknown" for r in ingested.resolved
     }
 
+    async def _recall() -> dict[str, Any]:
+        return stage_recall(deps, job.owner, request).model_dump(mode="json")
+
+    memory = Recall.model_validate(await step.run("recall", _recall))
+
     t0 = time.perf_counter()
     curated: list[CurateResult] = []
     for resolved in ingested.resolved:
         episode_id = resolved.episode.resolved_id()
 
         async def _curate(resolved: ResolvedEpisode = resolved) -> dict[str, Any]:
-            return stage_curate_episode(resolved, request, deps.llm).model_dump(mode="json")
+            return stage_curate_episode(
+                resolved, request, deps.llm, memory.repeats
+            ).model_dump(mode="json")
 
         data = await step.run(f"curate:{episode_id}", _curate)
         curated.append(CurateResult.model_validate(data))
@@ -188,7 +198,10 @@ async def _execute(step: StepLike, event_data: dict[str, Any], store: JobStore, 
     digest = job.digest
 
     async def _threads(digest: Digest = digest) -> list[dict[str, object]]:
-        return [t.model_dump(mode="json") for t in stage_threads(digest, deps.llm)]
+        return [
+            t.model_dump(mode="json")
+            for t in stage_threads(digest, deps.llm, memory.lookback)
+        ]
 
     try:
         job.digest.threads = [
@@ -255,6 +268,15 @@ async def _execute(step: StepLike, event_data: dict[str, Any], store: JobStore, 
         usage.stage_seconds["audio"] = time.perf_counter() - t0
 
     job.status = JobStatus.done
+
+    async def _remember() -> int:
+        return stage_remember(deps, job, request)
+
+    try:
+        await step.run("remember", _remember)
+    except Exception as err:  # noqa: BLE001 - memory is a layer; the job is done
+        job.warnings.append(f"memory not updated: {type(err).__name__}: {err}")
+        log.warning("job %s: memory not updated (non-fatal): %s", job.job_id, err)
 
     async def _finalize_done() -> dict[str, str]:
         return _save_job(store, job)

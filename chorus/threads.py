@@ -21,7 +21,9 @@ from __future__ import annotations
 import logging
 import re
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 
 from pydantic import ValidationError
@@ -54,7 +56,17 @@ class ThreadWriter(Protocol):
     def write(self, highlights: list[Highlight]) -> list[Thread]: ...
 
 
-def _words(text: str) -> set[str]:
+@dataclass(frozen=True)
+class Remembered:
+    """A claim surfaced in an earlier digest (chorus/memory.py), offered to
+    the thread writer next to this week's highlights."""
+
+    highlight: Highlight
+    surfaced_at: datetime
+
+
+def content_words(text: str) -> set[str]:
+    """Lower-cased content words: no stopwords, at least MIN_WORD_CHARS long."""
     return {
         w for w in _WORD_RE.findall(text.lower())
         if len(w) >= MIN_WORD_CHARS and w not in _STOPWORDS
@@ -65,24 +77,49 @@ def _highlight_text(highlight: Highlight) -> str:
     return f"{highlight.quote} {highlight.excerpt}"
 
 
-def validate_threads(threads: list[Thread], digest: Digest) -> list[Thread]:
+def validate_threads(
+    threads: list[Thread], digest: Digest, remembered: Sequence[Remembered] = ()
+) -> list[Thread]:
     """Keep only grounded, cross-source threads: unknown highlight ids are
     dropped, each member's episode comes from its highlight, a highlight
-    appears once per thread, and a thread needs `MIN_SOURCES` sources.
-    Disagreements first, then by size; at most `MAX_THREADS`."""
-    by_id = {h.highlight_id: h for h in digest.highlights}
+    appears once per thread, and a thread needs `MIN_SOURCES` sources and at
+    least one of this week's highlights. A remembered member carries its
+    date, quote and source. Disagreements first, then by size; at most
+    `MAX_THREADS`."""
+    current = {h.highlight_id: h for h in digest.highlights}
+    past = {
+        r.highlight.highlight_id: r for r in remembered if r.highlight.highlight_id not in current
+    }
     kept: list[Thread] = []
     for thread in threads:
         question = " ".join(thread.question.split())[:MAX_QUESTION_CHARS]
         members: list[ThreadMember] = []
         seen: set[str] = set()
         for member in thread.members:
-            highlight = by_id.get(member.highlight_id)
-            if highlight is None or member.highlight_id in seen:
+            if member.highlight_id in seen:
+                continue
+            if member.highlight_id in current:
+                highlight = current[member.highlight_id]
+                update: dict[str, object] = {
+                    "episode_id": highlight.episode_id,
+                    "remembered_at": None,
+                    "quote": None,
+                    "source": None,
+                }
+            elif member.highlight_id in past:
+                old = past[member.highlight_id]
+                update = {
+                    "episode_id": old.highlight.episode_id,
+                    "remembered_at": old.surfaced_at,
+                    "quote": old.highlight.quote,
+                    "source": old.highlight.show or old.highlight.episode_title,
+                }
+            else:
                 continue
             seen.add(member.highlight_id)
-            members.append(member.model_copy(update={"episode_id": highlight.episode_id}))
-        if question and len({m.episode_id for m in members}) >= MIN_SOURCES:
+            members.append(member.model_copy(update=update))
+        this_week = [m for m in members if m.remembered_at is None]
+        if question and this_week and len({m.episode_id for m in members}) >= MIN_SOURCES:
             kept.append(Thread(question=question, members=members))
     kept.sort(key=lambda t: (not t.disagreement, -len(t.members)))
     return kept[:MAX_THREADS]
@@ -96,7 +133,7 @@ class MockThreadWriter:
     ("not", "wrong", "disagree"...), else `agrees`."""
 
     def write(self, highlights: list[Highlight]) -> list[Thread]:
-        words = [_words(_highlight_text(h)) for h in highlights]
+        words = [content_words(_highlight_text(h)) for h in highlights]
         parent = list(range(len(highlights)))
 
         def find(i: int) -> int:
@@ -205,13 +242,21 @@ def thread_writer_for(llm: object) -> Callable[[], ThreadWriter]:
     return get_thread_writer
 
 
-def build_threads(digest: Digest, writer: ThreadWriter) -> list[Thread]:
-    """Threads for a digest, or none when fewer than two sources surfaced
-    anything (no model call is made then)."""
-    sources = {h.episode_id for h in digest.highlights}
+def build_threads(
+    digest: Digest, writer: ThreadWriter, remembered: Sequence[Remembered] = ()
+) -> list[Thread]:
+    """Threads for a digest, with claims remembered from earlier digests
+    offered alongside. None (and no model call) when this week surfaced
+    nothing, or fewer than two sources are in play."""
+    if not digest.highlights:
+        return []
+    current = {h.highlight_id for h in digest.highlights}
+    past = [r for r in remembered if r.highlight.highlight_id not in current]
+    sources = {h.episode_id for h in digest.highlights} | {r.highlight.episode_id for r in past}
     if len(sources) < MIN_SOURCES:
         return []
-    return validate_threads(writer.write(digest.highlights), digest)
+    candidates = list(digest.highlights) + [r.highlight for r in past]
+    return validate_threads(writer.write(candidates), digest, past)
 
 
 def threads_brief(digest: Digest) -> str:
@@ -222,6 +267,13 @@ def threads_brief(digest: Digest) -> str:
     for thread in digest.threads:
         lines = [f"- {thread.question}" + ("  (a disagreement)" if thread.disagreement else "")]
         for member in thread.members:
+            if member.remembered_at is not None:
+                when = member.remembered_at.strftime("%d %b %Y")
+                lines.append(
+                    f"    {member.episode_id} {member.stance} (surfaced {when}, not citable "
+                    f'this week): "{member.quote or ""}"'
+                )
+                continue
             quote = by_id[member.highlight_id].quote if member.highlight_id in by_id else ""
             lines.append(f'    {member.episode_id} {member.stance}: "{quote}"')
         blocks.append("\n".join(lines))

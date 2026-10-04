@@ -16,10 +16,12 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+from collections.abc import Sequence
 from typing import Any
 
 from chorus.chapters import source_url
 from chorus.llm import LLMClient, ScoredWindow, TokenUsage
+from chorus.memory import Claim, penalize, repeated_claim
 from chorus.models import (
     Digest,
     EpisodeDigest,
@@ -198,7 +200,10 @@ def curate_episode(
     threshold: float = RELEVANCE_THRESHOLD,
     max_highlights: int = 4,
     meter: TokenUsage | None = None,
+    remembered: Sequence[Claim] = (),
 ) -> EpisodeDigest:
+    """`remembered` are claims surfaced for this principal recently
+    (chorus/memory.py); a window that repeats one loses REPEAT_PENALTY."""
     if max_highlights < 1:
         # A negative slice would silently drop the TOP-scored highlights.
         raise ValueError(f"max_highlights must be >= 1, got {max_highlights}")
@@ -217,6 +222,9 @@ def curate_episode(
         raise ValueError(f"scorer returned {len(results)} scores for {len(spans)} windows")
     for w, result in zip(spans, results, strict=True):
         score, reason, excerpt = _unpack(result)
+        repeat = repeated_claim(w.text, remembered) if remembered else None
+        if repeat is not None:
+            score, reason = penalize(score, reason, repeat)
         windows.append(WindowScore(start=w.start, score=round(score, 3)))
         if score >= threshold:
             scored.append((score, reason, w, excerpt))

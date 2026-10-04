@@ -11,6 +11,11 @@ the version.
 
 ## Unreleased
 
+- **Memory across weeks.** Each finished digest remembers the claims it
+  surfaced. Later runs demote a window that repeats one from the last four
+  weeks (`REPEAT_PENALTY`, with the reason saying so), and threads can bring
+  in a dated claim from an earlier digest. `remember: false` on a request or
+  subscription keeps a run out of memory, and `clear_memory` forgets it all.
 - **Threads across sources.** After curation, Chorus finds the questions
   two or more sources spoke to this week and how each answered (`agrees`,
   `disagrees`, `adds`), on `digest.threads`, disagreements first. Every

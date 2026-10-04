@@ -42,6 +42,7 @@ HOSTED_TOOLS = [
     ("rate_highlight", False),
     ("propose_soul_update", False),
     ("apply_soul_update", False),
+    ("clear_memory", False),
 ]
 
 

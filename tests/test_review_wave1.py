@@ -213,6 +213,17 @@ class _FakePgFeedbackStore(_FakePgBase):
         return None
 
 
+class _FakePgClaimStore(_FakePgBase):
+    def remember(self, claims: object) -> None:
+        pass
+
+    def recent(self, owner: str, since: object) -> list[object]:
+        return []
+
+    def clear(self, owner: str) -> int:
+        return 0
+
+
 def test_r1_postgres_mode_never_constructs_a_sqlite_store(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", "postgresql://fake/db")
 
@@ -225,6 +236,7 @@ def test_r1_postgres_mode_never_constructs_a_sqlite_store(monkeypatch: pytest.Mo
     monkeypatch.setattr("chorus.transcript_cache.SqliteTranscriptCache", _ExplodingSqlite)
     monkeypatch.setattr("chorus.saved_items.SqliteSavedItemStore", _ExplodingSqlite)
     monkeypatch.setattr("chorus.feedback.SqliteFeedbackStore", _ExplodingSqlite)
+    monkeypatch.setattr("chorus.memory.SqliteClaimStore", _ExplodingSqlite)
 
     # Stub every Postgres class so nothing here needs a real database.
     monkeypatch.setattr("chorus.stores.postgres.PostgresJobStore", _FakePgJobStore)
@@ -234,11 +246,13 @@ def test_r1_postgres_mode_never_constructs_a_sqlite_store(monkeypatch: pytest.Mo
     monkeypatch.setattr("chorus.stores.postgres.PostgresTranscriptCache", _FakePgTranscriptCache)
     monkeypatch.setattr("chorus.stores.postgres.PostgresSavedItemStore", _FakePgSavedItemStore)
     monkeypatch.setattr("chorus.stores.postgres.PostgresFeedbackStore", _FakePgFeedbackStore)
+    monkeypatch.setattr("chorus.stores.postgres.PostgresClaimStore", _FakePgClaimStore)
 
     # build_deps must build the transcript chain directly, never via
     # default_deps() + a post-hoc cache swap.
     deps = config_env.build_deps()
     assert isinstance(deps.provider.cache, _FakePgTranscriptCache)  # type: ignore[attr-defined]
+    assert isinstance(deps.claims, _FakePgClaimStore)
 
     store = config_env.select_job_store()
     assert isinstance(store, _FakePgJobStore)

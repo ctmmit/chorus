@@ -34,6 +34,7 @@ from chorus.jobs import (
 )
 from chorus.keys import KEY_BYTES, KEY_PREFIX, KEY_RATE_LIMIT, KeyRateLimited
 from chorus.library import ResolutionStatus, SavedItem
+from chorus.memory import Claim
 from chorus.models import Job, JobStatus, Transcript
 from chorus.personas import PERSONA_TABLE, Persona
 from chorus.saved_items import SAVED_ITEMS_TABLE, SavedItemList, saved_at_column
@@ -589,3 +590,59 @@ class PostgresFeedbackStore:
 
     def close(self) -> None:
         self._pool.close()
+
+
+class PostgresClaimStore:
+    """Mirrors chorus.memory.SqliteClaimStore: one row per (owner,
+    highlight_id). Selected by chorus.config_env.select_claim_store when
+    DATABASE_URL is set."""
+
+    def __init__(self, dsn: str) -> None:
+        from chorus.memory import CLAIMS_TABLE
+
+        self._table = CLAIMS_TABLE
+        self._pool = ConnectionPool(dsn, min_size=POOL_MIN_SIZE, max_size=POOL_MAX_SIZE, open=True)
+        with self._pool.connection() as conn:
+            conn.execute(
+                f"CREATE TABLE IF NOT EXISTS {CLAIMS_TABLE} (owner TEXT NOT NULL, "
+                "highlight_id TEXT NOT NULL, surfaced_at TEXT NOT NULL, payload TEXT NOT NULL, "
+                "PRIMARY KEY (owner, highlight_id))"
+            )
+            conn.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_claims_owner_surfaced "
+                f"ON {CLAIMS_TABLE} (owner, surfaced_at)"
+            )
+            conn.commit()
+
+    def remember(self, claims: list[Claim]) -> None:
+        if not claims:
+            return
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.executemany(
+                    f"INSERT INTO {self._table} (owner, highlight_id, surfaced_at, payload) "
+                    "VALUES (%s, %s, %s, %s) ON CONFLICT (owner, highlight_id) DO UPDATE SET "
+                    "surfaced_at = EXCLUDED.surfaced_at, payload = EXCLUDED.payload",
+                    [(c.owner, c.highlight_id, c.surfaced_at.isoformat(), c.model_dump_json())
+                     for c in claims],
+                )
+            conn.commit()
+
+    def recent(self, owner: str, since: datetime) -> list[Claim]:
+        with self._pool.connection() as conn:
+            rows = conn.execute(
+                f"SELECT payload FROM {self._table} WHERE owner = %s AND surfaced_at >= %s "
+                "ORDER BY surfaced_at DESC",
+                (owner, since.isoformat()),
+            ).fetchall()
+        return [Claim.model_validate_json(r[0]) for r in rows]
+
+    def clear(self, owner: str) -> int:
+        with self._pool.connection() as conn:
+            cur = conn.execute(f"DELETE FROM {self._table} WHERE owner = %s", (owner,))
+            conn.commit()
+        return cur.rowcount
+
+    def close(self) -> None:
+        self._pool.close()
+

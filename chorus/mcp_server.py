@@ -52,6 +52,7 @@ from chorus.library_api import (
     SoulBuilderFactory,
 )
 from chorus.library_inputs import FileFormat
+from chorus.memory import SqliteClaimStore, register_memory_tools
 from chorus.models import (
     DigestRequest,
     EpisodeInput,
@@ -550,6 +551,7 @@ def create_mcp_server(
     if local:
         tools.local_soul = configured_soul_accessors()
     register_feedback_tools(server, tools.feedback_service)
+    register_memory_tools(server, lambda: deps.claims)
     if local:
         register_setup_tools(server, store)
     return server, tools
@@ -634,6 +636,7 @@ def local_stdio_deps() -> Deps:
         composer=get_script_composer(),
         renderer=get_audio_renderer(),
         artifacts=LocalArtifactStore(paths.artifacts_dir()),
+        claims=SqliteClaimStore(paths.db_path()),
     )
 
 
