@@ -29,6 +29,7 @@ from fastapi import FastAPI
 from mcp.server.fastmcp import Context, FastMCP  # type: ignore[import-not-found,import-untyped]
 
 from chorus import catalog
+from chorus.ask import register_ask_tools
 from chorus.bootstrap import get_soul_builder
 from chorus.feedback import (
     FeedbackService,
@@ -556,6 +557,7 @@ def create_mcp_server(
         tools.local_soul = configured_soul_accessors()
     register_feedback_tools(server, tools.feedback_service)
     register_memory_tools(server, lambda: deps.claims)
+    register_ask_tools(server, store, deps.provider, deps.llm)
     if local:
         register_setup_tools(server, store)
     return server, tools

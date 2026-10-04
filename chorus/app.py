@@ -67,6 +67,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from chorus import __version__, catalog, config_env, discovery
 from chorus.artifacts import job_id_from_artifact_name
+from chorus.ask import build_ask_router
 from chorus.email import EmailSender, get_email_sender
 from chorus.feedback import (
     FeedbackService,
@@ -525,6 +526,8 @@ def create_app(
         writer_factory=proposal_writer_for(deps.llm),
     )
     app.include_router(build_feedback_router(feedback))
+    # Questions answered from a digest's own transcripts (chorus/ask.py).
+    app.include_router(build_ask_router(store, deps.provider, deps.llm))
 
     # Inngest only when it is actually the active runner (a durable-step
     # invocation needs the same store/deps every step reads and writes).
