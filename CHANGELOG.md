@@ -11,41 +11,31 @@ the version.
 
 ## Unreleased
 
-- **Personas as sources.** A persona's owner can publish finished digests to
-  it; a subscription can listen to a public persona (`kind: "persona"`) and
-  hear the episodes it surfaced, curated through the subscriber's own soul and
-  cited to the primary source. Up-votes on those highlights endorse the
-  persona; `/network` shows the counts, and each persona has a public podcast
-  feed advertised on its A2A card.
-- **Brief me now.** `POST /quick-take` and the `quick_take` tool judge one
-  episode in about a minute: `listen`, `skim` or `skip` by a fixed rule on
-  the scores, up to three reasons each citing a moment, and a 60 to 90 second
-  take (voiced on request, with a chapter per reason). A shared link with
-  `mode: "quick"` gets a take straight from the share sheet.
-- **Ask the episode.** `POST /digest/{job_id}/ask` and the `ask_digest`
-  tool answer a question from that digest's transcripts only. Every sentence
-  quotes the transcript at a timestamp, a sentence that cites anything else is
-  dropped, and when nothing speaks to the question the answer is refused.
-- **Structured context.** A digest request may carry `context_blocks`
-  (source, items, as-of date) next to the `context` string. Chorus renders
-  them into the context within the same budget, each source guaranteed a
-  share, and records `usage.context_sources`. The new `chorus-context` skill
-  gives the principal's agent recipes for building them from reading,
-  projects, calendar and tasks, and a list of what never to send.
-  `ContextProvider` (with a Readwise implementation) is the seam for Chorus
-  to pull a source itself later.
-- **Memory across weeks.** Each finished digest remembers the claims it
-  surfaced. Later runs demote a window that repeats one from the last four
-  weeks (`REPEAT_PENALTY`, with the reason saying so), and threads can bring
-  in a dated claim from an earlier digest. `remember: false` on a request or
-  subscription keeps a run out of memory, and `clear_memory` forgets it all.
-- **Threads across sources.** After curation, Chorus finds the questions
-  two or more sources spoke to this week and how each answered (`agrees`,
-  `disagrees`, `adds`), on `digest.threads`, disagreements first. Every
-  member is a surfaced highlight and every thread spans at least two
-  sources. The outline writer is offered them as segments that put sources
-  in conversation, and the digest email leads with them. A synthetic
-  rebuttal transcript (`sample_counter`) joins the public fixtures.
+## 0.3.0
+
+Chorus delivers to the podcast app, learns from what the principal keeps,
+and hears the conversation between sources across weeks. Built phase by
+phase against `docs/PLAN_0.3.md` and its goal function
+(`scripts/plan_goal.py`).
+
+- **Chapters and source links in the episode.** The MP3 now carries ID3v2.4
+  chapters, one per outline segment (or per source for host-mode scripts),
+  so podcast players show the episode's structure. Each chapter links to the
+  first source moment it cites, opening YouTube, Spotify or a direct audio
+  file at that timestamp. The same list is on the job as `chapters`, and
+  every digest episode now carries its source `url`.
+- **A private podcast feed.** Every finished digest with audio now arrives
+  in the principal's podcast app. `GET /feed` or the `get_podcast_feed` tool
+  returns a feed URL to add once. It carries the MP3, show notes with
+  timestamped source links, chapters and the transcript, and is authorized by
+  an HMAC token in the URL because podcast apps cannot send headers.
+  `chorus feed` writes a local `~/.chorus/feed.xml` for desktop players.
+- **Curation has a number.** `scripts/eval_curation.py` curates labelled
+  cases (`fixtures/evals/cases.json`: a soul, a transcript, and the windows a
+  careful reader with that soul would and would never surface) and reports
+  precision, must-recall, never-hits and refusal accuracy. It fails when a
+  case drops below the committed mock baseline, and `--live` runs the real
+  scorer for before-and-after numbers on prompt changes.
 - **Ratings teach the lens, with approval.** Every highlight has a stable
   `highlight_id` and can be rated up or down, with a note, through
   `rate_highlight`, `POST /feedback`, or the signed "More like this" / "Less
@@ -54,24 +44,41 @@ the version.
   its evidence; `apply_soul_update` applies only the ones the principal
   accepts and records `soul_origin: feedback:<proposal_id>`. Subscriptions
   now carry `soul_origin`.
-- **Curation has a number.** `scripts/eval_curation.py` curates labelled
-  cases (`fixtures/evals/cases.json`: a soul, a transcript, and the windows a
-  careful reader with that soul would and would never surface) and reports
-  precision, must-recall, never-hits and refusal accuracy. It fails when a
-  case drops below the committed mock baseline, and `--live` runs the real
-  scorer for before-and-after numbers on prompt changes.
-- **A private podcast feed.** Every finished digest with audio now arrives
-  in the principal's podcast app. `GET /feed` or the `get_podcast_feed` tool
-  returns a feed URL to add once. It carries the MP3, show notes with
-  timestamped source links, chapters and the transcript, and is authorized by
-  an HMAC token in the URL because podcast apps cannot send headers.
-  `chorus feed` writes a local `~/.chorus/feed.xml` for desktop players.
-- **Chapters and source links in the episode.** The MP3 now carries ID3v2.4
-  chapters, one per outline segment (or per source for host-mode scripts),
-  so podcast players show the episode's structure. Each chapter links to the
-  first source moment it cites, opening YouTube, Spotify or a direct audio
-  file at that timestamp. The same list is on the job as `chapters`, and
-  every digest episode now carries its source `url`.
+- **Threads across sources.** After curation, Chorus finds the questions
+  two or more sources spoke to this week and how each answered (`agrees`,
+  `disagrees`, `adds`), on `digest.threads`, disagreements first. Every
+  member is a surfaced highlight and every thread spans at least two
+  sources. The outline writer is offered them as segments that put sources
+  in conversation, and the digest email leads with them. A synthetic
+  rebuttal transcript (`sample_counter`) joins the public fixtures.
+- **Memory across weeks.** Each finished digest remembers the claims it
+  surfaced. Later runs demote a window that repeats one from the last four
+  weeks (`REPEAT_PENALTY`, with the reason saying so), and threads can bring
+  in a dated claim from an earlier digest. `remember: false` on a request or
+  subscription keeps a run out of memory, and `clear_memory` forgets it all.
+- **Structured context.** A digest request may carry `context_blocks`
+  (source, items, as-of date) next to the `context` string. Chorus renders
+  them into the context within the same budget, each source guaranteed a
+  share, and records `usage.context_sources`. The new `chorus-context` skill
+  gives the principal's agent recipes for building them from reading,
+  projects, calendar and tasks, and a list of what never to send.
+  `ContextProvider` (with a Readwise implementation) is the seam for Chorus
+  to pull a source itself later.
+- **Ask the episode.** `POST /digest/{job_id}/ask` and the `ask_digest`
+  tool answer a question from that digest's transcripts only. Every sentence
+  quotes the transcript at a timestamp, a sentence that cites anything else is
+  dropped, and when nothing speaks to the question the answer is refused.
+- **Brief me now.** `POST /quick-take` and the `quick_take` tool judge one
+  episode in about a minute: `listen`, `skim` or `skip` by a fixed rule on
+  the scores, up to three reasons each citing a moment, and a 60 to 90 second
+  take (voiced on request, with a chapter per reason). A shared link with
+  `mode: "quick"` gets a take straight from the share sheet.
+- **Personas as sources.** A persona's owner can publish finished digests to
+  it; a subscription can listen to a public persona (`kind: "persona"`) and
+  hear the episodes it surfaced, curated through the subscriber's own soul and
+  cited to the primary source. Up-votes on those highlights endorse the
+  persona; `/network` shows the counts, and each persona has a public podcast
+  feed advertised on its A2A card.
 - **The writer picks its sources.** An episode is no longer limited to the
   three best-scored sources with a fixed walkthrough each. Every source with
   highlights (up to 12, the brief budget) is a candidate, and the writer

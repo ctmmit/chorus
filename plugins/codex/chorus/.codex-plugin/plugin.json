@@ -1,6 +1,6 @@
 {
   "name": "chorus",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Your agent listens to the podcasts you can't, and hands back only what matters: highlights each tied to a checkable timestamp, and a short episode voiced in your lens. Sets itself up with you on first use.",
   "author": {
     "name": "ctmmit",
