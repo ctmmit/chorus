@@ -59,6 +59,48 @@ and 8 have no dependencies and can run in parallel worktrees at any point.
 A version bump to 0.3.0 follows phase 5. That is the point where an existing
 principal notices a different product. Phases 6 to 10 ship as 0.3.x or 0.4.
 
+## 2. The goal function
+
+`scripts/plan_goal.py` is this plan as an executable check, in the same
+spirit as `scripts/golden_path.py` for v1. Each phase has a contract: the
+names it must define at module top level, the tests that must exist and
+pass, and any extra exit command. A phase is **landed** when its contract
+holds and its checks pass on `main`, **review** when its branch has an open
+pull request, and **todo** otherwise. The script names the next buildable
+phase and the base to branch it from (stacking on a dependency still in
+review), and exits 0 when the goal is met.
+
+```powershell
+& $PY scripts/plan_goal.py                          # table; exit 0 when every phase is landed or in review
+& $PY scripts/plan_goal.py --next --json            # what to build next, and from which base
+& $PY scripts/plan_goal.py --target landed --gate   # the plan is truly done: all on main, four checks green
+```
+
+Exit code 2 means waiting: nothing is buildable until a pull request merges.
+The names below are the contract. A phase may add more, but it may not
+rename these without changing `PHASES` in the same pull request.
+
+| Phase | Must define | Tests | Exit command |
+|---|---|---|---|
+| 1 | `chorus/chapters.py`: `tag_episode`, `build_chapters`, `write_id3_chapters`, `chapters_json`; `chorus/models.py`: `Chapter` | `tests/test_chapters.py` | — |
+| 2 | `chorus/podcast_feed.py`: `render_feed`, `feed_token`, `register_feed_tools` | `tests/test_podcast_feed.py` | — |
+| 3 | `chorus/evals.py`: `score_case`; `scripts/eval_curation.py`; `fixtures/evals/baseline.json` | `tests/test_evals.py` | `python scripts/eval_curation.py` |
+| 4 | `chorus/feedback.py`: `FeedbackStore`, `summarize_feedback`, `propose_soul_update`, `apply_soul_update`, `MIN_RATINGS_FOR_PROPOSAL` | `tests/test_feedback.py` | — |
+| 5 | `chorus/threads.py`: `build_threads`, `validate_threads`; `chorus/models.py`: `Thread` | `tests/test_threads.py` | — |
+| 6 | `chorus/memory.py`: `ClaimStore`, `REPEAT_PENALTY`, `REPEAT_WINDOW_WEEKS` | `tests/test_memory.py` | — |
+| 7 | `skills/chorus-context/SKILL.md`; `chorus/models.py`: `ContextBlock`; `chorus/context.py`: `ContextProvider` | `tests/test_context.py` | — |
+| 8 | `chorus/ask.py`: `answer` | `tests/test_ask.py` | — |
+| 9 | `chorus/quick_take.py`: `quick_take` | `tests/test_quick_take.py` | — |
+| 10 | `chorus/subscriptions.py`: `PersonaSource` | `tests/test_persona_sources.py` | — |
+
+Two drivers act on it. `/build-plan` (`.claude/commands/build-plan.md`) runs
+the whole plan in one Claude Code session: ask the goal function, build the
+next phase in its own worktree, pass the four checks, open the pull request,
+repeat. `scripts/plan_loop.ps1` does the same with one fresh `claude -p`
+session per phase, reusing `loop.ps1`'s budget, usage-limit backoff and
+no-progress watchdog. Neither merges to `main`; that stays with the
+principal.
+
 ---
 
 ## Phase 1 — Chapters and source deep links
