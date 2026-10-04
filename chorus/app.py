@@ -89,6 +89,7 @@ from chorus.personas import PersonaRegistry
 from chorus.pipeline import Deps
 from chorus.podcast_feed import FEED_PUBLIC_PREFIX, build_feed_router
 from chorus.podcasts_api import PodcastDirectory, build_podcasts_router
+from chorus.quick_take import build_quick_take_router, share_quick_taker
 from chorus.quotas import QuotaExceeded, enforce_job_quota
 from chorus.runners import InngestRunner, JobRunner
 from chorus.saved_items import SavedItemStore
@@ -514,7 +515,11 @@ def create_app(
     # Library import (chorus/library_api.py): saved episodes and followed
     # shows from Readwise, Apple, Spotify, OPML, pushed by the agent.
     library = LibraryService(saved_item_store, podcasts, subscription_store)
-    app.include_router(build_library_router(library))
+    app.include_router(
+        build_library_router(library, share_quick_taker(store, deps, subscription_store))
+    )
+    # One episode, judged now (chorus/quick_take.py).
+    app.include_router(build_quick_take_router(store, deps))
     # The private podcast feed (chorus/podcast_feed.py): GET /feed for the
     # caller's URL, and the token-authorized feed, audio, chapters, transcript.
     app.include_router(build_feed_router(store, deps.artifacts))

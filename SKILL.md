@@ -772,3 +772,27 @@ with the answer. When the episodes do not speak to the question the answer is
 `refused: true` with a reason, never a guess. `unavailable` lists episodes
 whose transcript could not be read again (an RSS episode no longer cached).
 
+## Quick take: is this one episode worth it?
+
+`POST /quick-take {"episode": {...}, "soul": "...", "context": "", "audio": false}`
+(or the MCP tool `quick_take`) judges one episode right now and returns a
+done job whose `quick_take` is:
+
+```json
+{"episode_id": "...", "verdict": "listen" | "skim" | "skip",
+ "reasons": [{"text": "...", "highlight_id": "...", "segment_timestamp": 754.0,
+              "quote": "verbatim"}],
+ "monologue": "the 60 to 90 second spoken take"}
+```
+
+`skip` means nothing cleared the bar; `listen` means two or more moments did
+and the best scored 0.7 or more; otherwise `skim` (worth the cited moments).
+Every reason cites a surfaced highlight. With `"audio": true` the take is
+voiced, with a chapter for the verdict and one per reason. An episode whose
+transcript cannot be read answers 422 with the reason.
+
+From a phone's share sheet: `POST /library/share` with `"mode": "quick"` plus
+`"soul"` (or `"subscription_id"` to use that subscription's soul and
+context) saves the links as usual and returns `quick_take` for the first
+shared episode that resolved.
+

@@ -34,6 +34,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field, model_validator
@@ -65,6 +66,7 @@ from chorus.library_inputs import (
     parse_youtube_takeout,
 )
 from chorus.library_resolve import LibraryResolver
+from chorus.models import MAX_SOUL_CHARS, EpisodeInput
 from chorus.podcasts_api import PodcastDirectory, PodcastError, parse_opml
 from chorus.saved_items import SavedItemStore
 from chorus.subscriptions import RssSource, SavedQueueSource, SubscriptionStore, YoutubeSource
@@ -152,6 +154,21 @@ class ShareRequest(BaseModel):
         max_length=MAX_SHARE_TEXT_CHARS,
         description="Free text (a share-sheet payload, a forwarded message); its links are used.",
     )
+    mode: Literal["save", "quick"] = Field(
+        default="save",
+        description=(
+            '"save" queues the links for the next digest; "quick" also returns a quick take '
+            "(listen, skim or skip, with reasons) on the first shared episode right away."
+        ),
+    )
+    soul: str | None = Field(
+        default=None,
+        max_length=MAX_SOUL_CHARS,
+        description='The lens for mode "quick": the soul text, or give subscription_id.',
+    )
+    subscription_id: str | None = Field(
+        default=None, description='For mode "quick": use this subscription\'s soul and context.'
+    )
 
     @model_validator(mode="after")
     def _something(self) -> ShareRequest:
@@ -187,6 +204,13 @@ class ShareResult(BaseModel):
     items: list[SharedItemStatus] = Field(description="One entry per recognized link.")
     skipped: list[SkippedLink] = Field(description="Links that were not recognized, and why.")
     preview: ImportPreview = Field(description="The owner's library after this share.")
+    episodes: list[EpisodeInput] = Field(
+        default_factory=list, description="Shared episodes that resolved, in the order shared."
+    )
+    quick_take: dict[str, Any] | None = Field(
+        default=None,
+        description='The quick-take job for the first resolved episode (mode "quick" only).',
+    )
 
 
 def share_summary(
@@ -266,11 +290,20 @@ class LibraryService:
             if (entry := stored.get(item.item_key())) is not None
         ]
         preview = self._preview(owner, now, received=len(keys), new=new)
+        episodes = [
+            entry.episode
+            for item in parsed.items
+            if (entry := stored.get(item.item_key())) is not None
+            and entry.status == "resolved"
+            and entry.episode is not None
+            and entry.item.item_kind == "episode"
+        ]
         return ShareResult(
             summary=share_summary(statuses, parsed.skipped, preview.queued_episodes),
             items=statuses,
             skipped=parsed.skipped,
             preview=preview,
+            episodes=episodes,
         )
 
     def import_file(
@@ -404,12 +437,29 @@ def _owner(request: Request) -> str:
     return getattr(request.state, "owner", MASTER_OWNER)
 
 
-def build_library_router(service: LibraryService) -> APIRouter:
+QuickTaker = Callable[[str, ShareRequest, EpisodeInput], dict[str, Any]]
+
+
+def build_library_router(service: LibraryService, quick: QuickTaker | None = None) -> APIRouter:
+    """`quick` runs a quick take for mode "quick" (chorus/quick_take.py)."""
     router = APIRouter()
 
     @router.post("/library/share")
     def share_links(payload: ShareRequest, request: Request) -> ShareResult:
-        return service.share(_owner(request), payload)
+        owner = _owner(request)
+        result = service.share(owner, payload)
+        if payload.mode == "quick":
+            if quick is None:
+                raise HTTPException(status_code=501, detail="quick takes are not available here")
+            if not result.episodes:
+                raise HTTPException(
+                    status_code=422, detail="no shared link resolved to an episode yet"
+                )
+            try:
+                result.quick_take = quick(owner, payload, result.episodes[0])
+            except ValueError as err:
+                raise HTTPException(status_code=422, detail=str(err)) from err
+        return result
 
     @router.post("/library/import-file")
     def import_file(payload: ImportFileRequest, request: Request) -> FileImportResult:

@@ -66,6 +66,7 @@ from chorus.models import (
 from chorus.pipeline import Deps
 from chorus.podcast_feed import register_feed_tools
 from chorus.podcasts_api import OpmlImport, PodcastDirectory, PodcastSearchResult, parse_opml
+from chorus.quick_take import register_quick_take_tools
 from chorus.quotas import QuotaExceeded, enforce_job_quota
 from chorus.runners import BackgroundRunner, JobRunner
 from chorus.subscriptions import (
@@ -558,6 +559,7 @@ def create_mcp_server(
     register_feedback_tools(server, tools.feedback_service)
     register_memory_tools(server, lambda: deps.claims)
     register_ask_tools(server, store, deps.provider, deps.llm)
+    register_quick_take_tools(server, store, deps)
     if local:
         register_setup_tools(server, store)
     return server, tools
