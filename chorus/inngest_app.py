@@ -165,6 +165,7 @@ async def _execute(step: StepLike, event_data: dict[str, Any], store: JobStore, 
     usage.transcript_sources = {
         r.episode.resolved_id(): r.transcript.source or "unknown" for r in ingested.resolved
     }
+    usage.context_sources = list(request.context_sources)
 
     async def _recall() -> dict[str, Any]:
         return stage_recall(deps, job.owner, request).model_dump(mode="json")

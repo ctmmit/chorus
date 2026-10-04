@@ -75,6 +75,15 @@ in automatically.
 }
 ```
 
+Optionally add `"context_blocks"`: structured context by source, such as
+`[{"source": "Readwise highlights", "items": [{"text": "...", "label": "..."}]}]`.
+Chorus renders them into `context` within the same size budget, gives each
+source a fair share, and lists the sources that made it in on the job as
+`usage.context_sources`. The `chorus-context` skill has recipes for building
+them from the principal's reading, projects, calendar and tasks, and says
+what never to include. `"remember": false` keeps the run out of the owner's
+memory (see "Memory across weeks").
+
 Each episode is exactly **one identity family** — never mix a YouTube field
 (`video_id`/`url`) with an RSS field (`feed_url`/`guid`/`audio_url`) in the
 same episode; the service rejects that with `422` rather than guessing which

@@ -385,6 +385,7 @@ def _run(
     usage.transcript_sources = {
         r.episode.resolved_id(): r.transcript.source or "unknown" for r in ingested.resolved
     }
+    usage.context_sources = list(request.context_sources)
 
     memory = stage_recall(deps, job.owner, request)
 
