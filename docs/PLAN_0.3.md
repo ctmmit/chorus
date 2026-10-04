@@ -98,8 +98,12 @@ the whole plan in one Claude Code session: ask the goal function, build the
 next phase in its own worktree, pass the four checks, open the pull request,
 repeat. `scripts/plan_loop.ps1` does the same with one fresh `claude -p`
 session per phase, reusing `loop.ps1`'s budget, usage-limit backoff and
-no-progress watchdog. Neither merges to `main`; that stays with the
-principal.
+no-progress watchdog. By default neither merges: each phase stops at an
+open pull request and the principal merges. With `/build-plan --merge` (or
+`plan_loop.ps1 -Merge`) the principal authorizes the builder to merge each
+phase's own pull request once its CI is green, so phases land in order and
+the run ends at `--target landed --gate`. Nothing pushes to `main` directly,
+bypasses branch protection, or tags a release.
 
 ---
 

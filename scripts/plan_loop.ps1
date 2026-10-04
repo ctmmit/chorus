@@ -7,15 +7,18 @@
 # agent.config.ps1, the same seam loop.ps1 uses.
 #
 # Usage:
-#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\plan_loop.ps1 [-MaxIter 10] [-Target review]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\plan_loop.ps1 [-MaxIter 10] [-Merge]
+# -Merge lets each run merge its own phase's pull request once CI is green
+# (target becomes landed); without it every phase stops at an open PR.
 #
 # Exit codes: 0 goal met, 1 halted (budget, watchdog, limit), 2 waiting on a merge.
 
 [CmdletBinding()]
 param(
   [int]$MaxIter = 12,
-  [ValidateSet('review', 'landed')][string]$Target = 'review'
+  [switch]$Merge
 )
+$Target = if ($Merge) { 'landed' } else { 'review' }
 $ErrorActionPreference = 'Continue'
 
 $ProjectDir = Split-Path -Parent $PSScriptRoot
@@ -30,18 +33,20 @@ $LogFile  = Join-Path $ProjectDir 'artifacts\plan_loop.log'
 
 # What a headless phase build may do: edit files, run the toolchain, manage
 # its own worktree and branch, push that branch, and open or read pull
-# requests. Merging and pushing main are denied outright.
+# requests. Pushing main and force-pushing are always denied; merging is
+# allowed only under -Merge.
 $Allowed = @(
   'Read', 'Edit', 'Write', 'Glob', 'Grep',
   'Bash(git:*)', 'Bash(gh pr create:*)', 'Bash(gh pr list:*)', 'Bash(gh pr view:*)',
+  'Bash(gh pr checks:*)', 'Bash(gh pr edit:*)', 'Bash(gh run view:*)',
   'Bash(python:*)', 'Bash(*python.exe:*)', 'Bash(cp:*)', 'Bash(ls:*)', 'Bash(mkdir:*)',
   'Bash(powershell:*)'
-) -join ','
+) + $(if ($Merge) { @('Bash(gh pr merge:*)') } else { @() }) -join ','
 $Denied = @(
-  'Bash(gh pr merge:*)', 'Bash(git push origin main:*)', 'Bash(git push -f:*)',
+  'Bash(git push origin main:*)', 'Bash(git push -f:*)', 'Bash(gh pr merge --admin:*)',
   'Bash(git push --force:*)', 'Bash(rm -rf:*)'
-) -join ','
-$Prompt = "/build-plan --one --target $Target"
+) + $(if ($Merge) { @() } else { @('Bash(gh pr merge:*)') }) -join ','
+$Prompt = if ($Merge) { "/build-plan --one --merge" } else { "/build-plan --one" }
 
 function Write-Log([string]$msg) {
   $line = "$(Get-Date -Format 'yyyy-MM-ddTHH:mm:ss') $msg"
