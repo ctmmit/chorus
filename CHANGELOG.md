@@ -11,6 +11,12 @@ the version.
 
 ## Unreleased
 
+- **Chapters and source links in the episode.** The MP3 now carries ID3v2.4
+  chapters, one per outline segment (or per source for host-mode scripts),
+  so podcast players show the episode's structure. Each chapter links to the
+  first source moment it cites, opening YouTube, Spotify or a direct audio
+  file at that timestamp. The same list is on the job as `chapters`, and
+  every digest episode now carries its source `url`.
 - **The writer picks its sources.** An episode is no longer limited to the
   three best-scored sources with a fixed walkthrough each. Every source with
   highlights (up to 12, the brief budget) is a candidate, and the writer

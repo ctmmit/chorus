@@ -489,6 +489,10 @@ class EpisodeDigest(BaseModel):
     show: str | None = Field(default=None, description="Podcast or channel name when known.")
     published_at: datetime | None = Field(default=None, description="Publication time when known.")
     description: str | None = Field(default=None, description="Plain-text show notes when known.")
+    url: str | None = Field(
+        default=None,
+        description="Where a listener can open the source (YouTube watch page or audio file).",
+    )
     intro_excerpt: str = Field(
         default="",
         description=(
@@ -622,6 +626,9 @@ class Turn(BaseModel):
     move: str | None = Field(
         default=None, description='Rhetorical move: "setup" or one of TAKE_TYPES.'
     )
+    segment_index: int | None = Field(
+        default=None, description="Index of the outline segment this line was written for."
+    )
 
 
 class Script(BaseModel):
@@ -650,6 +657,24 @@ class Script(BaseModel):
     )
     outline: EpisodeOutline | None = Field(
         default=None, description="The segment plan the script was written against."
+    )
+
+
+class Chapter(BaseModel):
+    """One chapter of the rendered episode (chorus/chapters.py). Start times
+    are estimated from each section's share of the spoken text; the source
+    link is exact, taken from the section's first cited highlight."""
+
+    start_seconds: float = Field(description="Where the chapter starts in the episode audio.")
+    title: str = Field(description="Chapter title: the outline segment name or the source.")
+    episode_id: str | None = Field(
+        default=None, description="Source episode the chapter first cites, if any."
+    )
+    source_timestamp: float | None = Field(
+        default=None, description="Time in the source of the chapter's first cited highlight."
+    )
+    url: str | None = Field(
+        default=None, description="Link that opens the source at source_timestamp when known."
     )
 
 
@@ -755,6 +780,10 @@ class Job(BaseModel):
     usage: JobUsage | None = Field(
         default=None,
         description="Run telemetry: stage seconds, transcript sources, skipped episodes, tokens.",
+    )
+    chapters: list[Chapter] = Field(
+        default_factory=list,
+        description="Chapters written into the episode MP3, with links to each source moment.",
     )
 
 

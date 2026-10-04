@@ -18,6 +18,7 @@ import logging
 import re
 from typing import Any
 
+from chorus.chapters import source_url
 from chorus.llm import LLMClient, ScoredWindow, TokenUsage
 from chorus.models import (
     Digest,
@@ -265,6 +266,7 @@ def _source_metadata(resolved: ResolvedEpisode) -> dict[str, Any]:
         "show": episode.show,
         "published_at": episode.published_at,
         "description": episode.description,
+        "url": source_url(episode),
         "intro_excerpt": intro_excerpt(resolved.transcript.segments),
     }
 

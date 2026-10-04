@@ -90,7 +90,14 @@ from chorus.onboarding import (
     voice_overrides,
 )
 from chorus.outline import length_bounds
-from chorus.pipeline import PLACEHOLDER_AUDIO_WARNING, Deps, run_job, stage_audio, stage_ingest
+from chorus.pipeline import (
+    PLACEHOLDER_AUDIO_WARNING,
+    Deps,
+    chapter_audio,
+    run_job,
+    stage_audio,
+    stage_ingest,
+)
 from chorus.render_plan import AudioChunkError, RenderPlan, build_plan, join_mp3, read_chunk
 from chorus.script import _speaker_persona, _turns_transcript, max_turns_for
 from chorus.soul import load_soul
@@ -820,8 +827,10 @@ def _complete(
             state.job_id,
             renderer,
             LocalArtifactStore(paths.artifacts_dir()),
+            job.digest,
         )
         job.audio_url = audio.url
+        job.chapters = audio.chapters
         if audio.placeholder:
             job.warnings.append(PLACEHOLDER_AUDIO_WARNING)
     except Exception as err:  # noqa: BLE001 - audio failure is non-fatal
@@ -890,6 +899,8 @@ def submit_audio(
                 data = join_mp3(_ordered_chunks(chunks or [], len(plan.chunks)))
             except AudioChunkError as err:
                 raise HostModeError(str(err)) from err
+            if job.script is not None:
+                data, job.chapters = chapter_audio(data, job.script, job.digest)
             job.audio_url = artifacts.put(f"{stem}.mp3", data, "audio/mpeg")
         job.status = JobStatus.done
         store.save(job)

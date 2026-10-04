@@ -147,6 +147,11 @@ never stays `queued` or `digest_ready` indefinitely. The digest is usable at
   },
   "script": { "soul_version": "1a2b3c4d", "takes": [ ... ], "monologue": "..." },
   "audio_url": "/artifacts/episode_a1b2c3....mp3",
+  "chapters": [
+    { "start_seconds": 0.0, "title": "Intro", "episode_id": null, "source_timestamp": null, "url": null },
+    { "start_seconds": 41.2, "title": "Pricing power", "episode_id": "c4tvVKDhpiY",
+      "source_timestamp": 1834.0, "url": "https://www.youtube.com/watch?v=c4tvVKDhpiY&t=1834s" }
+  ],
   "warnings": [],
   "usage": {
     "stage_seconds": { "ingest": 0.8, "curate": 12.4, "script": 3.1, "audio": 9.6 },
@@ -167,6 +172,13 @@ never stays `queued` or `digest_ready` indefinitely. The digest is usable at
   response) rather than genuinely having nothing; retrying the same episode
   later can succeed. A reason with no prefix means the source itself had
   nothing (no captions, no matching feed item) and retrying won't change that.
+- `chapters` lists the chapters written into the MP3 (ID3v2.4 `CHAP` frames,
+  which podcast players show). A chapter starts where its outline segment
+  starts, estimated from that segment's share of the spoken text, and `url`
+  opens the source at the first moment the chapter cites (YouTube `t=`,
+  Spotify `t=`, or `#t=` on a direct audio file; other hosts get the plain
+  link). It is empty when there is no real MP3 (no TTS key, or rendering
+  failed).
 - An episode with nothing relevant comes back `refused: true` with
   `refusal_reason: "nothing cleared the relevance bar"` — never an invented reason.
 - `audio_url` is always a RELATIVE path (`/artifacts/<name>`) under the base

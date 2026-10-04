@@ -10,6 +10,8 @@ offline deps, and asserts:
   4. all-transcripts-fail returns `failed` (never an empty `done`).
   5-6. two souls diverge on one episode; catalog selection runs green.
   7. a pushed library import fills the saved queue a saved source previews.
+  8. real MP3 audio comes back with one chapter per spoken outline segment,
+     written into the stored file as ID3v2.4 CHAP frames.
 
 Prints PATH_TEST GREEN and exits 0, or PATH_TEST FAIL: <reason> and exits 1.
 `path_test.ps1` / `path_test.sh` delegate here.
@@ -29,11 +31,11 @@ from fastapi.testclient import TestClient
 
 from chorus.app import create_app
 from chorus.artifacts import LocalArtifactStore
-from chorus.audio import MockAudioRenderer
+from chorus.audio import MockAudioRenderer, RenderedAudio
 from chorus.curation import REFUSAL, citation_resolves
 from chorus.jobs import SqliteJobStore
 from chorus.llm import MockLLMClient
-from chorus.models import EpisodeInput, Job
+from chorus.models import EpisodeInput, Job, Script
 from chorus.pipeline import Deps
 from chorus.script import MockScriptComposer
 from chorus.transcripts import FixtureTranscriptProvider
@@ -44,6 +46,16 @@ LATENCY_BOUND_S = 90.0
 CLEAN = ["gs39QFYIbBY", "c4tvVKDhpiY", "wAnDWfEIwoE", "xKZ_8ULR91Y", "2Ryr95iiYNk"]
 MISSING = "KhZfxZ-C-2g"
 EGGS = "IAgmW_gTxls"
+# One MPEG-1 Layer III frame (128 kbit/s, 44.1 kHz): a header and its body.
+MP3_FRAME = bytes([0xFF, 0xFB, 0x90, 0x00]) + b"\x00" * 413
+MP3_FRAMES = 2_000  # about 52 seconds
+
+
+class _Mp3Renderer:
+    """Offline stand-in for a TTS renderer that returns walkable MP3 frames."""
+
+    def render(self, script: Script, soul: str, job_id: str) -> RenderedAudio:
+        return RenderedAudio(data=MP3_FRAME * MP3_FRAMES, media_type="audio/mpeg", extension="mp3")
 
 
 def fail(msg: str) -> None:
@@ -179,6 +191,28 @@ def main() -> None:
 
         client.close()
         store.close()  # release the SQLite handle so the temp dir can be removed
+
+        # 8. Chapters: real MP3 audio is tagged with the outline, and links back.
+        audio_dir = tmp / "audio"
+        audio_store = SqliteJobStore(tmp / "audio_jobs.db")
+        audio_deps = Deps(
+            provider, MockLLMClient(), MockScriptComposer(), _Mp3Renderer(),
+            LocalArtifactStore(audio_dir),
+        )
+        audio_client = TestClient(create_app(audio_store, audio_deps))
+        tagged, _ = _run(audio_client, "soul_investor.md", CLEAN[:2])
+        if tagged.status.value != "done" or not tagged.script:
+            fail(f"chapter run not done (status={tagged.status.value})")
+        spoken = {t.segment_index for t in tagged.script.turns if t.text.strip()}
+        if None in spoken or len(tagged.chapters) != len(spoken):
+            fail(f"expected {len(spoken)} chapters, got {len(tagged.chapters)}")
+        if not any(c.url and "t=" in c.url for c in tagged.chapters):
+            fail("no chapter links back to a source moment")
+        stored = next(audio_dir.glob("*.mp3")).read_bytes()
+        if not stored.startswith(b"ID3\x04") or stored.count(b"CHAP") != len(tagged.chapters):
+            fail("stored episode is missing its ID3v2.4 chapter frames")
+        audio_client.close()
+        audio_store.close()
 
     print("PATH_TEST GREEN")
     sys.exit(0)
