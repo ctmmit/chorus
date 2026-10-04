@@ -21,6 +21,7 @@ from html import escape
 from urllib.parse import urljoin
 
 from chorus.curation import REFUSAL
+from chorus.feedback import rating_link
 from chorus.models import EpisodeDigest, EpisodeInput, Highlight, Job
 from chorus.subscriptions import Subscription
 
@@ -198,14 +199,21 @@ def render_digest_email(
             else:
                 for h in ep.highlights:
                     link = _highlight_link(h, episode_lookup)
+                    more = rating_link(base_url, job, h.highlight_id, "up")
+                    less = rating_link(base_url, job, h.highlight_id, "down")
                     text_lines.append(f"- {h.quote}")
                     text_lines.append(f"  Why: {h.why_surface}")
                     if link:
                         text_lines.append(f"  Listen: {link}")
+                    text_lines.append(f"  More like this: {more}")
+                    text_lines.append(f"  Less like this: {less}")
                     html_body.append(
                         '<p style="margin:0 0 4px;">“' + escape(h.quote) + "”<br>"
                         f'<span style="color:#5b6472;">{escape(h.why_surface)}</span>'
                         + (f'<br><a href="{escape(link)}">{escape(link)}</a>' if link else "")
+                        + '<br><span style="font-size:12px;">'
+                        f'<a href="{escape(more)}">More like this</a> · '
+                        f'<a href="{escape(less)}">Less like this</a></span>'
                         + "</p>"
                     )
             text_lines.append("")

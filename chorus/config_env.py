@@ -35,6 +35,7 @@ from chorus.artifacts import ArtifactStore, LocalArtifactStore, VercelBlobStore
 from chorus.jobs import DEFAULT_DB, MASTER_OWNER, JobStore, SqliteJobStore
 
 if TYPE_CHECKING:
+    from chorus.feedback import FeedbackStore
     from chorus.keys import KeyStore
     from chorus.personas import PersonaRegistry
     from chorus.pipeline import Deps
@@ -135,6 +136,21 @@ def select_persona_registry(store: JobStore | None = None) -> PersonaRegistry:
 
     db_path = getattr(store, "db_path", None) or DEFAULT_DB
     return SqlitePersonaRegistry(db_path)
+
+
+def select_feedback_store(store: JobStore | None = None) -> FeedbackStore:
+    """Highlight ratings and soul proposals (chorus.feedback): the same
+    selection rule as select_subscription_store."""
+    dsn = _dsn()
+    if dsn:
+        from chorus.stores.postgres import PostgresFeedbackStore
+
+        log.info("feedback: %s set — using PostgresFeedbackStore", DATABASE_URL_ENV)
+        return PostgresFeedbackStore(dsn)
+    from chorus.feedback import SqliteFeedbackStore
+
+    db_path = getattr(store, "db_path", None) or DEFAULT_DB
+    return SqliteFeedbackStore(db_path)
 
 
 def select_transcript_cache() -> TranscriptCache:

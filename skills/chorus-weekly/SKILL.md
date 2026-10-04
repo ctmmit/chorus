@@ -92,6 +92,20 @@ run.
 Every delivered email also carries a one-click unsubscribe link and the
 standard `List-Unsubscribe` headers, so the principal can stop it themselves.
 
+## Teach the lens from ratings
+
+Each highlight in the digest email has "More like this" and "Less like this"
+links, and you can record the principal's reaction yourself with
+`rate_highlight(job_id, highlight_id, vote, note)` (`vote` is `up` or `down`;
+put their words in `note`, such as "too much fundraising gossip").
+
+Once there are enough ratings (8 or more), call
+`propose_soul_update(subscription_id=...)`. Show the principal every proposed
+edit with its `evidence`, ask which to keep, and call
+`apply_soul_update(proposal_id, accept=[...], subscription_id=...)` with only
+the indexes they accept. Never apply an edit they did not approve. The
+subscription's later digests report `soul_origin: feedback:<proposal_id>`.
+
 ## Over HTTP
 
 Without MCP, the same flow is `GET /podcasts/search`, `POST /podcasts/resolve`,

@@ -24,6 +24,7 @@ from datetime import UTC, datetime, timedelta
 
 from psycopg_pool import ConnectionPool
 
+from chorus.feedback import Rating, SoulProposal
 from chorus.jobs import (
     FINISHED_SCAN_LIMIT,
     IN_FLIGHT_STATUSES,
@@ -519,6 +520,72 @@ class PostgresPersonaRegistry:
             cur = conn.execute(f"DELETE FROM {PERSONA_TABLE} WHERE persona_id = %s", (persona_id,))
             conn.commit()
         return cur.rowcount > 0
+
+    def close(self) -> None:
+        self._pool.close()
+
+
+class PostgresFeedbackStore:
+    """Mirrors chorus.feedback.SqliteFeedbackStore: one rating row per
+    (owner, job_id, highlight_id) and one proposal row per id. Selected by
+    chorus.config_env.select_feedback_store when DATABASE_URL is set."""
+
+    def __init__(self, dsn: str) -> None:
+        from chorus.feedback import FEEDBACK_TABLE, PROPOSALS_TABLE
+
+        self._ratings_table = FEEDBACK_TABLE
+        self._proposals_table = PROPOSALS_TABLE
+        self._pool = ConnectionPool(dsn, min_size=POOL_MIN_SIZE, max_size=POOL_MAX_SIZE, open=True)
+        with self._pool.connection() as conn:
+            conn.execute(
+                f"CREATE TABLE IF NOT EXISTS {FEEDBACK_TABLE} (owner TEXT NOT NULL, "
+                "job_id TEXT NOT NULL, highlight_id TEXT NOT NULL, rated_at TEXT NOT NULL, "
+                "payload TEXT NOT NULL, PRIMARY KEY (owner, job_id, highlight_id))"
+            )
+            conn.execute(
+                f"CREATE TABLE IF NOT EXISTS {PROPOSALS_TABLE} (proposal_id TEXT PRIMARY KEY, "
+                "owner TEXT NOT NULL, payload TEXT NOT NULL)"
+            )
+            conn.commit()
+
+    def rate(self, rating: Rating) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                f"INSERT INTO {self._ratings_table} "
+                "(owner, job_id, highlight_id, rated_at, payload) VALUES (%s, %s, %s, %s, %s) "
+                "ON CONFLICT (owner, job_id, highlight_id) DO UPDATE SET "
+                "rated_at = EXCLUDED.rated_at, payload = EXCLUDED.payload",
+                (rating.owner, rating.job_id, rating.highlight_id,
+                 rating.rated_at.isoformat(), rating.model_dump_json()),
+            )
+            conn.commit()
+
+    def ratings(self, owner: str) -> list[Rating]:
+        with self._pool.connection() as conn:
+            rows = conn.execute(
+                f"SELECT payload FROM {self._ratings_table} WHERE owner = %s "
+                "ORDER BY rated_at DESC",
+                (owner,),
+            ).fetchall()
+        return [Rating.model_validate_json(r[0]) for r in rows]
+
+    def save_proposal(self, proposal: SoulProposal) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                f"INSERT INTO {self._proposals_table} (proposal_id, owner, payload) "
+                "VALUES (%s, %s, %s) ON CONFLICT (proposal_id) DO UPDATE SET "
+                "payload = EXCLUDED.payload",
+                (proposal.proposal_id, proposal.owner, proposal.model_dump_json()),
+            )
+            conn.commit()
+
+    def get_proposal(self, proposal_id: str) -> SoulProposal | None:
+        with self._pool.connection() as conn:
+            row = conn.execute(
+                f"SELECT payload FROM {self._proposals_table} WHERE proposal_id = %s",
+                (proposal_id,),
+            ).fetchone()
+        return SoulProposal.model_validate_json(row[0]) if row else None
 
     def close(self) -> None:
         self._pool.close()

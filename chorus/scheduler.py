@@ -138,6 +138,7 @@ def _build_request(subscription: Subscription) -> DigestRequest:
 def _request_for(subscription: Subscription, episodes: Sequence[EpisodeInput]) -> DigestRequest:
     return DigestRequest(
         soul=subscription.soul,
+        soul_origin=subscription.soul_origin,
         context=subscription.context,
         episodes=list(episodes),
         highlight_count=subscription.highlight_count,
