@@ -32,6 +32,7 @@ from pydantic import BaseModel
 from chorus import catalog
 from chorus.artifacts import ArtifactStore, LocalArtifactStore, artifact_stem
 from chorus.audio import AudioRenderer, get_audio_renderer
+from chorus.chapters import tag_episode
 from chorus.curation import curate_episode, soul_version
 from chorus.errors import is_retryable
 from chorus.ingest import AllEpisodesFailed, ingest
@@ -39,6 +40,7 @@ from chorus.jobs import JobStore
 from chorus.llm import LLMClient, TokenUsage, get_llm_client
 from chorus.models import (
     MONOLOGUE_PROFILE,
+    Chapter,
     CurateResult,
     Digest,
     DigestRequest,
@@ -227,17 +229,32 @@ def stage_script(
     )
 
 
+MP3_MEDIA_TYPE = "audio/mpeg"
+
 PLACEHOLDER_AUDIO_WARNING = (
     "audio is a text placeholder (no TTS key configured); audio_url holds the script text"
 )
 
 
 class AudioResult(BaseModel):
-    """What stage_audio hands back: where the artifact lives, and whether it
-    is real audio or the offline mock's text placeholder."""
+    """What stage_audio hands back: where the artifact lives, whether it is
+    real audio or the offline mock's text placeholder, and the chapters
+    written into it."""
 
     url: str
     placeholder: bool = False
+    chapters: list[Chapter] = []
+
+
+def chapter_audio(data: bytes, script: Script, digest: Digest | None) -> tuple[bytes, list[Chapter]]:
+    """Write chapters into a rendered MP3 (chorus/chapters.py). Chapters are
+    a convenience, so any failure here keeps the untagged audio."""
+    try:
+        tagged = tag_episode(data, script, digest.episodes if digest else [])
+    except Exception as err:  # noqa: BLE001 - chapters never cost the episode
+        log.warning("chapters: could not tag the episode (non-fatal): %s", err)
+        return data, []
+    return tagged.data, tagged.chapters
 
 
 def stage_audio(
@@ -246,14 +263,20 @@ def stage_audio(
     job_id: str,
     renderer: AudioRenderer,
     artifacts: ArtifactStore,
+    digest: Digest | None = None,
 ) -> AudioResult:
-    """Render the script to audio and hand the bytes to the artifact store.
-    Returns the downloadable URL (+ placeholder flag). Callers treat a raised
-    exception as non-fatal (audio_url stays None, digest/script still stand)."""
+    """Render the script to audio, write its chapters into the MP3, and hand
+    the bytes to the artifact store. Returns the downloadable URL, the
+    placeholder flag and the chapters. Callers treat a raised exception as
+    non-fatal (audio_url stays None, digest/script still stand)."""
     rendered = renderer.render(script, request.soul, job_id)
+    data: bytes = rendered.data
+    chapters: list[Chapter] = []
+    if rendered.media_type == MP3_MEDIA_TYPE and not rendered.placeholder:
+        data, chapters = chapter_audio(data, script, digest)
     name = f"{artifact_stem(job_id)}.{rendered.extension}"
-    url = artifacts.put(name, rendered.data, rendered.media_type)
-    return AudioResult(url=url, placeholder=rendered.placeholder)
+    url = artifacts.put(name, data, rendered.media_type)
+    return AudioResult(url=url, placeholder=rendered.placeholder, chapters=chapters)
 
 
 # --- In-process orchestrator (BackgroundRunner) ----------------------------
@@ -346,8 +369,11 @@ def _run(
     if job.script is not None:
         t0 = time.perf_counter()
         try:
-            audio = stage_audio(job.script, request, job.job_id, deps.renderer, deps.artifacts)
+            audio = stage_audio(
+                job.script, request, job.job_id, deps.renderer, deps.artifacts, job.digest
+            )
             job.audio_url = audio.url
+            job.chapters = audio.chapters
             if audio.placeholder:
                 job.warnings.append(PLACEHOLDER_AUDIO_WARNING)
         except Exception as err:  # noqa: BLE001 - audio failure is non-fatal (failure-mode table)

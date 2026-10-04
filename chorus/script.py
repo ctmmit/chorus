@@ -686,7 +686,10 @@ class _SegmentedComposer:
                 briefs=by_id,
                 profile=profile,
             )
-            turns.extend(self._segment(req, system, ctx)[: req.max_lines])
+            turns.extend(
+                t.model_copy(update={"segment_index": i})
+                for t in self._segment(req, system, ctx)[: req.max_lines]
+            )
 
         if not any(t.citations for t in turns):
             # R20: there was grounded material, but nothing grounded survived.

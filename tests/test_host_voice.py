@@ -219,8 +219,14 @@ def test_voiced_chunks_become_the_episode(store: Any, tmp_path: Path) -> None:
     assert done["kind"] == "done"
     episode = Path(done["result"]["episode_file"])
     assert episode.suffix == ".mp3"
-    assert episode.read_bytes() == join_mp3([_mp3(0), _mp3(1)])
-    assert store.get(job_id).status is JobStatus.done
+    # The joined chunks follow a fresh chapter tag that replaces the first
+    # chunk's own ID3 tag (chorus/chapters.py).
+    data = episode.read_bytes()
+    assert data.endswith(_mp3(0, tagged=False) + _mp3(1, tagged=False))
+    assert data.startswith(b"ID3\x04") and b"CHAP" in data
+    job = store.get(job_id)
+    assert job.status is JobStatus.done
+    assert job.chapters and job.chapters[0].start_seconds == 0.0
 
 
 def test_missing_or_bad_chunks_keep_the_run_open(store: Any, tmp_path: Path) -> None:

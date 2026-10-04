@@ -226,11 +226,12 @@ async def _execute(step: StepLike, event_data: dict[str, Any], store: JobStore, 
             async def _audio(script: Script = script) -> dict[str, object]:
                 # Step outputs must be JSON; AudioResult round-trips through model_dump.
                 return stage_audio(
-                    script, request, job.job_id, deps.renderer, deps.artifacts
-                ).model_dump()
+                    script, request, job.job_id, deps.renderer, deps.artifacts, job.digest
+                ).model_dump(mode="json")
 
             audio = AudioResult.model_validate(await step.run("audio", _audio))
             job.audio_url = audio.url
+            job.chapters = audio.chapters
             if audio.placeholder:
                 job.warnings.append(PLACEHOLDER_AUDIO_WARNING)
         except Exception as err:  # noqa: BLE001 - audio failure is non-fatal
