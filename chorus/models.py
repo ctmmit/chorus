@@ -20,6 +20,10 @@ from pydantic import BaseModel, Field, model_validator
 # what an anonymous caller can make us do. Fixture souls are ~1.6k chars.
 MAX_SOUL_CHARS = 40_000
 MAX_CONTEXT_CHARS = 40_000
+MAX_CONTEXT_BLOCKS = 10
+MAX_CONTEXT_ITEMS = 100
+MAX_CONTEXT_ITEM_CHARS = 2_000
+MAX_CONTEXT_SOURCE_CHARS = 80
 MAX_EPISODES = 25
 MAX_HIGHLIGHTS = 20
 MAX_URL_CHARS = 2_048
@@ -353,6 +357,35 @@ TWO_HOST_PROFILE = EpisodeProfile(
 )
 
 
+class ContextItem(BaseModel):
+    """One thing the principal is reading, working on or meeting about."""
+
+    text: str = Field(
+        min_length=1,
+        max_length=MAX_CONTEXT_ITEM_CHARS,
+        description="The item itself: a highlight, a project's one-line goal, a meeting title.",
+    )
+    label: str | None = Field(
+        default=None,
+        max_length=MAX_TITLE_CHARS,
+        description="Where it sits, such as the book or note it came from.",
+    )
+
+
+class ContextBlock(BaseModel):
+    """One source's contribution to the principal's context (chorus/context.py)."""
+
+    source: str = Field(
+        min_length=1,
+        max_length=MAX_CONTEXT_SOURCE_CHARS,
+        description='The source, as the principal would name it ("Readwise highlights").',
+    )
+    items: list[ContextItem] = Field(
+        max_length=MAX_CONTEXT_ITEMS, description="Its items, most relevant or newest first."
+    )
+    as_of: datetime | None = Field(default=None, description="When the items were gathered.")
+
+
 class DigestRequest(BaseModel):
     """The §6 request body for POST /digest."""
 
@@ -393,6 +426,28 @@ class DigestRequest(BaseModel):
             "that refer back). False keeps this run out of memory entirely."
         ),
     )
+    context_blocks: list[ContextBlock] = Field(
+        default_factory=list,
+        max_length=MAX_CONTEXT_BLOCKS,
+        description=(
+            "Structured context by source (the chorus-context skill's recipes). Rendered into "
+            "`context` on arrival, within the same size budget, and then cleared."
+        ),
+    )
+    context_sources: list[str] = Field(
+        default_factory=list,
+        description="Sources whose blocks made it into `context` (set by Chorus).",
+    )
+
+    @model_validator(mode="after")
+    def _render_context_blocks(self) -> DigestRequest:
+        if self.context_blocks:
+            from chorus.context import render_context
+
+            self.context, sources = render_context(self.context, self.context_blocks)
+            self.context_sources = [*self.context_sources, *sources]
+            self.context_blocks = []
+        return self
 
 
 class SelectionRequest(BaseModel):
@@ -764,6 +819,10 @@ class JobUsage(BaseModel):
     transcript_sources: dict[str, str] = Field(
         default_factory=dict,
         description="Resolved episode id -> provider that produced its transcript.",
+    )
+    context_sources: list[str] = Field(
+        default_factory=list,
+        description="Context sources that contributed to this run (DigestRequest.context_blocks).",
     )
     skipped: list[SkippedEpisode] = Field(
         default_factory=list,

@@ -11,6 +11,14 @@ the version.
 
 ## Unreleased
 
+- **Structured context.** A digest request may carry `context_blocks`
+  (source, items, as-of date) next to the `context` string. Chorus renders
+  them into the context within the same budget, each source guaranteed a
+  share, and records `usage.context_sources`. The new `chorus-context` skill
+  gives the principal's agent recipes for building them from reading,
+  projects, calendar and tasks, and a list of what never to send.
+  `ContextProvider` (with a Readwise implementation) is the seam for Chorus
+  to pull a source itself later.
 - **Memory across weeks.** Each finished digest remembers the claims it
   surfaced. Later runs demote a window that repeats one from the last four
   weeks (`REPEAT_PENALTY`, with the reason saying so), and threads can bring

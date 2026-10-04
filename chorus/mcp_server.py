@@ -54,6 +54,7 @@ from chorus.library_api import (
 from chorus.library_inputs import FileFormat
 from chorus.memory import SqliteClaimStore, register_memory_tools
 from chorus.models import (
+    ContextBlock,
     DigestRequest,
     EpisodeInput,
     EpisodeProfile,
@@ -231,17 +232,20 @@ class ChorusTools:
         episodes: list[EpisodeInput],
         highlight_count: int = 4,
         profile: EpisodeProfile | None = None,
+        context_blocks: list[ContextBlock] | None = None,
         ctx: Context | None = None,
     ) -> dict[str, str]:
         """Submit explicit episodes and return {"job_id"} immediately — poll
         get_digest(job_id) for status. `profile` is optional; omit it for the
-        single-voice monologue default (R17)."""
+        single-voice monologue default (R17). `context_blocks` is optional
+        structured context by source (see the chorus-context skill)."""
         request = DigestRequest(
             soul=soul,
             context=context,
             episodes=episodes,
             highlight_count=highlight_count,
             profile=profile,
+            context_blocks=context_blocks or [],
         )
         return self._submit(request, ctx)
 
