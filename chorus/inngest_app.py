@@ -79,6 +79,7 @@ from chorus.pipeline import (
     AudioResult,
     BriefResult,
     Deps,
+    mark_via_persona,
     stage_audio,
     stage_brief,
     stage_curate_episode,
@@ -188,7 +189,7 @@ async def _execute(step: StepLike, event_data: dict[str, Any], store: JobStore, 
     job.digest = Digest(
         soul_version=soul_version(request.soul),
         soul_origin=request.soul_origin,
-        episodes=[c.digest for c in curated],
+        episodes=[mark_via_persona(c.digest, request) for c in curated],
     )
     usage.stage_seconds["curate"] = time.perf_counter() - t0
     # R14: the Inngest path previously recorded no LLM usage at all (each

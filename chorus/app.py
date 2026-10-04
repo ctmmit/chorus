@@ -89,6 +89,7 @@ from chorus.personas import PersonaRegistry
 from chorus.pipeline import Deps
 from chorus.podcast_feed import FEED_PUBLIC_PREFIX, build_feed_router
 from chorus.podcasts_api import PodcastDirectory, build_podcasts_router
+from chorus.publications import PublishService, build_publications_router, endorsement_hook
 from chorus.quick_take import build_quick_take_router, share_quick_taker
 from chorus.quotas import QuotaExceeded, enforce_job_quota
 from chorus.runners import InngestRunner, JobRunner
@@ -524,11 +525,18 @@ def create_app(
     # caller's URL, and the token-authorized feed, audio, chapters, transcript.
     app.include_router(build_feed_router(store, deps.artifacts))
     # Highlight ratings and soul proposals (chorus/feedback.py).
+    # Persona publications and endorsements (chorus/publications.py).
+    publications = config_env.select_publication_store(store)
+    app.state.publications = publications
+    app.include_router(
+        build_publications_router(PublishService(publications, personas, store), deps.artifacts)
+    )
     feedback = FeedbackService(
         config_env.select_feedback_store(store),
         store,
         subscription_store,
         writer_factory=proposal_writer_for(deps.llm),
+        on_rating=endorsement_hook(publications),
     )
     app.include_router(build_feedback_router(feedback))
     # Questions answered from a digest's own transcripts (chorus/ask.py).

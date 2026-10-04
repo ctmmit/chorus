@@ -66,6 +66,11 @@ from chorus.models import (
 from chorus.pipeline import Deps
 from chorus.podcast_feed import register_feed_tools
 from chorus.podcasts_api import OpmlImport, PodcastDirectory, PodcastSearchResult, parse_opml
+from chorus.publications import (
+    PublishService,
+    endorsement_hook,
+    register_publication_tools,
+)
 from chorus.quick_take import register_quick_take_tools
 from chorus.quotas import QuotaExceeded, enforce_job_quota
 from chorus.runners import BackgroundRunner, JobRunner
@@ -174,6 +179,7 @@ class ChorusTools:
         self._owns_library = library is None
         self._soul_builder = soul_builder
         self._feedback: FeedbackService | None = None
+        self._publish: PublishService | None = None
         # Local installs load and save the configured soul (create_mcp_server).
         self.local_soul: tuple[Callable[[], str], SoulSaver] | None = None
 
@@ -208,6 +214,8 @@ class ChorusTools:
             self._library.store.close()
         if self._feedback is not None:
             self._feedback.feedback.close()
+        if self._publish is not None:
+            self._publish.publications.close()
 
     def feedback_service(self) -> FeedbackService:
         """Ratings and soul proposals (chorus/feedback.py), built on first use."""
@@ -220,8 +228,21 @@ class ChorusTools:
                 self._subscriptions(),
                 writer_factory=proposal_writer_for(self._deps.llm),
                 local_soul=self.local_soul,
+                on_rating=endorsement_hook(self.publish_service().publications),
             )
         return self._feedback
+
+    def publish_service(self) -> PublishService:
+        """Persona publications (chorus/publications.py), built on first use."""
+        if self._publish is None:
+            from chorus import config_env
+
+            self._publish = PublishService(
+                config_env.select_publication_store(self._store),
+                config_env.select_persona_registry(self._store),
+                self._store,
+            )
+        return self._publish
 
     def list_shows(self) -> list[dict[str, object]]:
         """List catalog shows and their currently selectable episodes."""
@@ -560,6 +581,7 @@ def create_mcp_server(
     register_memory_tools(server, lambda: deps.claims)
     register_ask_tools(server, store, deps.provider, deps.llm)
     register_quick_take_tools(server, store, deps)
+    register_publication_tools(server, tools.publish_service)
     if local:
         register_setup_tools(server, store)
     return server, tools

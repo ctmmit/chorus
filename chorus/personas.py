@@ -53,6 +53,10 @@ class Persona(BaseModel):
     created_at: str
     soul_version: str
     public: bool = True
+    owner: str = Field(
+        default="master",
+        description="Who registered it; only they (or master) may publish digests to it.",
+    )
 
 
 @runtime_checkable
@@ -75,6 +79,7 @@ def build_persona(
     cadence: Cadence = "weekly",
     public: bool = True,
     persona_id: str | None = None,
+    owner: str = "master",
 ) -> Persona:
     """Construct a new Persona with a fresh id, provenance timestamp, and
     soul_version — the one place those three derived fields get computed so
@@ -89,6 +94,7 @@ def build_persona(
         created_at=datetime.now(UTC).isoformat(),
         soul_version=compute_soul_version(soul),
         public=public,
+        owner=owner,
     )
 
 

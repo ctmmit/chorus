@@ -493,6 +493,7 @@ class FeedbackService:
         subscriptions: Any | None = None,
         writer_factory: Callable[[], ProposalWriter] = get_proposal_writer,
         local_soul: tuple[Callable[[], str], SoulSaver] | None = None,
+        on_rating: Callable[[Rating, Job], None] | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self.feedback = feedback
@@ -501,6 +502,7 @@ class FeedbackService:
         self.writer_factory = writer_factory
         self.local_soul = local_soul
         self.clock = clock
+        self.on_rating = on_rating
 
     def _job(self, owner: str, job_id: str) -> Job:
         job = self.jobs.get(job_id)
@@ -512,6 +514,11 @@ class FeedbackService:
         job = self._job(owner, job_id)
         rating = make_rating(job, highlight_id, vote, note, self.clock())
         self.feedback.rate(rating)
+        if self.on_rating is not None:
+            try:
+                self.on_rating(rating, job)
+            except Exception as err:  # noqa: BLE001 - an endorsement never costs the rating
+                log.warning("feedback: rating hook failed (non-fatal): %s", err)
         return rating
 
     def _subscription(self, owner: str, subscription_id: str) -> Any:

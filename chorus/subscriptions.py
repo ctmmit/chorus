@@ -60,6 +60,7 @@ __all__ = [
     "MASTER_OWNER",
     "LastRunSummary",
     "LibraryProvider",
+    "PersonaSource",
     "RssSource",
     "SavedQueueSource",
     "ShowSource",
@@ -201,10 +202,28 @@ class SavedQueueSource(BaseModel):
     )
 
 
+class PersonaSource(BaseModel):
+    """Another persona's published digests (chorus/publications.py): each run
+    takes the original episodes it surfaced since the last run, and curates
+    them through this subscription's own soul. Highlights therefore cite the
+    primary source, never the persona."""
+
+    kind: Literal["persona"] = Field(description='Source type discriminator: always "persona".')
+    persona_id: str = Field(
+        min_length=1, max_length=128, description="The public persona to listen to."
+    )
+    title: str | None = Field(
+        default=None,
+        max_length=MAX_TITLE_CHARS,
+        description="Display label; the persona's name when omitted.",
+    )
+
+
 # Discriminated on `kind`: one JSON shape per source type, which is also what
 # the OpenAPI schema and the MCP tool schemas expose to clients.
 Source = Annotated[
-    RssSource | YoutubeSource | ShowSource | SavedQueueSource, Field(discriminator="kind")
+    RssSource | YoutubeSource | ShowSource | SavedQueueSource | PersonaSource,
+    Field(discriminator="kind"),
 ]
 
 

@@ -275,6 +275,7 @@ def _source_metadata(resolved: ResolvedEpisode) -> dict[str, Any]:
         "published_at": episode.published_at,
         "description": episode.description,
         "url": source_url(episode),
+        "source_episode": episode,
         "intro_excerpt": intro_excerpt(resolved.transcript.segments),
     }
 

@@ -135,8 +135,13 @@ def _build_request(subscription: Subscription) -> DigestRequest:
     return _request_for(subscription, episodes)
 
 
-def _request_for(subscription: Subscription, episodes: Sequence[EpisodeInput]) -> DigestRequest:
+def _request_for(
+    subscription: Subscription,
+    episodes: Sequence[EpisodeInput],
+    via_personas: dict[str, str] | None = None,
+) -> DigestRequest:
     return DigestRequest(
+        via_personas=via_personas or {},
         soul=subscription.soul,
         soul_origin=subscription.soul_origin,
         remember=subscription.remember,
@@ -319,13 +324,14 @@ def _run_feed_subscription(
         return None
 
     episodes = [e.episode for e in picked]
+    via = {e.episode.resolved_id(): e.via_persona for e in picked if e.via_persona}
     job = _execute_and_deliver(
         subscription,
         store,
         deps,
         email_sender,
         base_url,
-        lambda: _request_for(subscription, episodes),
+        lambda: _request_for(subscription, episodes, via),
         episodes=episodes,
         feed_errors=feed_errors,
         not_included=not_included,

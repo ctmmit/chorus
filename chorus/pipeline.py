@@ -56,6 +56,7 @@ from chorus.models import (
     CurateResult,
     Digest,
     DigestRequest,
+    EpisodeDigest,
     EpisodeOutline,
     IngestResult,
     Job,
@@ -219,6 +220,12 @@ def stage_threads(
     raised exception as non-fatal: the digest stands without threads."""
     past = [as_remembered(c) for c in related_claims(digest.highlights, remembered)]
     return build_threads(digest, thread_writer_for(llm)(), past)
+
+
+def mark_via_persona(digest: EpisodeDigest, request: DigestRequest) -> EpisodeDigest:
+    """Record which persona brought this episode in (chorus/publications.py)."""
+    persona = request.via_personas.get(digest.episode_id)
+    return digest.model_copy(update={"via_persona": persona}) if persona else digest
 
 
 def stage_recall(deps: Deps, owner: str, request: DigestRequest) -> Recall:
@@ -397,7 +404,7 @@ def _run(
     job.digest = Digest(
         soul_version=soul_version(request.soul),
         soul_origin=request.soul_origin,
-        episodes=[c.digest for c in curated],
+        episodes=[mark_via_persona(c.digest, request) for c in curated],
     )
     usage.stage_seconds["curate"] = time.perf_counter() - t0
     usage.llm_tokens = sum_llm_tokens([c.tokens for c in curated])

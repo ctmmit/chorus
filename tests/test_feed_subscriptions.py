@@ -762,7 +762,8 @@ def test_preview_returns_exactly_the_first_run_selection(
     body = r.json()
     assert [e["title"] for e in body["episodes"]] == ["a episode 0", "a episode 1"]  # 2-day window
     first = body["episodes"][0]
-    assert set(first) == {"source_title", "title", "published_at", "episode"}
+    assert set(first) == {"source_title", "title", "published_at", "episode", "via_persona"}
+    assert first["via_persona"] is None
     assert first["source_title"] == "Alpha"
     assert first["episode"]["feed_url"] == FEED_A and first["episode"]["guid"] == "a-0"
     assert body["errors"][0]["source"] == {"kind": "rss", "feed_url": FEED_B, "title": None, "artwork_url": None}
@@ -856,7 +857,9 @@ def test_key_email_has_no_link_without_the_viewer_url(tmp_path: Path) -> None:
 
 
 def test_feed_episode_and_source_error_models_are_exported_for_the_ui() -> None:
-    assert FeedEpisode.model_fields.keys() == {"source_title", "title", "published_at", "episode"}
+    assert FeedEpisode.model_fields.keys() == {
+        "source_title", "title", "published_at", "episode", "via_persona",
+    }
     assert issubclass(FeedFetchError, Exception)
     assert YoutubeSource.model_fields["channel_id"].metadata  # pattern-constrained
 

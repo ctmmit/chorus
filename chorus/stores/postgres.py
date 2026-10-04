@@ -37,6 +37,7 @@ from chorus.library import ResolutionStatus, SavedItem
 from chorus.memory import Claim
 from chorus.models import Job, JobStatus, Transcript
 from chorus.personas import PERSONA_TABLE, Persona
+from chorus.publications import Publication
 from chorus.saved_items import SAVED_ITEMS_TABLE, SavedItemList, saved_at_column
 from chorus.subscriptions import Subscription, SubscriptionList
 
@@ -642,6 +643,70 @@ class PostgresClaimStore:
             cur = conn.execute(f"DELETE FROM {self._table} WHERE owner = %s", (owner,))
             conn.commit()
         return cur.rowcount
+
+    def close(self) -> None:
+        self._pool.close()
+
+
+class PostgresPublicationStore:
+    """Mirrors chorus.publications.SqlitePublicationStore. Selected by
+    chorus.config_env.select_publication_store when DATABASE_URL is set."""
+
+    def __init__(self, dsn: str) -> None:
+        from chorus.publications import ENDORSEMENTS_TABLE, PUBLICATIONS_TABLE
+
+        self._pubs = PUBLICATIONS_TABLE
+        self._endorsements = ENDORSEMENTS_TABLE
+        self._pool = ConnectionPool(dsn, min_size=POOL_MIN_SIZE, max_size=POOL_MAX_SIZE, open=True)
+        with self._pool.connection() as conn:
+            conn.execute(
+                f"CREATE TABLE IF NOT EXISTS {PUBLICATIONS_TABLE} (persona_id TEXT NOT NULL, "
+                "job_id TEXT NOT NULL, published_at TEXT NOT NULL, payload TEXT NOT NULL, "
+                "PRIMARY KEY (persona_id, job_id))"
+            )
+            conn.execute(
+                f"CREATE TABLE IF NOT EXISTS {ENDORSEMENTS_TABLE} (persona_id TEXT NOT NULL, "
+                "endorser TEXT NOT NULL, highlight_id TEXT NOT NULL, "
+                "PRIMARY KEY (persona_id, endorser, highlight_id))"
+            )
+            conn.commit()
+
+    def publish(self, publication: Publication) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                f"INSERT INTO {self._pubs} (persona_id, job_id, published_at, payload) "
+                "VALUES (%s, %s, %s, %s) ON CONFLICT (persona_id, job_id) DO UPDATE SET "
+                "published_at = EXCLUDED.published_at, payload = EXCLUDED.payload",
+                (publication.persona_id, publication.job_id,
+                 publication.published_at.isoformat(), publication.model_dump_json()),
+            )
+            conn.commit()
+
+    def list(self, persona_id: str, limit: int = 50) -> list[Publication]:
+        with self._pool.connection() as conn:
+            rows = conn.execute(
+                f"SELECT payload FROM {self._pubs} WHERE persona_id = %s "
+                "ORDER BY published_at DESC LIMIT %s",
+                (persona_id, limit),
+            ).fetchall()
+        return [Publication.model_validate_json(r[0]) for r in rows]
+
+    def endorse(self, persona_id: str, endorser: str, highlight_id: str) -> bool:
+        with self._pool.connection() as conn:
+            cur = conn.execute(
+                f"INSERT INTO {self._endorsements} (persona_id, endorser, highlight_id) "
+                "VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+                (persona_id, endorser, highlight_id),
+            )
+            conn.commit()
+        return cur.rowcount > 0
+
+    def endorsement_counts(self) -> dict[str, int]:
+        with self._pool.connection() as conn:
+            rows = conn.execute(
+                f"SELECT persona_id, COUNT(*) FROM {self._endorsements} GROUP BY persona_id"
+            ).fetchall()
+        return {str(r[0]): int(r[1]) for r in rows}
 
     def close(self) -> None:
         self._pool.close()
