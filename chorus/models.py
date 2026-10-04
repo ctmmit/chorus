@@ -455,6 +455,28 @@ class Highlight(BaseModel):
             "script reads to understand the moment. `quote` stays the verbatim citation."
         ),
     )
+    highlight_id: str = Field(
+        default="",
+        description=(
+            "Stable short id from episode and timestamp, so a rating survives reruns of the "
+            "same episode. Filled in automatically."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _fill_highlight_id(self) -> Highlight:
+        if not self.highlight_id:
+            self.highlight_id = highlight_id(self.episode_id, self.segment_timestamp)
+        return self
+
+
+HIGHLIGHT_ID_CHARS = 12
+
+
+def highlight_id(episode_id: str, segment_timestamp: float) -> str:
+    """Hash of the episode and the timestamp to a tenth of a second."""
+    key = f"{episode_id}@{segment_timestamp:.1f}"
+    return hashlib.sha1(key.encode("utf-8")).hexdigest()[:HIGHLIGHT_ID_CHARS]
 
 
 class WindowScore(BaseModel):

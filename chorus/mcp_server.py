@@ -30,6 +30,13 @@ from mcp.server.fastmcp import Context, FastMCP  # type: ignore[import-not-found
 
 from chorus import catalog
 from chorus.bootstrap import get_soul_builder
+from chorus.feedback import (
+    FeedbackService,
+    SoulSaver,
+    configured_soul_accessors,
+    proposal_writer_for,
+    register_feedback_tools,
+)
 from chorus.feeds import SubscriptionPreview
 from chorus.jobs import MASTER_OWNER, JobStore, SqliteJobStore
 from chorus.library import LibraryImport, LibraryItem, ResolutionStatus, SavedItem
@@ -162,6 +169,9 @@ class ChorusTools:
         self._library = library
         self._owns_library = library is None
         self._soul_builder = soul_builder
+        self._feedback: FeedbackService | None = None
+        # Local installs load and save the configured soul (create_mcp_server).
+        self.local_soul: tuple[Callable[[], str], SoulSaver] | None = None
 
     def _subscriptions(self) -> SubscriptionStore:
         """The subscription store: the app's own when injected, else selected
@@ -192,6 +202,22 @@ class ChorusTools:
         """Close stores this instance opened itself (never injected ones)."""
         if self._owns_library and self._library is not None:
             self._library.store.close()
+        if self._feedback is not None:
+            self._feedback.feedback.close()
+
+    def feedback_service(self) -> FeedbackService:
+        """Ratings and soul proposals (chorus/feedback.py), built on first use."""
+        if self._feedback is None:
+            from chorus import config_env
+
+            self._feedback = FeedbackService(
+                config_env.select_feedback_store(self._store),
+                self._store,
+                self._subscriptions(),
+                writer_factory=proposal_writer_for(self._deps.llm),
+                local_soul=self.local_soul,
+            )
+        return self._feedback
 
     def list_shows(self) -> list[dict[str, object]]:
         """List catalog shows and their currently selectable episodes."""
@@ -521,6 +547,9 @@ def create_mcp_server(
     register_subscription_tools(server, tools)
     register_library_tools(server, tools)
     register_feed_tools(server, store, local=local)
+    if local:
+        tools.local_soul = configured_soul_accessors()
+    register_feedback_tools(server, tools.feedback_service)
     if local:
         register_setup_tools(server, store)
     return server, tools

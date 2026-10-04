@@ -248,6 +248,13 @@ class Subscription(BaseModel):
         max_length=MAX_SOUL_CHARS,
         description="Markdown persona and curation lens for the principal.",
     )
+    soul_origin: str = Field(
+        default="supplied",
+        description=(
+            'Where the soul came from: "supplied", or "feedback:<proposal_id>" once a '
+            "proposal from highlight ratings was accepted (chorus/feedback.py)."
+        ),
+    )
     context: str = Field(
         max_length=MAX_CONTEXT_CHARS,
         description="Current projects, reading, and priorities that tune relevance.",

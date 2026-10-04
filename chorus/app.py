@@ -68,6 +68,12 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from chorus import __version__, catalog, config_env, discovery
 from chorus.artifacts import job_id_from_artifact_name
 from chorus.email import EmailSender, get_email_sender
+from chorus.feedback import (
+    FeedbackService,
+    build_feedback_router,
+    is_feedback_link,
+    proposal_writer_for,
+)
 from chorus.jobs import MASTER_OWNER, JobStore, SqliteJobStore
 from chorus.keys import (
     IpIssueRateLimiter,
@@ -198,6 +204,10 @@ def _is_public_route(request: Request) -> bool:
     if method == "GET" and path.startswith(FEED_PUBLIC_PREFIX):
         # The private podcast feed and its files carry their own HMAC token
         # in the path (chorus/podcast_feed.py); a podcast app sends no header.
+        return True
+    if is_feedback_link(method, path):
+        # The one-click rating link in a digest email, HMAC-signed
+        # (chorus/feedback.py); an email client holds no API token.
         return True
     return any(method == m and path.endswith(suffix) for m, suffix in PUBLIC_ROUTE_SUFFIXES)
 
@@ -507,6 +517,14 @@ def create_app(
     # The private podcast feed (chorus/podcast_feed.py): GET /feed for the
     # caller's URL, and the token-authorized feed, audio, chapters, transcript.
     app.include_router(build_feed_router(store, deps.artifacts))
+    # Highlight ratings and soul proposals (chorus/feedback.py).
+    feedback = FeedbackService(
+        config_env.select_feedback_store(store),
+        store,
+        subscription_store,
+        writer_factory=proposal_writer_for(deps.llm),
+    )
+    app.include_router(build_feedback_router(feedback))
 
     # Inngest only when it is actually the active runner (a durable-step
     # invocation needs the same store/deps every step reads and writes).

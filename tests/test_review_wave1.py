@@ -199,6 +199,20 @@ class _FakePgTranscriptCache(_FakePgBase):
         pass
 
 
+class _FakePgFeedbackStore(_FakePgBase):
+    def rate(self, rating: object) -> None:
+        pass
+
+    def ratings(self, owner: str) -> list[object]:
+        return []
+
+    def save_proposal(self, proposal: object) -> None:
+        pass
+
+    def get_proposal(self, proposal_id: str) -> None:
+        return None
+
+
 def test_r1_postgres_mode_never_constructs_a_sqlite_store(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", "postgresql://fake/db")
 
@@ -210,6 +224,7 @@ def test_r1_postgres_mode_never_constructs_a_sqlite_store(monkeypatch: pytest.Mo
     monkeypatch.setattr("chorus.personas.SqlitePersonaRegistry", _ExplodingSqlite)
     monkeypatch.setattr("chorus.transcript_cache.SqliteTranscriptCache", _ExplodingSqlite)
     monkeypatch.setattr("chorus.saved_items.SqliteSavedItemStore", _ExplodingSqlite)
+    monkeypatch.setattr("chorus.feedback.SqliteFeedbackStore", _ExplodingSqlite)
 
     # Stub every Postgres class so nothing here needs a real database.
     monkeypatch.setattr("chorus.stores.postgres.PostgresJobStore", _FakePgJobStore)
@@ -218,6 +233,7 @@ def test_r1_postgres_mode_never_constructs_a_sqlite_store(monkeypatch: pytest.Mo
     monkeypatch.setattr("chorus.stores.postgres.PostgresPersonaRegistry", _FakePgPersonaRegistry)
     monkeypatch.setattr("chorus.stores.postgres.PostgresTranscriptCache", _FakePgTranscriptCache)
     monkeypatch.setattr("chorus.stores.postgres.PostgresSavedItemStore", _FakePgSavedItemStore)
+    monkeypatch.setattr("chorus.stores.postgres.PostgresFeedbackStore", _FakePgFeedbackStore)
 
     # build_deps must build the transcript chain directly, never via
     # default_deps() + a post-hoc cache swap.
@@ -230,6 +246,7 @@ def test_r1_postgres_mode_never_constructs_a_sqlite_store(monkeypatch: pytest.Mo
     assert isinstance(config_env.select_subscription_store(store), _FakePgSubscriptionStore)
     assert isinstance(config_env.select_persona_registry(store), _FakePgPersonaRegistry)
     assert isinstance(config_env.select_saved_item_store(store), _FakePgSavedItemStore)
+    assert isinstance(config_env.select_feedback_store(store), _FakePgFeedbackStore)
 
     # And the full create_app() wiring, end to end, raises nothing either.
     app = create_app()

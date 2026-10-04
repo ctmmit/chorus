@@ -11,6 +11,14 @@ the version.
 
 ## Unreleased
 
+- **Ratings teach the lens, with approval.** Every highlight has a stable
+  `highlight_id` and can be rated up or down, with a note, through
+  `rate_highlight`, `POST /feedback`, or the signed "More like this" / "Less
+  like this" links now in each digest email. With 8 or more ratings,
+  `propose_soul_update` proposes edits to the soul's topic lists, each with
+  its evidence; `apply_soul_update` applies only the ones the principal
+  accepts and records `soul_origin: feedback:<proposal_id>`. Subscriptions
+  now carry `soul_origin`.
 - **Curation has a number.** `scripts/eval_curation.py` curates labelled
   cases (`fixtures/evals/cases.json`: a soul, a transcript, and the windows a
   careful reader with that soul would and would never surface) and reports

@@ -692,3 +692,25 @@ private podcast feed, so it arrives in the podcast app they already use.
 - Local installs have no public URL: `chorus feed` (or `get_podcast_feed` on
   the local MCP server) writes `~/.chorus/feed.xml` with `file://` enclosures
   for a desktop player.
+
+## Feedback and soul proposals
+
+Ratings teach the lens, but only with the principal's approval.
+
+- `POST /feedback {job_id, highlight_id, vote: "up"|"down", note?}` records
+  whether a highlight was worth their time. Every highlight carries a stable
+  `highlight_id`. Re-rating the same highlight replaces the earlier vote. The
+  digest email's "More like this" / "Less like this" links do the same with an
+  HMAC-signed URL and no token.
+- `POST /feedback/proposals {soul? | subscription_id?}` proposes edits to the
+  soul's topic lists from the ratings: `{proposal_id, edits: [{section,
+  action, text, evidence}], summary}`. With fewer than 8 ratings it answers
+  409 instead of guessing.
+- `POST /feedback/proposals/{id}/apply {accept: [indexes], soul? |
+  subscription_id?}` applies only the accepted edits and returns the new
+  `soul`, `soul_version` and `soul_origin` (`feedback:<proposal_id>`). With a
+  `subscription_id` it updates that subscription's soul. It refuses if the soul
+  changed since the proposal was made.
+- MCP: `rate_highlight`, `propose_soul_update`, `apply_soul_update`. Show the
+  principal each edit and its evidence before applying anything.
+

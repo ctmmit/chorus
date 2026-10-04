@@ -39,6 +39,9 @@ HOSTED_TOOLS = [
     ("list_library_items", False),
     ("soul_from_library", True),
     ("get_podcast_feed", False),
+    ("rate_highlight", False),
+    ("propose_soul_update", False),
+    ("apply_soul_update", False),
 ]
 
 
