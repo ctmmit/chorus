@@ -44,6 +44,7 @@ HOSTED_TOOLS = [
     ("apply_soul_update", False),
     ("clear_memory", False),
     ("ask_digest", False),
+    ("quick_take", False),
 ]
 
 

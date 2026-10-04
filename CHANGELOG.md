@@ -11,6 +11,11 @@ the version.
 
 ## Unreleased
 
+- **Brief me now.** `POST /quick-take` and the `quick_take` tool judge one
+  episode in about a minute: `listen`, `skim` or `skip` by a fixed rule on
+  the scores, up to three reasons each citing a moment, and a 60 to 90 second
+  take (voiced on request, with a chapter per reason). A shared link with
+  `mode: "quick"` gets a take straight from the share sheet.
 - **Ask the episode.** `POST /digest/{job_id}/ask` and the `ask_digest`
   tool answer a question from that digest's transcripts only. Every sentence
   quotes the transcript at a timestamp, a sentence that cites anything else is

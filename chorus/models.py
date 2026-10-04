@@ -800,6 +800,30 @@ class Chapter(BaseModel):
     )
 
 
+class QuickReason(BaseModel):
+    """One reason behind a quick take's verdict, resting on one highlight."""
+
+    text: str = Field(description="The reason, in a sentence.")
+    highlight_id: str = Field(description="The highlight it rests on.")
+    segment_timestamp: float = Field(description="Where that highlight is in the episode.")
+    quote: str = Field(description="The highlight's verbatim quote.")
+
+
+class QuickTake(BaseModel):
+    """Is this one episode worth the principal's time? (chorus/quick_take.py)"""
+
+    episode_id: str = Field(description="The episode judged.")
+    title: str | None = Field(default=None, description="Its title when known.")
+    show: str | None = Field(default=None, description="Its show when known.")
+    verdict: Literal["listen", "skim", "skip"] = Field(
+        description="listen: worth the whole thing; skim: worth the cited moments; skip: not for you."
+    )
+    reasons: list[QuickReason] = Field(
+        default_factory=list, description="Why, each citing a highlight; empty on skip."
+    )
+    monologue: str = Field(description="The 60 to 90 second spoken take.")
+
+
 class JobStatus(StrEnum):
     queued = "queued"
     digest_ready = "digest_ready"
@@ -910,6 +934,10 @@ class Job(BaseModel):
     chapters: list[Chapter] = Field(
         default_factory=list,
         description="Chapters written into the episode MP3, with links to each source moment.",
+    )
+    quick_take: QuickTake | None = Field(
+        default=None,
+        description="Set when this job is a quick take on one episode (POST /quick-take).",
     )
 
 
