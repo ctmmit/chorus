@@ -22,6 +22,16 @@
       "refusal_correct": false
     },
     {
+      "case_id": "counter-investor",
+      "highlights": 2,
+      "labeled": 2,
+      "coverage": 1.0,
+      "precision": 1.0,
+      "must_recall": 1.0,
+      "never_hits": 0,
+      "refusal_correct": true
+    },
+    {
       "case_id": "andreessen-investor",
       "highlights": 4,
       "labeled": 3,
@@ -53,11 +63,11 @@
     }
   ],
   "summary": {
-    "cases": 5,
+    "cases": 6,
     "mean_precision": 1.0,
-    "mean_must_recall": 0.35,
+    "mean_must_recall": 0.48,
     "never_hits": 0,
-    "refusal_accuracy": 0.8
+    "refusal_accuracy": 0.833
   },
   "skipped": []
 }

@@ -53,8 +53,10 @@ from chorus.models import (
     ResolvedEpisode,
     Script,
     SourceBrief,
+    Thread,
 )
 from chorus.script import ScriptComposer, get_script_composer
+from chorus.threads import build_threads, thread_writer_for
 from chorus.transcript_cache import SqliteTranscriptCache
 from chorus.transcripts import TranscriptProvider
 
@@ -186,6 +188,12 @@ def stage_curate_episode(
         cache_write_tokens=meter.cache_write_tokens,
     )
     return CurateResult(digest=digest, tokens=tokens)
+
+
+def stage_threads(digest: Digest, llm: LLMClient) -> list[Thread]:
+    """Questions two or more sources speak to (chorus/threads.py). Callers
+    treat a raised exception as non-fatal: the digest stands without threads."""
+    return build_threads(digest, thread_writer_for(llm)())
 
 
 class BriefResult(BaseModel):
@@ -347,6 +355,13 @@ def _run(
     )
     usage.stage_seconds["curate"] = time.perf_counter() - t0
     usage.llm_tokens = sum_llm_tokens([c.tokens for c in curated])
+    t0 = time.perf_counter()
+    try:
+        job.digest.threads = stage_threads(job.digest, deps.llm)
+    except Exception as err:  # noqa: BLE001 - threads are a layer; the digest stands
+        job.warnings.append(f"threads failed: {type(err).__name__}: {err}")
+        log.warning("job %s: threads failed (non-fatal): %s", job.job_id, err)
+    usage.stage_seconds["threads"] = time.perf_counter() - t0
     job.status = JobStatus.digest_ready
     store.save(job)
 

@@ -181,6 +181,33 @@ def render_digest_email(
     text_lines: list[str] = [subject, ""]
     html_sections: list[str] = []
 
+    # Questions two or more sources spoke to this week (chorus/threads.py),
+    # above the per-source highlights: that conversation is the headline.
+    if digest.threads:
+        by_id = {h.highlight_id: h for h in digest.highlights}
+        text_lines.append("# This week's threads")
+        thread_html = [f'<h2 style="color:{NAVY}; font-size:17px; margin:16px 0 2px;">'
+                       "This week's threads</h2>"]
+        for thread in digest.threads:
+            text_lines.append(f"## {thread.question}")
+            items: list[str] = []
+            for member in thread.members:
+                h = by_id.get(member.highlight_id)
+                if h is None:
+                    continue
+                source = h.show or h.episode_title or h.episode_id
+                text_lines.append(f"- {source} ({member.stance}): {h.quote}")
+                items.append(
+                    f"<li>{escape(source)} <em>({escape(member.stance)})</em>: "
+                    f"“{escape(h.quote)}”</li>"
+                )
+            text_lines.append("")
+            thread_html.append(
+                f'<p style="margin:10px 0 2px;"><strong>{escape(thread.question)}</strong></p>'
+                f'<ul style="margin:0 0 8px;">{"".join(items)}</ul>'
+            )
+        html_sections.append("".join(thread_html))
+
     for label, group_episodes in groups:
         if label is not None:
             text_lines.append(f"# {label}")

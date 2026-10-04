@@ -12,6 +12,8 @@ offline deps, and asserts:
   7. a pushed library import fills the saved queue a saved source previews.
   8. real MP3 audio comes back with one chapter per spoken outline segment,
      written into the stored file as ID3v2.4 CHAP frames.
+  9. two sources arguing opposite sides of one question come back as a
+     cross-source thread with a `disagrees` member, citing real highlights.
 
 Prints PATH_TEST GREEN and exits 0, or PATH_TEST FAIL: <reason> and exits 1.
 `path_test.ps1` / `path_test.sh` delegate here.
@@ -188,6 +190,20 @@ def main() -> None:
         ).json()
         if [e["title"] for e in preview["episodes"]] != ["Saved episode 2", "Saved episode 1"]:
             fail(f"saved-queue preview did not list the saved episodes ({preview})")
+
+        # 9. Threads: the public sample and its rebuttal disagree, and say so.
+        argued, _ = _run(client, "soul_investor.md", ["sample_public", "sample_counter"])
+        if argued.status.value != "done" or not argued.digest:
+            fail(f"threads run not done (status={argued.status.value})")
+        real = {h.highlight_id for h in argued.digest.highlights}
+        disagreements = [t for t in argued.digest.threads if t.disagreement]
+        if not disagreements:
+            fail("no cross-source thread with a disagreement for two opposing sources")
+        for thread in argued.digest.threads:
+            if len({m.episode_id for m in thread.members}) < 2:
+                fail(f"thread spans one source: {thread.question}")
+            if any(m.highlight_id not in real for m in thread.members):
+                fail(f"thread cites a highlight that was not surfaced: {thread.question}")
 
         client.close()
         store.close()  # release the SQLite handle so the temp dir can be removed

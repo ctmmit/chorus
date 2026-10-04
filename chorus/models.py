@@ -524,6 +524,29 @@ class EpisodeDigest(BaseModel):
     )
 
 
+class ThreadMember(BaseModel):
+    """One highlight's place in a cross-source thread."""
+
+    highlight_id: str = Field(description="The highlight this member is (Highlight.highlight_id).")
+    episode_id: str = Field(description="The highlight's source episode.")
+    stance: Literal["agrees", "disagrees", "adds"] = Field(
+        description="How this highlight answers the thread's question relative to the others."
+    )
+
+
+class Thread(BaseModel):
+    """A question several sources speak to this week (chorus/threads.py).
+    Every member is a real highlight, and a thread always spans at least two
+    sources, so it is grounded and cross-source by construction."""
+
+    question: str = Field(description="The shared question, in plain words.")
+    members: list[ThreadMember] = Field(description="The highlights that speak to it.")
+
+    @property
+    def disagreement(self) -> bool:
+        return any(m.stance == "disagrees" for m in self.members)
+
+
 class Digest(BaseModel):
     soul_version: str = Field(description="Content hash identifying the lens used for curation.")
     soul_origin: str = Field(
@@ -531,6 +554,10 @@ class Digest(BaseModel):
         description="How the soul was bootstrapped for provenance.",
     )
     episodes: list[EpisodeDigest] = Field(description="Per-episode curation results.")
+    threads: list[Thread] = Field(
+        default_factory=list,
+        description="Questions two or more sources speak to, disagreements first.",
+    )
 
     @property
     def highlights(self) -> list[Highlight]:

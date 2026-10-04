@@ -70,6 +70,7 @@ from chorus.models import (
     JobUsage,
     ResolvedEpisode,
     Script,
+    Thread,
 )
 from chorus.pipeline import (
     PLACEHOLDER_AUDIO_WARNING,
@@ -83,6 +84,7 @@ from chorus.pipeline import (
     stage_ingest,
     stage_outline,
     stage_script,
+    stage_threads,
     sum_llm_tokens,
 )
 from chorus.saved_items import SavedItemStore
@@ -183,6 +185,18 @@ async def _execute(step: StepLike, event_data: dict[str, Any], store: JobStore, 
     # shared client-level counter to even snapshot from here). Summing each
     # step's own isolated CurateResult.tokens fixes that.
     usage.llm_tokens = sum_llm_tokens([c.tokens for c in curated])
+    digest = job.digest
+
+    async def _threads(digest: Digest = digest) -> list[dict[str, object]]:
+        return [t.model_dump(mode="json") for t in stage_threads(digest, deps.llm)]
+
+    try:
+        job.digest.threads = [
+            Thread.model_validate(t) for t in await step.run("threads", _threads)
+        ]
+    except Exception as err:  # noqa: BLE001 - threads are a layer; the digest stands
+        job.warnings.append(f"threads failed: {type(err).__name__}: {err}")
+        log.warning("job %s: threads failed (non-fatal): %s", job.job_id, err)
     job.status = JobStatus.digest_ready
 
     async def _save_digest_ready() -> dict[str, str]:
