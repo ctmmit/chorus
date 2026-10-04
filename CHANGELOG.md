@@ -11,6 +11,12 @@ the version.
 
 ## Unreleased
 
+- **Curation has a number.** `scripts/eval_curation.py` curates labelled
+  cases (`fixtures/evals/cases.json`: a soul, a transcript, and the windows a
+  careful reader with that soul would and would never surface) and reports
+  precision, must-recall, never-hits and refusal accuracy. It fails when a
+  case drops below the committed mock baseline, and `--live` runs the real
+  scorer for before-and-after numbers on prompt changes.
 - **A private podcast feed.** Every finished digest with audio now arrives
   in the principal's podcast app. `GET /feed` or the `get_podcast_feed` tool
   returns a feed URL to add once. It carries the MP3, show notes with
