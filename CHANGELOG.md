@@ -11,6 +11,10 @@ the version.
 
 ## Unreleased
 
+- **Ask the episode.** `POST /digest/{job_id}/ask` and the `ask_digest`
+  tool answer a question from that digest's transcripts only. Every sentence
+  quotes the transcript at a timestamp, a sentence that cites anything else is
+  dropped, and when nothing speaks to the question the answer is refused.
 - **Structured context.** A digest request may carry `context_blocks`
   (source, items, as-of date) next to the `context` string. Chorus renders
   them into the context within the same budget, each source guaranteed a

@@ -43,6 +43,7 @@ HOSTED_TOOLS = [
     ("propose_soul_update", False),
     ("apply_soul_update", False),
     ("clear_memory", False),
+    ("ask_digest", False),
 ]
 
 

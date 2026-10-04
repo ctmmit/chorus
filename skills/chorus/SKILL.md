@@ -748,3 +748,27 @@ analyst who was there last month.
   of memory: nothing is read or written. The MCP tool `clear_memory` forgets
   everything remembered for the caller.
 
+## Ask the episode
+
+`POST /digest/{job_id}/ask {"question": "..."}` (or the MCP tool
+`ask_digest(job_id, question)`) answers from that digest's own transcripts
+and nothing else. Same auth and ownership as `GET /digest/{job_id}`.
+
+```json
+{
+  "question": "What did she say about pricing?",
+  "sentences": [
+    {"text": "...", "citations": [{"episode_id": "c4tvVKDhpiY", "segment_timestamp": 1834.0,
+                                    "quote": "the exact transcript words"}]}
+  ],
+  "refused": false,
+  "refusal_reason": null,
+  "unavailable": []
+}
+```
+
+Every sentence quotes the transcript verbatim at a timestamp; relay the quotes
+with the answer. When the episodes do not speak to the question the answer is
+`refused: true` with a reason, never a guess. `unavailable` lists episodes
+whose transcript could not be read again (an RSS episode no longer cached).
+
