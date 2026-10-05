@@ -105,8 +105,18 @@ def main(argv: Sequence[str] | None = None, client: LLMClient | None = None) -> 
     parser.add_argument("--baseline", type=Path, default=BASELINE)
     args = parser.parse_args(argv)
 
+    if client is None and args.live:
+        # The live scorer reads ANTHROPIC_API_KEY; without this a `--live`
+        # run silently fell back to the mock (and labelled itself mock-like).
+        from chorus.config import load_env
+
+        load_env()
+        client = get_llm_client()
+        if isinstance(client, MockLLMClient):
+            print("--live needs ANTHROPIC_API_KEY (in .env.local or ~/.chorus/.env.local)")
+            return 1
     if client is None:
-        client = get_llm_client() if args.live else MockLLMClient()
+        client = MockLLMClient()
     rubric = type(client).__name__ if args.live else MOCK_RUBRIC
     result = run(load_cases(args.cases), client, rubric)
     print(render(result))
