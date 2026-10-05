@@ -15,7 +15,8 @@
             "segment_timestamp": 1089.92,
             "quote": "now, but um I think in general don't read the comments uh is helpful. I mean it's really hard. I mean, you know, everybody's human. I think it's...",
             "relevance_score": 1.0,
-            "why_surface": "7 attention-trigger match(es)"
+            "why_surface": "7 attention-trigger match(es)",
+            "highlight_id": "a89777af346e"
           },
           {
             "episode_id": "c4tvVKDhpiY",
@@ -23,7 +24,8 @@
             "segment_timestamp": 2998.0,
             "quote": "you look at the economic growth rate itself it actually tells you a lot. Um and as you know there you know just as an example there are...",
             "relevance_score": 0.96,
-            "why_surface": "6 attention-trigger match(es)"
+            "why_surface": "6 attention-trigger match(es)",
+            "highlight_id": "7437d764e2c6"
           },
           {
             "episode_id": "c4tvVKDhpiY",
@@ -31,7 +33,8 @@
             "segment_timestamp": 3449.44,
             "quote": "the way, the free ones are pretty good now. And by the way, Google gives away a lot of AI value for free. and Microsoft is starting to...",
             "relevance_score": 0.96,
-            "why_surface": "6 attention-trigger match(es)"
+            "why_surface": "6 attention-trigger match(es)",
+            "highlight_id": "59c3c6136de4"
           },
           {
             "episode_id": "c4tvVKDhpiY",
@@ -39,7 +42,8 @@
             "segment_timestamp": 4179.04,
             "quote": "genuinely not what I'm trying to do and I'm just going to ask questions um and do that. Um, generally the way that plays out like at our...",
             "relevance_score": 0.96,
-            "why_surface": "6 attention-trigger match(es)"
+            "why_surface": "6 attention-trigger match(es)",
+            "highlight_id": "7d675138f406"
           }
         ],
         "refused": false,
@@ -252,37 +256,38 @@
           }
         ]
       }
-    ]
+    ],
+    "threads": []
   },
   "script": {
     "soul_version": "14ce3100",
     "takes": [
       {
-        "text": "[idea] On c4tvVKDhpiY at 18:09 \u2014 now, but um I think in general don't read the comments uh is helpful. I mean it's really hard. I mean, you know, everybody's human. I think it's...",
+        "text": "[idea] On c4tvVKDhpiY at 18:09 — now, but um I think in general don't read the comments uh is helpful. I mean it's really hard. I mean, you know, everybody's human. I think it's...",
         "take_type": "idea",
         "episode_id": "c4tvVKDhpiY",
         "segment_timestamp": 1089.92
       },
       {
-        "text": "[pushback] On c4tvVKDhpiY at 49:58 \u2014 you look at the economic growth rate itself it actually tells you a lot. Um and as you know there you know just as an example there are...",
+        "text": "[pushback] On c4tvVKDhpiY at 49:58 — you look at the economic growth rate itself it actually tells you a lot. Um and as you know there you know just as an example there are...",
         "take_type": "pushback",
         "episode_id": "c4tvVKDhpiY",
         "segment_timestamp": 2998.0
       },
       {
-        "text": "[connection] On c4tvVKDhpiY at 57:29 \u2014 the way, the free ones are pretty good now. And by the way, Google gives away a lot of AI value for free. and Microsoft is starting to...",
+        "text": "[connection] On c4tvVKDhpiY at 57:29 — the way, the free ones are pretty good now. And by the way, Google gives away a lot of AI value for free. and Microsoft is starting to...",
         "take_type": "connection",
         "episode_id": "c4tvVKDhpiY",
         "segment_timestamp": 3449.44
       },
       {
-        "text": "[question] On c4tvVKDhpiY at 69:39 \u2014 genuinely not what I'm trying to do and I'm just going to ask questions um and do that. Um, generally the way that plays out like at our...",
+        "text": "[question] On c4tvVKDhpiY at 69:39 — genuinely not what I'm trying to do and I'm just going to ask questions um and do that. Um, generally the way that plays out like at our...",
         "take_type": "question",
         "episode_id": "c4tvVKDhpiY",
         "segment_timestamp": 4179.04
       }
     ],
-    "monologue": "[idea] On c4tvVKDhpiY at 18:09 \u2014 now, but um I think in general don't read the comments uh is helpful. I mean it's really hard. I mean, you know, everybody's human. I think it's...\n\n[pushback] On c4tvVKDhpiY at 49:58 \u2014 you look at the economic growth rate itself it actually tells you a lot. Um and as you know there you know just as an example there are...\n\n[connection] On c4tvVKDhpiY at 57:29 \u2014 the way, the free ones are pretty good now. And by the way, Google gives away a lot of AI value for free. and Microsoft is starting to...\n\n[question] On c4tvVKDhpiY at 69:39 \u2014 genuinely not what I'm trying to do and I'm just going to ask questions um and do that. Um, generally the way that plays out like at our..."
+    "monologue": "[idea] On c4tvVKDhpiY at 18:09 — now, but um I think in general don't read the comments uh is helpful. I mean it's really hard. I mean, you know, everybody's human. I think it's...\n\n[pushback] On c4tvVKDhpiY at 49:58 — you look at the economic growth rate itself it actually tells you a lot. Um and as you know there you know just as an example there are...\n\n[connection] On c4tvVKDhpiY at 57:29 — the way, the free ones are pretty good now. And by the way, Google gives away a lot of AI value for free. and Microsoft is starting to...\n\n[question] On c4tvVKDhpiY at 69:39 — genuinely not what I'm trying to do and I'm just going to ask questions um and do that. Um, generally the way that plays out like at our..."
   },
   "audio_url": "/artifacts/episode_1f4ccd824c5347e18bafc55fb40b3b42.txt",
   "error": null,
@@ -299,5 +304,28 @@
     },
     "skipped": [],
     "llm_tokens": null
-  }
+  },
+  "chapters": [
+    {
+      "start_seconds": 0.0,
+      "title": "Intro",
+      "episode_id": null,
+      "source_timestamp": null,
+      "url": null
+    },
+    {
+      "start_seconds": 20.0,
+      "title": "c4tvVKDhpiY",
+      "episode_id": "c4tvVKDhpiY",
+      "source_timestamp": 1089.92,
+      "url": "https://www.youtube.com/watch?v=c4tvVKDhpiY&t=1089s"
+    },
+    {
+      "start_seconds": 95.0,
+      "title": "Close",
+      "episode_id": null,
+      "source_timestamp": null,
+      "url": null
+    }
+  ]
 }

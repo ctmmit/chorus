@@ -7,7 +7,10 @@
 import { CHORUS_PROXY_BASE_PATH, CHORUS_PROXY_ENABLED, MOCK_MODE } from "./config";
 import { absoluteUrl, isSameOriginOrRelative, trimTrailingSlash } from "./url";
 import type {
+  AskAnswer,
   DigestRequest,
+  FeedInfo,
+  RateRequest,
   Job,
   NetworkGraph,
   OpmlImportResult,
@@ -120,6 +123,26 @@ export async function submitDigestSelect(
   const init: RequestInit = { method: "POST", body: JSON.stringify(body) };
   if (MOCK_MODE) return mockFetch<{ job_id: string }>("/digest/select", init);
   return authedFetch<{ job_id: string }>(baseUrl, token, "/digest/select", init);
+}
+
+/** Record whether a highlight was worth it (chorus/feedback.py). */
+export function rateHighlight(baseUrl: string, token: string, body: RateRequest): Promise<unknown> {
+  return request(baseUrl, token, "POST", "/feedback", body);
+}
+
+/** A grounded answer from this digest's transcripts, or a refusal (chorus/ask.py). */
+export function askDigest(
+  baseUrl: string,
+  token: string,
+  jobId: string,
+  question: string,
+): Promise<AskAnswer> {
+  return request(baseUrl, token, "POST", `/digest/${encodeURIComponent(jobId)}/ask`, { question });
+}
+
+/** The caller's private podcast feed URL (chorus/podcast_feed.py). */
+export function fetchFeed(baseUrl: string, token: string): Promise<FeedInfo> {
+  return request(baseUrl, token, "GET", "/feed");
 }
 
 export async function fetchJob(

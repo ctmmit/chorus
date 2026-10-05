@@ -53,6 +53,8 @@ export interface Highlight {
   quote: string;
   relevance_score: number;
   why_surface: string;
+  /** Stable id (episode + timestamp) used to rate the highlight. */
+  highlight_id?: string;
 }
 
 /** One scored transcript window; every window is reported, surfaced or not. */
@@ -71,10 +73,31 @@ export interface EpisodeDigest {
   windows: WindowScore[];
 }
 
+export type Stance = "agrees" | "disagrees" | "adds";
+
+/** One highlight's place in a cross-source thread (chorus/threads.py). A
+ * remembered member is a claim from an earlier digest (chorus/memory.py)
+ * and carries its own quote, source and date. */
+export interface ThreadMember {
+  highlight_id: string;
+  episode_id: string;
+  stance: Stance;
+  remembered_at?: string | null;
+  quote?: string | null;
+  source?: string | null;
+}
+
+export interface Thread {
+  question: string;
+  members: ThreadMember[];
+}
+
 export interface Digest {
   soul_version: string;
   soul_origin: string;
   episodes: EpisodeDigest[];
+  /** Questions two or more sources spoke to, disagreements first. */
+  threads?: Thread[];
 }
 
 /** Mirrors Digest.highlights (chorus/models.py) — a computed property in
@@ -150,6 +173,54 @@ export interface Job {
   error: string | null;
   warnings: string[];
   usage: JobUsage | null;
+  /** Chapters written into the episode MP3 (chorus/chapters.py). */
+  chapters?: Chapter[];
+}
+
+export interface Chapter {
+  start_seconds: number;
+  title: string;
+  episode_id: string | null;
+  source_timestamp: number | null;
+  url: string | null;
+}
+
+// --- Feedback, ask, feed (0.3) ----------------------------------------------
+
+export type Vote = "up" | "down";
+
+export interface RateRequest {
+  job_id: string;
+  highlight_id: string;
+  vote: Vote;
+  note?: string;
+}
+
+export interface AnswerCitation {
+  episode_id: string;
+  segment_timestamp: number;
+  quote: string;
+}
+
+export interface AnswerSentence {
+  text: string;
+  citations: AnswerCitation[];
+}
+
+/** POST /digest/{job_id}/ask (chorus/ask.py). */
+export interface AskAnswer {
+  question: string;
+  sentences: AnswerSentence[];
+  refused: boolean;
+  refusal_reason: string | null;
+  unavailable: string[];
+}
+
+/** GET /feed (chorus/podcast_feed.py). */
+export interface FeedInfo {
+  feed_url: string;
+  episodes: number;
+  instructions: string;
 }
 
 // --- Catalog (chorus/catalog.py, GET /shows) --------------------------------
