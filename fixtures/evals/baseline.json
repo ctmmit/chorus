@@ -60,14 +60,44 @@
       "must_recall": null,
       "never_hits": 0,
       "refusal_correct": true
+    },
+    {
+      "case_id": "janestreet-investor",
+      "highlights": 4,
+      "labeled": 1,
+      "coverage": 0.25,
+      "precision": 1.0,
+      "must_recall": 0.0,
+      "never_hits": 0,
+      "refusal_correct": true
+    },
+    {
+      "case_id": "baker-investor",
+      "highlights": 4,
+      "labeled": 3,
+      "coverage": 0.75,
+      "precision": 0.667,
+      "must_recall": 0.2,
+      "never_hits": 1,
+      "refusal_correct": true
+    },
+    {
+      "case_id": "baker-popculture",
+      "highlights": 0,
+      "labeled": 0,
+      "coverage": null,
+      "precision": null,
+      "must_recall": 0.0,
+      "never_hits": 0,
+      "refusal_correct": false
     }
   ],
   "summary": {
-    "cases": 6,
-    "mean_precision": 1.0,
-    "mean_must_recall": 0.48,
-    "never_hits": 0,
-    "refusal_accuracy": 0.833
+    "cases": 9,
+    "mean_precision": 0.933,
+    "mean_must_recall": 0.325,
+    "never_hits": 1,
+    "refusal_accuracy": 0.778
   },
   "skipped": []
 }
