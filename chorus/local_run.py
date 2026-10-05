@@ -3,13 +3,15 @@ smoke test). Same pipeline as the API (`chorus.pipeline.run_job`), with the
 job store, transcript cache and artifacts under `~/.chorus/`."""
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from chorus import paths
 from chorus.brains import build_local_deps
+from chorus.context import ContextProvider, ReadwiseContextProvider
 from chorus.jobs import SqliteJobStore
-from chorus.models import DigestRequest, EpisodeInput, Job
+from chorus.models import ContextBlock, DigestRequest, EpisodeInput, Job
 from chorus.onboarding import OnboardingConfig, OnboardingError, status
 from chorus.pipeline import Deps, run_job
 from chorus.soul import load_soul
@@ -44,12 +46,41 @@ def recent_episodes(config: OnboardingConfig, now: datetime | None = None) -> li
     return [fe.episode for fe in round_robin(gathered.per_source, MAX_EPISODES_PER_RUN)]
 
 
+READWISE_TOKEN_ENV = "READWISE_TOKEN"
+
+
+def local_context_blocks(
+    now: datetime, providers: list[ContextProvider] | None = None
+) -> tuple[list[ContextBlock], list[str]]:
+    """Context pulled from sources the principal connected locally: today,
+    Readwise highlights from the past week when READWISE_TOKEN is set. A
+    source that fails is reported, never fatal (chorus/context.py)."""
+    if providers is None:
+        token = os.environ.get(READWISE_TOKEN_ENV)
+        providers = [ReadwiseContextProvider(token)] if token else []
+    blocks: list[ContextBlock] = []
+    problems: list[str] = []
+    for provider in providers:
+        try:
+            block = provider.fetch(now - timedelta(days=LOOKBACK_DAYS))
+            if block.items:
+                blocks.append(block)
+        except Exception as err:  # noqa: BLE001 - context is optional
+            problems.append(f"context source unavailable: {type(err).__name__}: {err}")
+        finally:
+            close = getattr(provider, "close", None)
+            if callable(close):
+                close()
+    return blocks, problems
+
+
 def run_digest(
     config: OnboardingConfig,
     episodes: list[EpisodeInput],
     *,
     require_ready: bool = True,
     deps: Deps | None = None,
+    context_providers: list[ContextProvider] | None = None,
 ) -> Job:
     if require_ready:
         current = status(config)
@@ -61,12 +92,14 @@ def run_digest(
         raise OnboardingError("no soul configured; run `chorus onboard`")
     if not episodes:
         raise OnboardingError("no episodes to digest")
+    blocks, context_problems = local_context_blocks(datetime.now(UTC), context_providers)
     request = DigestRequest(
         soul=load_soul(config.soul),
         context=read_context(),
         episodes=episodes,
         highlight_count=HIGHLIGHTS_PER_EPISODE,
         soul_origin="supplied",
+        context_blocks=blocks,
     )
     paths.ensure_home()
     store = SqliteJobStore(paths.db_path())
@@ -78,6 +111,9 @@ def run_digest(
         job = store.get(job_id)
         if job is None:
             raise RuntimeError(f"job {job_id} vanished from {paths.db_path()}")
+        if context_problems:
+            job.warnings.extend(context_problems)
+            store.save(job)
         return job
     finally:
         if owned_deps:
@@ -89,7 +125,11 @@ def smoke_test(config: OnboardingConfig, deps: Deps | None = None) -> Job:
     """One digest over the bundled synthetic transcript, through the chosen
     brain and voice. Runs before onboarding is marked complete."""
     return run_digest(
-        config, [EpisodeInput(video_id=SMOKE_EPISODE)], require_ready=False, deps=deps
+        config,
+        [EpisodeInput(video_id=SMOKE_EPISODE)],
+        require_ready=False,
+        deps=deps,
+        context_providers=[],  # the smoke test stays offline apart from the chosen brain
     )
 
 

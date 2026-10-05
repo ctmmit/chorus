@@ -76,6 +76,13 @@ are thinking about. One block, source `"Principal, in conversation"`.
 If the principal asked you not to share a source, leave it out entirely. When
 unsure whether an item is sensitive, leave it out; the digest will still work.
 
+## Local installs
+
+With `READWISE_TOKEN` in `~/.chorus/.env.local`, `chorus run` and the weekly
+schedule pull the past week's Readwise highlights into the context on their
+own. The token stays on the principal's machine; the hosted service never
+holds it. A source that fails is noted on the job and the digest still runs.
+
 ## Subscriptions
 
 A subscription stores a context string, not blocks. To refresh it, render

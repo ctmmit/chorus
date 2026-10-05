@@ -162,8 +162,10 @@ def render_digest_email(
     episodes: Sequence[EpisodeInput] | None = None,
     feed_errors: Sequence[str] = (),
     not_included: int = 0,
+    feedback_note: str | None = None,
 ) -> EmailContent:
-    """`job` must be a `done` job with `job.digest` set — callers (chorus.
+    """`feedback_note` is chorus.feedback.proposal_nudge's line, when there is
+    one. `job` must be a `done` job with `job.digest` set — callers (chorus.
     scheduler.run_subscription) only reach this branch on success; a failed
     job gets its own short failure email instead.
 
@@ -281,6 +283,11 @@ def render_digest_email(
     )
     text_lines.extend(note_text)
     html_sections.extend(note_html)
+
+    if feedback_note:
+        text_lines.append(feedback_note)
+        text_lines.append("")
+        html_sections.append(f'<p style="color:{NAVY};">{escape(feedback_note)}</p>')
 
     provenance = f"Lens: soul {digest.soul_version} ({digest.soul_origin})"
     text_lines.append(provenance)
