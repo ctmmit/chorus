@@ -372,6 +372,23 @@ def propose_soul_update(
     )
 
 
+PROPOSAL_READY_NOTE = (
+    "You have rated {count} highlights since your lens last changed. Ask your agent to "
+    "propose updates to your soul from them; nothing changes until you accept an edit."
+)
+
+
+def proposal_nudge(ratings: list[Rating], latest: SoulProposal | None) -> str | None:
+    """One line for the digest email once enough ratings have accumulated
+    since the last proposal (or ever, when there is none). Silent otherwise,
+    so it never nags week after week about the same ratings."""
+    since = latest.created_at if latest else None
+    fresh = [r for r in ratings if since is None or r.rated_at > since]
+    if len(fresh) < MIN_RATINGS_FOR_PROPOSAL:
+        return None
+    return PROPOSAL_READY_NOTE.format(count=len(fresh))
+
+
 # --- Signed email links ------------------------------------------------------------
 
 
@@ -406,6 +423,10 @@ class FeedbackStore(Protocol):
     def save_proposal(self, proposal: SoulProposal) -> None: ...
 
     def get_proposal(self, proposal_id: str) -> SoulProposal | None: ...
+
+    def latest_proposal(self, owner: str) -> SoulProposal | None:
+        """The owner's most recent proposal, applied or not."""
+        ...
 
     def close(self) -> None: ...
 
@@ -460,6 +481,14 @@ class SqliteFeedbackStore:
                 f"SELECT payload FROM {PROPOSALS_TABLE} WHERE proposal_id = ?", (proposal_id,)
             ).fetchone()
         return SoulProposal.model_validate_json(row[0]) if row else None
+
+    def latest_proposal(self, owner: str) -> SoulProposal | None:
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT payload FROM {PROPOSALS_TABLE} WHERE owner = ?", (owner,)
+            ).fetchall()
+        proposals = [SoulProposal.model_validate_json(r[0]) for r in rows]
+        return max(proposals, key=lambda p: p.created_at, default=None)
 
     def close(self) -> None:
         with self._lock:

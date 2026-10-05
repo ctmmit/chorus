@@ -157,6 +157,23 @@ def _unsubscribe_url(base_url: str, subscription_id: str) -> str:
     return f"{base_url.rstrip('/')}/subscriptions/{subscription_id}/unsubscribe?token={token}"
 
 
+def _feedback_note(store: JobStore, owner: str) -> str | None:
+    """The "proposal ready" line (chorus.feedback.proposal_nudge). Best
+    effort: a feedback-store problem never costs the digest email."""
+    from chorus import config_env
+    from chorus.feedback import proposal_nudge
+
+    try:
+        feedback = config_env.select_feedback_store(store)
+        try:
+            return proposal_nudge(feedback.ratings(owner), feedback.latest_proposal(owner))
+        finally:
+            feedback.close()
+    except Exception as err:  # noqa: BLE001 - optional line in an email
+        log.warning("scheduler: feedback note skipped (non-fatal): %s", err)
+        return None
+
+
 def _execute_and_deliver(
     subscription: Subscription,
     store: JobStore,
@@ -203,6 +220,7 @@ def _execute_and_deliver(
                 episodes=episodes,
                 feed_errors=feed_errors,
                 not_included=not_included,
+                feedback_note=_feedback_note(store, subscription.owner),
             )
             email_sender.send(
                 subscription.email, content.subject, content.text, content.html, headers

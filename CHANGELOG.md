@@ -11,6 +11,19 @@ the version.
 
 ## Unreleased
 
+- **Proposal-ready line.** The weekly digest email says, once, when 8 or
+  more highlight ratings have accumulated since the last soul proposal.
+- **Voiced answers.** `"speak": true` on `POST /digest/{job_id}/ask` (and
+  `ask_digest`) voices a grounded answer; the MP3 is stored beside the job's
+  audio under the same ownership check.
+- **Readwise context on local installs.** With `READWISE_TOKEN` set, local
+  runs add the past week's Readwise highlights as a context block.
+- **`eval_curation.py --live` loads `.env.local`** and refuses without a key
+  instead of silently scoring with the mock.
+- **Web app.** The job view shows threads, chapters, rating buttons and an
+  ask box; subscriptions show the private feed URL.
+- **Eval set.** Three more labelled cases from real transcripts.
+
 ## 0.3.0
 
 Chorus delivers to the podcast app, learns from what the principal keeps,

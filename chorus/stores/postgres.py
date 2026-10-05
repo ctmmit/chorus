@@ -589,6 +589,14 @@ class PostgresFeedbackStore:
             ).fetchone()
         return SoulProposal.model_validate_json(row[0]) if row else None
 
+    def latest_proposal(self, owner: str) -> SoulProposal | None:
+        with self._pool.connection() as conn:
+            rows = conn.execute(
+                f"SELECT payload FROM {self._proposals_table} WHERE owner = %s", (owner,)
+            ).fetchall()
+        proposals = [SoulProposal.model_validate_json(r[0]) for r in rows]
+        return max(proposals, key=lambda p: p.created_at, default=None)
+
     def close(self) -> None:
         self._pool.close()
 

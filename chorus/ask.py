@@ -17,6 +17,7 @@ guessed at.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from collections.abc import Callable
@@ -26,9 +27,11 @@ from fastapi import APIRouter, HTTPException, Request
 from mcp.server.fastmcp import Context, FastMCP  # type: ignore[import-not-found,import-untyped]
 from pydantic import BaseModel, Field
 
+from chorus.artifacts import ArtifactStore, artifact_stem
+from chorus.audio import AudioRenderer
 from chorus.curation import window_segments
 from chorus.jobs import MASTER_OWNER, JobStore
-from chorus.models import EpisodeInput, Job, Transcript
+from chorus.models import EpisodeInput, Job, Script, Transcript, Turn
 from chorus.threads import content_words
 from chorus.transcripts import TranscriptProvider
 
@@ -39,6 +42,7 @@ MAX_WINDOWS = 6
 MIN_SHARED_WORDS = 1
 MAX_SENTENCES = 6
 MIN_QUOTE_WORDS = 4
+ASK_KEY_CHARS = 12
 REFUSAL = "nothing in this digest's episodes speaks to that"
 UNGROUNDED = "no grounded answer survived the citation check"
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
@@ -46,6 +50,7 @@ _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 
 class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=MAX_QUESTION_CHARS)
+    speak: bool = Field(default=False, description="Also voice the answer (slower).")
 
 
 class Window(BaseModel):
@@ -76,6 +81,10 @@ class AskAnswer(BaseModel):
     unavailable: list[str] = Field(
         default_factory=list, description="Episodes whose transcript could not be read again."
     )
+    audio_url: str | None = Field(
+        default=None, description="The voiced answer, when `speak` was asked and it rendered."
+    )
+    warnings: list[str] = Field(default_factory=list)
 
 
 class DraftSentence(BaseModel):
@@ -283,6 +292,43 @@ def answer(
     return AskAnswer(question=question, sentences=sentences, unavailable=unavailable)
 
 
+# --- Voicing -----------------------------------------------------------------------------
+
+ANSWER_INTRO = "Here is what the episodes say."
+
+
+def answer_script(result: AskAnswer, version: str) -> Script:
+    """The answer as a monologue: each sentence, then the words it rests on."""
+    lines = [ANSWER_INTRO]
+    for sentence in result.sentences:
+        lines.append(sentence.text)
+        for citation in sentence.citations:
+            lines.append(f"In their words: {citation.quote}")
+    turns = [Turn(speaker="host", text=line) for line in lines]
+    return Script(soul_version=version, takes=[], monologue="\n\n".join(lines), turns=turns)
+
+
+def voice_answer(
+    result: AskAnswer, job: Job, renderer: AudioRenderer, artifacts: ArtifactStore
+) -> AskAnswer:
+    """Render a grounded answer and store it beside the job's own audio.
+    A refusal is not voiced; a render failure is a warning, never an error."""
+    if result.refused:
+        return result
+    try:
+        version = job.digest.soul_version if job.digest else ""
+        rendered = renderer.render(answer_script(result, version), "", job.job_id)
+        if rendered.placeholder:
+            return result.model_copy(update={"warnings": ["no voice is configured; text only"]})
+        key = hashlib.sha1(result.question.encode("utf-8")).hexdigest()[:ASK_KEY_CHARS]
+        name = f"{artifact_stem(job.job_id)}__ask_{key}.{rendered.extension}"
+        url = artifacts.put(name, rendered.data, rendered.media_type)
+        return result.model_copy(update={"audio_url": url})
+    except Exception as err:  # noqa: BLE001 - the text answer stands
+        log.warning("ask: could not voice the answer (non-fatal): %s", err)
+        return result.model_copy(update={"warnings": [f"could not voice the answer: {err}"]})
+
+
 # --- HTTP and MCP ------------------------------------------------------------------------
 
 
@@ -293,7 +339,13 @@ def _owned_job(store: JobStore, owner: str, job_id: str) -> Job | None:
     return job
 
 
-def build_ask_router(store: JobStore, provider: TranscriptProvider, llm: object) -> APIRouter:
+def build_ask_router(
+    store: JobStore,
+    provider: TranscriptProvider,
+    llm: object,
+    renderer: AudioRenderer | None = None,
+    artifacts: ArtifactStore | None = None,
+) -> APIRouter:
     router = APIRouter()
     writer = answer_writer_for(llm)
 
@@ -303,28 +355,42 @@ def build_ask_router(store: JobStore, provider: TranscriptProvider, llm: object)
         job = _owned_job(store, owner, job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="unknown job, or no digest yet")
-        return answer(body.question, job, provider, writer()).model_dump(mode="json")
+        result = answer(body.question, job, provider, writer())
+        if body.speak and renderer is not None and artifacts is not None:
+            result = voice_answer(result, job, renderer, artifacts)
+        return result.model_dump(mode="json")
 
     return router
 
 
 def register_ask_tools(
-    server: FastMCP, store: JobStore, provider: TranscriptProvider, llm: object
+    server: FastMCP,
+    store: JobStore,
+    provider: TranscriptProvider,
+    llm: object,
+    renderer: AudioRenderer | None = None,
+    artifacts: ArtifactStore | None = None,
 ) -> None:
     """ask_digest: a grounded answer from one digest's episodes."""
     from chorus.mcp_server import _owner_from_context
 
     writer = answer_writer_for(llm)
 
-    def ask_digest(job_id: str, question: str, ctx: Context | None = None) -> dict[str, Any]:
+    def ask_digest(
+        job_id: str, question: str, speak: bool = False, ctx: Context | None = None
+    ) -> dict[str, Any]:
         """Answer a question using only the transcripts of this digest's
         episodes. Every sentence quotes the transcript at a timestamp; when
         the episodes do not speak to the question the answer is refused, not
-        guessed. Relay the quotes and timestamps with the answer."""
+        guessed. Relay the quotes and timestamps with the answer. With
+        `speak`, the answer is also voiced and `audio_url` returned."""
         job = _owned_job(store, _owner_from_context(ctx), job_id)
         if job is None:
             return {"error": f"unknown job {job_id}, or no digest yet"}
-        request = AskRequest(question=question)
-        return answer(request.question, job, provider, writer()).model_dump(mode="json")
+        request = AskRequest(question=question, speak=speak)
+        result = answer(request.question, job, provider, writer())
+        if request.speak and renderer is not None and artifacts is not None:
+            result = voice_answer(result, job, renderer, artifacts)
+        return result.model_dump(mode="json")
 
     server.add_tool(ask_digest)

@@ -89,7 +89,11 @@ DEFAULT_CONTENT_TYPE = "application/octet-stream"
 # (artifact_stem below). job_id is uuid4().hex today (32 lowercase hex chars,
 # no separators) but the pattern is kept permissive (hyphen/underscore too)
 # to match artifact_stem's own validation rather than over-fitting to uuid4.
-_ARTIFACT_NAME_RE = re.compile(r"^episode_(?P<job_id>[A-Za-z0-9_-]+)\.(?P<ext>[A-Za-z0-9]+)$")
+# An optional `__ask_<hex>` part names a voiced answer to a question about the
+# job (chorus/ask.py); it belongs to the same job, so the same owner check holds.
+_ARTIFACT_NAME_RE = re.compile(
+    r"^episode_(?P<job_id>[A-Za-z0-9_-]+?)(?:__ask_[0-9a-f]{8,40})?\.(?P<ext>[A-Za-z0-9]+)$"
+)
 
 
 def artifact_stem(job_id: str) -> str:

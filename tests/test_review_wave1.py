@@ -212,6 +212,9 @@ class _FakePgFeedbackStore(_FakePgBase):
     def get_proposal(self, proposal_id: str) -> None:
         return None
 
+    def latest_proposal(self, owner: str) -> None:
+        return None
+
 
 class _FakePgClaimStore(_FakePgBase):
     def remember(self, claims: object) -> None:

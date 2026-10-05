@@ -579,7 +579,7 @@ def create_mcp_server(
         tools.local_soul = configured_soul_accessors()
     register_feedback_tools(server, tools.feedback_service)
     register_memory_tools(server, lambda: deps.claims)
-    register_ask_tools(server, store, deps.provider, deps.llm)
+    register_ask_tools(server, store, deps.provider, deps.llm, deps.renderer, deps.artifacts)
     register_quick_take_tools(server, store, deps)
     register_publication_tools(server, tools.publish_service)
     if local:

@@ -729,6 +729,8 @@ Ratings teach the lens, but only with the principal's approval.
   changed since the proposal was made.
 - MCP: `rate_highlight`, `propose_soul_update`, `apply_soul_update`. Show the
   principal each edit and its evidence before applying anything.
+- Once 8 or more ratings have accumulated since the last proposal, the weekly
+  digest email says so in one line, and goes quiet again after a proposal.
 
 ## Memory across weeks
 
@@ -768,7 +770,10 @@ and nothing else. Same auth and ownership as `GET /digest/{job_id}`.
 ```
 
 Every sentence quotes the transcript verbatim at a timestamp; relay the quotes
-with the answer. When the episodes do not speak to the question the answer is
+with the answer. Add `"speak": true` to also voice the answer: `audio_url`
+then points at an MP3 served with the same auth and ownership as the episode
+audio (a refusal is never voiced; with no voice configured the answer stays
+text and `warnings` says so). When the episodes do not speak to the question the answer is
 `refused: true` with a reason, never a guess. `unavailable` lists episodes
 whose transcript could not be read again (an RSS episode no longer cached).
 
