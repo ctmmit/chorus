@@ -1,7 +1,15 @@
+import { RateButtons, type RatingTarget } from "@/components/RateButtons";
 import type { Highlight } from "@/lib/api-types";
 import { secondsToClock, youtubeDeepLink } from "@/lib/timeline";
 
-export function HighlightCard({ highlight }: { highlight: Highlight }) {
+export function HighlightCard({
+  highlight,
+  rating,
+}: {
+  highlight: Highlight;
+  /** When set (a finished job), shows "More like this" / "Less like this". */
+  rating?: RatingTarget;
+}) {
   const href = youtubeDeepLink(highlight.episode_id, highlight.segment_timestamp);
   const time = secondsToClock(highlight.segment_timestamp);
 
@@ -21,6 +29,9 @@ export function HighlightCard({ highlight }: { highlight: Highlight }) {
         ) : (
           <span className="font-mono text-silver">{time}</span>
         )}
+        {rating && highlight.highlight_id ? (
+          <RateButtons target={rating} highlightId={highlight.highlight_id} />
+        ) : null}
       </div>
     </article>
   );

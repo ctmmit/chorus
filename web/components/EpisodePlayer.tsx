@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 
 import { fetchAudioObjectUrl } from "@/lib/api-client";
-import type { Script } from "@/lib/api-types";
+import type { Chapter, Script } from "@/lib/api-types";
 import { MOCK_MODE } from "@/lib/config";
+import { chapterRows } from "@/lib/threads";
 import { secondsToClock, youtubeDeepLink } from "@/lib/timeline";
 
 const TAKE_TYPE_LABEL: Record<string, string> = {
@@ -72,15 +73,36 @@ export function EpisodePlayer({
   token,
   audioUrl,
   script,
+  chapters,
 }: {
   baseUrl: string;
   token: string;
   audioUrl: string | null;
   script: Script | null;
+  chapters?: Chapter[];
 }) {
+  const rows = chapterRows(chapters);
   return (
     <section aria-label="Episode player" className="space-y-4">
       <AudioSection baseUrl={baseUrl} token={token} audioUrl={audioUrl} />
+      {rows.length > 0 ? (
+        <div>
+          <p className="label-caps mb-2">Chapters</p>
+          <ol className="space-y-1">
+            {rows.map((row) => (
+              <li key={row.key} className="flex items-baseline gap-3 font-sans text-sm">
+                <span className="w-12 font-mono text-xs text-silver">{row.clock}</span>
+                <span className="text-ink">{row.title}</span>
+                {row.href ? (
+                  <a href={row.href} target="_blank" rel="noopener noreferrer" className="text-xs text-blue underline">
+                    source
+                  </a>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+        </div>
+      ) : null}
       {MOCK_MODE && audioUrl ? (
         <p className="label-caps text-blue">Mock mode — audio artifacts are not served.</p>
       ) : null}

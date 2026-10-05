@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from "react";
 
+import { AskBox } from "@/components/AskBox";
 import { EpisodePlayer } from "@/components/EpisodePlayer";
 import { EpisodeTimeline } from "@/components/EpisodeTimeline";
 import { HighlightCard } from "@/components/HighlightCard";
 import { ProvenanceLine } from "@/components/ProvenanceLine";
 import { StatusBadge } from "@/components/StatusBadge";
+import { ThreadsSection } from "@/components/ThreadsSection";
 import { UsageSummary } from "@/components/UsageSummary";
 import { allHighlights } from "@/lib/api-types";
 import { buildClaimTitle } from "@/lib/claim";
@@ -121,6 +123,8 @@ export function JobView({ jobId }: { jobId: string }) {
 
       {job.digest ? (
         <>
+          <ThreadsSection digest={job.digest} />
+
           <section className="space-y-3">
             <h2 className="label-caps">Episode timeline</h2>
             <EpisodeTimeline
@@ -139,7 +143,13 @@ export function JobView({ jobId }: { jobId: string }) {
             ) : (
               allHighlights(job.digest)
                 .sort((a, b) => b.relevance_score - a.relevance_score)
-                .map((h, i) => <HighlightCard key={`${h.episode_id}-${i}`} highlight={h} />)
+                .map((h, i) => (
+                  <HighlightCard
+                    key={`${h.episode_id}-${i}`}
+                    highlight={h}
+                    rating={job.status === "done" ? { baseUrl, token, jobId: job.job_id } : undefined}
+                  />
+                ))
             )}
           </section>
 
@@ -151,11 +161,16 @@ export function JobView({ jobId }: { jobId: string }) {
                 token={token}
                 audioUrl={job.audio_url}
                 script={job.script}
+                chapters={job.chapters}
               />
             </section>
           ) : (
             <p className="label-caps">Script and audio render after the digest completes.</p>
           )}
+
+          {job.status === "done" ? (
+            <AskBox baseUrl={baseUrl} token={token} jobId={job.job_id} />
+          ) : null}
         </>
       ) : null}
     </div>

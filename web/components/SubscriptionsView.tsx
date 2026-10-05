@@ -8,6 +8,7 @@ import { ERROR_TEXT_CLASS, HELP_TEXT_CLASS, LINK_CLASS, SECONDARY_BUTTON_CLASS }
 import { listSubscriptions } from "@/lib/api-client";
 import { AUTH_REJECTED_MESSAGE, describeApiError } from "@/lib/api-errors";
 import type { Subscription } from "@/lib/api-types";
+import { FeedLink } from "@/components/FeedLink";
 import { MOCK_MODE } from "@/lib/config";
 import { getBaseUrl, getToken, setToken as persistToken } from "@/lib/storage";
 
@@ -119,6 +120,7 @@ export function SubscriptionsView() {
   return (
     <div className="space-y-8">
       {header}
+      <FeedLink baseUrl={baseUrl} token={token} />
 
       <div aria-live="polite">
         {load.state === "loading" ? <p className="label-caps">Loading your subscriptions…</p> : null}
