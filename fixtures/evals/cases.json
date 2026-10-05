@@ -104,5 +104,75 @@
     "transcript": "IAgmW_gTxls",
     "expect_refusal": true,
     "note": "A scrambled-eggs recipe has nothing for a fundamental investor: refuse, never pad."
+  },
+  {
+    "case_id": "janestreet-investor",
+    "soul": "souls/soul_investor.md",
+    "context": "context.md",
+    "transcript": "xKZ_8ULR91Y",
+    "must": [
+      274,
+      911,
+      1366
+    ],
+    "ok": [
+      92,
+      548,
+      639,
+      1002,
+      1093,
+      1549
+    ],
+    "never": [
+      0,
+      1458,
+      1640,
+      1730
+    ],
+    "note": "Compute contracts, buying GPUs six months sooner as a business decision, and fleet scale justified by the business are capital allocation; the sponsor tour, hiring pitch, terminal tooling and contest plug are not."
+  },
+  {
+    "case_id": "baker-investor",
+    "soul": "souls/soul_investor.md",
+    "context": "context.md",
+    "transcript": "2Ryr95iiYNk",
+    "must": [
+      454,
+      636,
+      726,
+      1000,
+      1272
+    ],
+    "ok": [
+      273,
+      909,
+      1091,
+      1182,
+      1456
+    ],
+    "never": [
+      0,
+      90
+    ],
+    "note": "Memory margins against their history, wafer supply discipline, a monopolist rate-limiting supply, competition reaching Nvidia and neocloud moats are the thesis; the intro joke and career bio are not."
+  },
+  {
+    "case_id": "baker-popculture",
+    "soul": "souls/soul_popculture.md",
+    "transcript": "2Ryr95iiYNk",
+    "must": [
+      0,
+      181,
+      819
+    ],
+    "ok": [
+      273,
+      636
+    ],
+    "never": [
+      454,
+      1272
+    ],
+    "note": "The spice joke, the formative bad trade and the token-maxing line travel; memory margins and neocloud economics are spreadsheet talk."
   }
 ]
