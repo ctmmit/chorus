@@ -183,3 +183,12 @@ def test_baseline_refuses_to_be_written_from_a_live_run(tmp_path: Path) -> None:
     code = runner.main(["--live", "--update-baseline", "--baseline", str(target)],
                        client=_EverythingMatters())
     assert code == 1 and not target.exists()
+
+
+def test_live_without_a_key_refuses_instead_of_mocking(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr("chorus.config.load_env", lambda path=None: None)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert runner.main(["--live"]) == 1
+    assert "--live needs ANTHROPIC_API_KEY" in capsys.readouterr().out
